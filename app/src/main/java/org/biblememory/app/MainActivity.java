@@ -127,7 +127,6 @@ public final class MainActivity extends Activity {
     // One selection model shared by tapping verses and the chapter/verse range picker.
     private boolean selectingPassage=false; // legacy selection mode retained only for old saved preferences
     private int rangeStartChapter=-1,rangeStartVerse=-1,rangeEndChapter=-1,rangeEndVerse=-1;
-    private boolean showBibleStatuses=true;
     private int lessonWriteVariant=0;
     private boolean groupBuildDone=false;
     private boolean groupIntroDone=false;
@@ -143,6 +142,13 @@ public final class MainActivity extends Activity {
 
     private int searchVisibleLimit = 25;
     private int searchGeneration=0;
+    private final Handler bibleSearchHandler=new Handler(Looper.getMainLooper());
+    private final java.util.concurrent.ExecutorService bibleSearchExecutor=
+        java.util.concurrent.Executors.newSingleThreadExecutor(r->new Thread(r,"OfflineBibleSearch"));
+    private java.util.concurrent.Future<?> bibleSearchTask;
+    private Runnable bibleSearchDebounce;
+    private boolean bibleSearchNeedsRefresh=false;
+
     private final EnumMap<Screen,Integer> savedScrollY=new EnumMap<>(Screen.class);
     private final List<Long> collectionQueue=new ArrayList<>();
     private int collectionQueueCursor=-1;
@@ -190,6 +196,7 @@ public final class MainActivity extends Activity {
     }
 
     private void prepareOtherTabs() {
+        if(isBibleSearchScreen()&&bibleSearchActive)return;
         final int generation = ++tabWarmGeneration;
 
         if (!isMainTab(screen) || !bible.isReady()) return;
@@ -272,8 +279,7 @@ public final class MainActivity extends Activity {
                 if (destination == Screen.BOOKS &&
                         bibleSearchActive &&
                         !bibleSearchLoading &&
-                        bibleSearchError.isEmpty() &&
-                        !bibleSearchHits.isEmpty()) {
+                        bibleSearchError.isEmpty()) {
 
                     root.removeView(scroll);
 
@@ -295,7 +301,7 @@ public final class MainActivity extends Activity {
             readyTabs.put(
                     destination,
                     new ReadyTab(
-                            root, content, scroll, homeIndex
+                            root, content, currentScroller, homeIndex
                     )
             );
 
@@ -407,7 +413,6 @@ public final class MainActivity extends Activity {
         activeUnifiedId=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).getLong("active",-1);
         ensureActiveUnified();
         restoreCollectionQueue();
-        showBibleStatuses=getSharedPreferences("bible_view",MODE_PRIVATE).getBoolean("verse_status",true);
         android.content.SharedPreferences homeUi=getSharedPreferences(HOME_UI_PREFS,MODE_PRIVATE);
         homeCollectionsExpanded=homeUi.getBoolean("collections_expanded",false);
         homeScrollY=Math.max(0,homeUi.getInt("scroll_y",0));
@@ -423,7 +428,7 @@ public final class MainActivity extends Activity {
                 }catch(Exception ignored){ /* Preserve legacy rows for later recovery. */ }
             }
             catch(Exception ex) {bibleError=ex.getMessage()==null?"Невозможно открыть текст":ex.getMessage();}
-            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||isPickerScreen(screen)||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL) render();});
+            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||isPickerScreen(screen)||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL){if(isBibleSearchScreen())renderBibleSearchKeepingInput();else render();}});
         },"BibleLoader").start();
     }
     private boolean isPickerScreen(Screen value){
@@ -978,6 +983,10 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        if(!isBibleSearchScreen()&&bibleSearchLoading){
+            cancelBibleSearchWork();bibleSearchLoading=false;bibleSearchNeedsRefresh=true;
+        }
+        resumeBibleSearchIfNeeded();
         finishTabTransition();
         tabWarmGeneration++;
         readyTabs.clear();
@@ -990,15 +999,16 @@ public final class MainActivity extends Activity {
         if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();return;}
         if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
         for(int i=0;i<bottomModeButtons.length;i++)bottomModeButtons[i]=null;
+        boolean virtualBibleSearch=isBibleSearchScreen()&&bibleSearchActive&&!bibleSearchLoading&&bibleSearchError.isEmpty();
         root=column();root.setBackground(pageBackground());
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
         currentScroller=scroll;
         content=column();content.setPadding(dp(19),dp(17),dp(19),dp(27));scroll.addView(content);
-        if(screen==Screen.BOOKS||screen==Screen.PICKER_BOOKS)renderScrollingBibleSearch(content);
+        if(isBibleSearchScreen()&&!virtualBibleSearch)renderScrollingBibleSearch(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         switch(screen) {
             case HOME: renderHome();break;
-            case BOOKS: renderBooks();break;
+            case BOOKS: if(!virtualBibleSearch)renderBooks();break;
             case CHAPTERS: renderChapters();break;
             case CHAPTER: renderChapter();break;
             case ENTRIES: renderEntries();break;
@@ -1014,22 +1024,14 @@ public final class MainActivity extends Activity {
             case CARD_DECK: renderCardDeck();break;
             case CARD_PICK: renderCardPicker();break;
             case BIBLE_PICKER:renderUnifiedBiblePicker();break;
-            case PICKER_BOOKS:renderBooks();break;
+            case PICKER_BOOKS:if(!virtualBibleSearch)renderBooks();break;
             case PICKER_CHAPTERS:renderChapters();break;
             case PICKER_VERSES:renderPickerVerseGrid();break;
             case PICKER_TEXT:renderPickerVerseText();break;
         }
 
 
-        boolean showFullSearchResults =
-                (screen == Screen.BOOKS ||
-                        screen == Screen.PICKER_BOOKS) &&
-                        bibleSearchActive &&
-                        !bibleSearchLoading &&
-                        bibleSearchError.isEmpty() &&
-                        !bibleSearchHits.isEmpty();
-
-        if (showFullSearchResults) {
+        if (virtualBibleSearch) {
 
             // Убираем обычную прокрутку, которая
             // создаёт все элементы сразу.
@@ -1063,7 +1065,7 @@ public final class MainActivity extends Activity {
                     new ReadyTab(
                             root,
                             content,
-                            scroll,
+                            currentScroller,
                             homeIndex
                     )
             );
@@ -1119,11 +1121,7 @@ public final class MainActivity extends Activity {
         erase.setContentDescription("Очистить поиск по Библии");
         erase.setVisibility(bibleSearchQuery.isEmpty()?View.GONE:View.VISIBLE);
         bar.addView(erase,new LinearLayout.LayoutParams(dp(40),dp(45)));
-        erase.setOnClickListener(v->{
-            query.setText("");bibleSearchQuery="";searchGeneration++;
-            bibleSearchActive=false;bibleSearchLoading=false;
-            bibleSearchHits=new ArrayList<>();render();
-        });
+        erase.setOnClickListener(v->query.setText(""));
         // The magnifier submits too; the keyboard search action does the same.
         glass.setClickable(true);
         glass.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -1139,11 +1137,7 @@ public final class MainActivity extends Activity {
             public void beforeTextChanged(CharSequence s,int st,int count,int after){}
             public void onTextChanged(CharSequence s,int start,int before,int count){
                 erase.setVisibility(s.length()==0?View.GONE:View.VISIBLE);
-                if(s.length()==0 && (bibleSearchActive||bibleSearchLoading)){
-                    searchGeneration++;bibleSearchActive=false;bibleSearchLoading=false;
-                    bibleSearchQuery="";bibleSearchHits=new ArrayList<>();
-                    query.post(()->render());
-                }
+                onBibleSearchChanged(s.toString(),query);
             }
             public void afterTextChanged(Editable e){}
         });
@@ -1151,81 +1145,131 @@ public final class MainActivity extends Activity {
         into.addView(outer,new LinearLayout.LayoutParams(-1,-2));
     }
 
-    private void submitBibleSearch(String query) {
-        bibleSearchQuery =
-                query == null ? "" : query.trim();
-
-        final int generation = ++searchGeneration;
-
-        if (bibleSearchQuery.isEmpty()) {
-            bibleSearchActive = false;
-            bibleSearchLoading = false;
-            bibleSearchHits = new ArrayList<>();
-            render();
-            return;
-        }
-
-        if (!bible.isReady()) {
-            toast("Библия ещё загружается");
-            return;
-        }
-
-        bibleSearchActive = true;
-        bibleSearchLoading = true;
-        bibleSearchError = "";
-
-        final String search = bibleSearchQuery;
-
-        // Не пересоздаём экран до получения ответа.
-        // Короткий поиск не будет мигать состоянием загрузки.
-        new Thread(() -> {
-            List<BibleSearchLogic.Hit> results;
-            String error = "";
-
-            try {
-                // Все совпадения, без LIMIT 100.
-                results = BibleSearchLogic.search(
-                        bible, search
-                );
-
-            } catch (Exception ex) {
-                results = new ArrayList<>();
-                error = "Не удалось выполнить поиск.";
-            }
-
-            final List<BibleSearchLogic.Hit> ready = results;
-            final String failure = error;
-
-            runOnUiThread(() -> {
-                if (generation != searchGeneration) return;
-
-                bibleSearchLoading = false;
-                bibleSearchHits = ready;
-                bibleSearchError = failure;
-
-                render();
-            });
-
-        }, "OfflineBibleSearch").start();
+    private boolean isBibleSearchScreen(){return screen==Screen.BOOKS||screen==Screen.PICKER_BOOKS;}
+    private void cancelBibleSearchWork(){
+        searchGeneration++;
+        if(bibleSearchDebounce!=null)bibleSearchHandler.removeCallbacks(bibleSearchDebounce);
+        bibleSearchDebounce=null;
+        if(bibleSearchTask!=null)bibleSearchTask.cancel(true);
+        bibleSearchTask=null;
     }
-
-    private CharSequence highlightSearchWords(String source,String query){
-        android.text.SpannableString span=new android.text.SpannableString(source);
-        String[] terms=BibleSearchLogic.normalized(query).split(" +");
-        java.util.regex.Matcher m=java.util.regex.Pattern.compile("[\\p{L}]+").matcher(source);
-        while(m.find()){
-            for(String term:terms){
-                if(term.isEmpty())continue;
-                if(BibleSearchLogic.allTermsMatch(term,m.group())){
-                    span.setSpan(new BackgroundColorSpan(0xFFFFE4BD),m.start(),m.end(),
-                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    break;
-                }
+    private void resumeBibleSearchIfNeeded(){
+        if(!isBibleSearchScreen()||!bibleSearchNeedsRefresh)return;
+        bibleSearchNeedsRefresh=false;
+        if(BibleSearchLogic.isBlankQuery(bibleSearchQuery))return;
+        bibleSearchActive=true;bibleSearchLoading=true;
+        final int generation=searchGeneration;final Screen origin=screen;
+        bibleSearchHandler.post(()->{
+            if(screen==origin&&generation==searchGeneration&&!isDestroyed())submitBibleSearch(bibleSearchQuery);
+        });
+    }
+    private EditText findBibleSearchInput(View view){
+        if(view instanceof EditText&&"Поиск по словам Библии".contentEquals(view.getContentDescription()==null?"":view.getContentDescription()))return (EditText)view;
+        if(view instanceof ViewGroup){
+            ViewGroup group=(ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++){
+                EditText found=findBibleSearchInput(group.getChildAt(i));if(found!=null)return found;
             }
         }
+        return null;
+    }
+    private void renderBibleSearchKeepingInput(){
+        EditText old=root==null?null:findBibleSearchInput(root);
+        boolean focused=old!=null&&old.hasFocus();
+        int cursor=old==null?0:Math.max(0,old.getSelectionStart());
+        int selectionEnd=old==null?0:Math.max(0,old.getSelectionEnd());
+        render();
+        if(focused){
+            EditText next=findBibleSearchInput(root);
+            if(next!=null){next.requestFocus();next.setSelection(Math.min(cursor,next.length()),Math.min(selectionEnd,next.length()));}
+        }
+    }
+    private SearchListState visibleSearchResults(){
+        if(root!=null&&root.getChildCount()>0&&root.getChildAt(0) instanceof ListView){
+            Object state=root.getChildAt(0).getTag();
+            if(state instanceof SearchListState)return (SearchListState)state;
+        }
+        return null;
+    }
+    private void onBibleSearchChanged(String value,EditText input){
+        if(!isBibleSearchScreen()||isDestroyed()||!input.isAttachedToWindow())return;
+        cancelBibleSearchWork();bibleSearchNeedsRefresh=false;
+        bibleSearchQuery=value;
+        if(BibleSearchLogic.isBlankQuery(value)){
+            boolean changed=bibleSearchActive||bibleSearchLoading||!bibleSearchHits.isEmpty();
+            bibleSearchActive=false;bibleSearchLoading=false;bibleSearchError="";
+            bibleSearchHits=java.util.Collections.emptyList();
+            if(changed)renderBibleSearchKeepingInput();
+            return;
+        }
+        bibleSearchActive=true;bibleSearchLoading=true;bibleSearchError="";
+        bibleSearchHits=java.util.Collections.emptyList();
+        SearchListState state=visibleSearchResults();
+        if(state!=null)state.replace(bibleSearchHits,value,"Поиск...");
+        final Screen origin=screen;
+        final int generation=searchGeneration;
+        bibleSearchDebounce=()->{
+            if(screen==origin&&searchGeneration==generation&&!isDestroyed())submitBibleSearch(value);
+        };
+        bibleSearchHandler.postDelayed(bibleSearchDebounce,300);
+    }
+    private void submitBibleSearch(String query){
+        if(!isBibleSearchScreen()||isDestroyed())return;
+        cancelBibleSearchWork();bibleSearchNeedsRefresh=false;
+        bibleSearchQuery=query==null?"":query;
+        if(BibleSearchLogic.isBlankQuery(bibleSearchQuery)){
+            boolean changed=bibleSearchActive||bibleSearchLoading||!bibleSearchHits.isEmpty()||!bibleSearchError.isEmpty();
+            bibleSearchActive=false;bibleSearchLoading=false;bibleSearchError="";
+            bibleSearchHits=java.util.Collections.emptyList();
+            if(changed)renderBibleSearchKeepingInput();
+            return;
+        }
+        bibleSearchActive=true;bibleSearchLoading=true;bibleSearchError="";
+        bibleSearchHits=java.util.Collections.emptyList();
+        SearchListState pending=visibleSearchResults();
+        if(pending!=null)pending.replace(bibleSearchHits,bibleSearchQuery,"Поиск...");
+        final String search=bibleSearchQuery;
+        final int generation=searchGeneration;
+        final Screen origin=screen;
+        bibleSearchTask=bibleSearchExecutor.submit(()->{
+            List<BibleSearchLogic.Hit> results;
+            String error="";
+            try{
+                bible.load(getApplicationContext());BibleSearchLogic.prepare(getApplicationContext());
+                results=BibleSearchLogic.search(bible,search);
+            }catch(Exception failure){results=java.util.Collections.emptyList();error="Не удалось выполнить поиск.";}
+            if(Thread.currentThread().isInterrupted())return;
+            final List<BibleSearchLogic.Hit> ready=results;
+            final String failure=error;
+            runOnUiThread(()->{
+                if(generation!=searchGeneration||screen!=origin||isDestroyed())return;
+                bibleSearchLoading=false;bibleSearchHits=ready;bibleSearchError=failure;
+                SearchListState state=visibleSearchResults();
+                if(state!=null&&failure.isEmpty())state.replace(ready,search,null);
+                else renderBibleSearchKeepingInput();
+            });
+        });
+    }
+    private CharSequence highlightSearchWords(String source,BibleSearchLogic.WordMatcher words){
+        android.text.SpannableString span=new android.text.SpannableString(source);
+        java.util.regex.Matcher matcher=BibleSearchLogic.WORDS.matcher(source);
+        while(matcher.find())if(words.matches(matcher.group()))
+            span.setSpan(new BackgroundColorSpan(0xFFFFE4BD),matcher.start(),matcher.end(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return span;
     }
-
+    private static final class SearchListState {
+        List<BibleSearchLogic.Hit> hits;
+        BibleSearchLogic.WordMatcher words;
+        TextView summary;
+        BaseAdapter adapter;
+        final android.util.LruCache<Integer,CharSequence> highlights=new android.util.LruCache<>(128);
+        SearchListState(List<BibleSearchLogic.Hit> hits,String query){this.hits=hits;words=new BibleSearchLogic.WordMatcher(query);}
+        void replace(List<BibleSearchLogic.Hit> results,String query,String message){
+            hits=results;words=new BibleSearchLogic.WordMatcher(query);highlights.evictAll();
+            summary.setText(message!=null?message:results.isEmpty()?"Ничего не найдено":"Найдено стихов: "+results.size());
+            adapter.notifyDataSetChanged();
+        }
+    }
 
     private void renderSearchResults() {
 
@@ -1249,7 +1293,7 @@ public final class MainActivity extends Activity {
         if (bibleSearchHits.isEmpty()) {
             helper(
                     content,
-                    "Совпадений не найдено. Попробуй другие слова."
+                    "Ничего не найдено"
             );
         }
 
@@ -1275,10 +1319,8 @@ public final class MainActivity extends Activity {
         // The scrolling list header contains a usable EditText search field.
         list.setItemsCanFocus(true);
 
-        final List<BibleSearchLogic.Hit> hits =
-                bibleSearchHits;
-
-        final String query = bibleSearchQuery;
+        final SearchListState state=new SearchListState(bibleSearchHits,bibleSearchQuery);
+        list.setTag(state);
         // A ListView is used for large results. Its search field is a header so
         // the field scrolls away with result rows instead of remaining pinned.
         LinearLayout searchHeader=column();
@@ -1287,7 +1329,7 @@ public final class MainActivity extends Activity {
         list.addHeaderView(searchHeader,null,false);
         // Показываем реальное число ВСЕХ результатов.
         TextView summary = txt(
-                "Найдено стихов: " + hits.size(),
+                state.hits.isEmpty()?"Ничего не найдено":"Найдено стихов: " + state.hits.size(),
                 14,
                 MUTED,
                 true
@@ -1300,16 +1342,17 @@ public final class MainActivity extends Activity {
 
         list.addHeaderView(summary, null, false);
 
-        list.setAdapter(new BaseAdapter() {
+        state.summary=summary;
+        BaseAdapter adapter=new BaseAdapter() {
 
             @Override
             public int getCount() {
-                return hits.size();
+                return state.hits.size();
             }
 
             @Override
             public Object getItem(int position) {
-                return hits.get(position);
+                return state.hits.get(position);
             }
 
             @Override
@@ -1416,7 +1459,7 @@ public final class MainActivity extends Activity {
                 }
 
                 BibleSearchLogic.Hit hit =
-                        hits.get(position);
+                        state.hits.get(position);
 
                 holder.reference.setText(hit.reference);
                 holder.reference.setTextColor(
@@ -1425,11 +1468,9 @@ public final class MainActivity extends Activity {
 
                 // Подсветка выполняется только для
                 // строк, которые сейчас видны.
-                holder.verse.setText(
-                        highlightSearchWords(
-                                hit.text, query
-                        )
-                );
+                CharSequence highlighted=state.highlights.get(position);
+                if(highlighted==null){highlighted=highlightSearchWords(hit.text,state.words);state.highlights.put(position,highlighted);}
+                holder.verse.setText(highlighted);
 
                 holder.open.setOnClickListener(v -> {
 
@@ -1459,8 +1500,8 @@ public final class MainActivity extends Activity {
 
                 return result;
             }
-        });
-
+        };
+        state.adapter=adapter;list.setAdapter(adapter);
         return list;
     }
 
@@ -1713,6 +1754,9 @@ public final class MainActivity extends Activity {
                                 Screen.COLLECTIONS;
 
         if (screen == destination) return;
+        if(isBibleSearchScreen()&&bibleSearchLoading){
+            cancelBibleSearchWork();bibleSearchLoading=false;bibleSearchNeedsRefresh=true;
+        }
         if(isPickerScreen(screen)){
             passageSelection.cancel();clearInsertionContext();
             selectedBook=readerBookBeforePicker;selectedChapter=readerChapterBeforePicker;
@@ -1782,6 +1826,7 @@ public final class MainActivity extends Activity {
         }
 
         screen = destination;
+        resumeBibleSearchIfNeeded();
 
         if (cached != null) {
 
@@ -1806,7 +1851,7 @@ public final class MainActivity extends Activity {
                     }
                 });
 
-            } else if (savedScrollY.containsKey(destination)) {
+            } else if (currentScroller!=null && savedScrollY.containsKey(destination)) {
 
                 final ScrollView active = currentScroller;
                 final int y = savedScrollY.get(destination);
@@ -3407,7 +3452,8 @@ public final class MainActivity extends Activity {
     private void renderChapters() {
         if(bibleNotReady())return;
         int n=bible.chapterCount(selectedBook);
-        title(Bible.NAMES[selectedBook-1],n+" "+(n%10==1 && n%100!=11?"глава":
+        title(Bible.NAMES[selectedBook-1],screen==Screen.CHAPTERS?null:
+            n+" "+(n%10==1 && n%100!=11?"глава":
             n%10>=2 && n%10<=4 && (n%100<12||n%100>14)?"главы":"глав"));
         int selected=screen==Screen.PICKER_CHAPTERS?selectedChapter:lastReadChapter(selectedBook);
         for(int base=1;base<=n;base+=4){
@@ -3469,15 +3515,6 @@ public final class MainActivity extends Activity {
         action(content,"Глава "+selectedChapter+"  ▾",false,this::showChapterJump);
         Map<Integer,LocalStore.VerseStatus> statuses=store.statusesForChapter(
             Bible.NAMES[selectedBook-1],selectedChapter);
-        LinearLayout statsControls=row();
-        TextView toggle=button(showBibleStatuses?"Скрыть статусы":"Показать статусы",false,()->{
-            showBibleStatuses=!showBibleStatuses;
-            getSharedPreferences("bible_view",MODE_PRIVATE).edit()
-                .putBoolean("verse_status",showBibleStatuses).apply();render();
-        });
-        statsControls.addView(toggle,new LinearLayout.LayoutParams(0,dp(42),1));
-        add(content,statsControls,12);
-        label(content,"Текст главы");
         for(Bible.Verse verse:verses){
             final int verseNumber;
             try{verseNumber=Integer.parseInt(verse.ref.substring(verse.ref.indexOf(':')+1));}
@@ -3500,7 +3537,7 @@ public final class MainActivity extends Activity {
                 head.addView(tick);}
             add(c,head,0);
             add(c,prose(verse.text,19),8);
-            if(showBibleStatuses){
+            {
                 int color=stat==null?MUTED:stat.rank==3?SUCCESS:
                     stat.rank==2?0xFF517993:stat.rank==1?0xFF99723D:MUTED;
                 String label=stat==null?"Не изучен":stat.state;
@@ -6336,5 +6373,8 @@ public final class MainActivity extends Activity {
         }catch(Exception ex){new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Ошибка файла")
             .setMessage(ex.getMessage()).setPositiveButton("OK",null).show();}
     }
-    @Override protected void onDestroy(){homeHandler.removeCallbacks(homeTicker);super.onDestroy();if(store!=null)store.close();}
+    @Override protected void onDestroy(){
+        cancelBibleSearchWork();bibleSearchHandler.removeCallbacksAndMessages(null);bibleSearchExecutor.shutdownNow();
+        homeHandler.removeCallbacks(homeTicker);super.onDestroy();if(store!=null)store.close();
+    }
 }

@@ -18,6 +18,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.regex.Pattern;
 
 public final class BibleSearchLogic {
 
@@ -59,16 +61,23 @@ public final class BibleSearchLogic {
             "а","я","ы","и","е","о","у","ю"
     };
 
+    private static final Pattern SEPARATORS=Pattern.compile("[^\\p{L}\\p{Nd}]+");
+    public static final Pattern WORDS=Pattern.compile("[\\p{L}]+");
+
+    public static boolean isBlankQuery(String query){
+        if(query==null)return true;
+        for(int i=0;i<query.length();i++){
+            char c=query.charAt(i);
+            if(!Character.isWhitespace(c)&&!Character.isSpaceChar(c))return false;
+        }
+        return true;
+    }
+
     public static String normalized(String value) {
         if (value == null) return "";
 
-        return Normalizer.normalize(
-                        value.toLowerCase(Locale.ROOT),
-                        Normalizer.Form.NFKC
-                )
-                .replace('ё', 'е')
-                .replaceAll("[^\\p{L}\\p{Nd}]+", " ")
-                .trim();
+        String normalized=Normalizer.normalize(value.toLowerCase(Locale.ROOT),Normalizer.Form.NFKC).replace('ё','е');
+        return SEPARATORS.matcher(normalized).replaceAll(" ").trim();
     }
 
     private static String stemWord(String word) {
@@ -166,6 +175,76 @@ public final class BibleSearchLogic {
                 );
     }
 
+    /** Query work is done once; each visible word is normalized/stemmed once. */
+    public static final class WordMatcher {
+        private final String[] terms;
+        public WordMatcher(String query){terms=wordStems(normalized(query));}
+        public boolean matches(String word){
+            String stem=stemWord(normalized(word));
+            for(String term:terms)if(term.equals(stem)||term.length()>=4&&stem.length()>=4&&
+                (term.startsWith(stem)||stem.startsWith(term)))return true;
+            return false;
+        }
+    }
+    private static final class SearchText {
+        final String text;
+        final Hit exact,other;
+        private volatile String[] stems;
+        SearchText(int book,int chapter,int number,Bible.Verse verse){
+            text=normalized(verse.text);
+            String ref=Bible.reference(book,chapter,number,chapter,number);
+            exact=new Hit(book,chapter,number,ref,verse.text,10);
+            other=new Hit(book,chapter,number,ref,verse.text,1);
+        }
+        String[] stems(){
+            String[] ready=stems;
+            if(ready==null){ready=wordStems(text);stems=ready;}
+            return ready;
+        }
+    }
+    private static final class Corpus {
+        final Bible bible;
+        final AtomicReferenceArray<SearchText> text;
+        Corpus(Bible bible,int count){this.bible=bible;text=new AtomicReferenceArray<>(count);}
+    }
+    private static final Pattern REFERENCE=Pattern.compile(
+        "^(.+?)(?:\\s+(\\d+)(?:\\s*:\\s*(\\d+))?(?:\\s*[-–—]\\s*(?:(\\d+)\\s*:\\s*)?(\\d+))?)?$");
+    private static final Map<String,Integer> BOOKS=bookNames();
+    private static Map<String,Integer> bookNames(){
+        Map<String,Integer> result=new HashMap<>();
+        for(int b=1;b<=66;b++){
+            result.put(normalized(Bible.NAMES[b-1]).replace(" ",""),b);
+            result.put(normalized(BookColorLogic.shortName(b)).replace(" ",""),b);
+        }
+        result.put("мф",40);result.put("мк",41);result.put("лк",42);
+        return result;
+    }
+    /** Null means a text query; an empty list means a recognized, invalid reference. */
+    private static List<Hit> referenceHits(Bible bible,String query){
+        java.util.regex.Matcher match=REFERENCE.matcher(query.trim());
+        if(!match.matches())return null;
+        Integer book=BOOKS.get(normalized(match.group(1)).replace(" ",""));
+        if(book==null)return null;
+        try{
+            int sc=match.group(2)==null?1:Integer.parseInt(match.group(2));
+            int sv=match.group(3)==null?1:Integer.parseInt(match.group(3));
+            int ec=match.group(2)==null?bible.chapterCount(book):sc;
+            int ev=match.group(3)==null?bible.chapter(book,ec).size():sv;
+            if(match.group(5)!=null){
+                if(match.group(4)!=null){ec=Integer.parseInt(match.group(4));ev=Integer.parseInt(match.group(5));}
+                else if(match.group(3)==null){ec=Integer.parseInt(match.group(5));ev=bible.chapter(book,ec).size();}
+                else ev=Integer.parseInt(match.group(5));
+            }
+            List<Hit> result=new ArrayList<>();
+            for(Bible.Verse verse:bible.collectionPassage(book,sc,sv,ec,ev)){
+                if(Thread.currentThread().isInterrupted())return Collections.emptyList();
+                String[] coords=verse.ref.split(":",2);
+                int c=Integer.parseInt(coords[0]),v=Integer.parseInt(coords[1]);
+                result.add(new Hit(book,c,v,Bible.reference(book,c,v,c,v),verse.text,10));
+            }
+            return result;
+        }catch(IllegalArgumentException invalid){return Collections.emptyList();}
+    }
     // Бинарный индекс хранится готовым внутри APK.
     private static final int HEADER = 24;
     private static final int KEY_SIZE = 96;
@@ -178,6 +257,11 @@ public final class BibleSearchLogic {
         final int termCount;
         final int dictionaryAt;
         final int postingsAt;
+        private Corpus corpus;
+        synchronized Corpus corpus(Bible bible){
+            if(corpus==null||corpus.bible!=bible)corpus=new Corpus(bible,verseCount);
+            return corpus;
+        }
 
         Index(ByteBuffer buffer) throws IOException {
             data = buffer;
@@ -324,20 +408,14 @@ public final class BibleSearchLogic {
             Bible bible,
             String query) {
 
-        Index index = INDEX;
-
-        if (index == null ||
-                bible == null ||
-                !bible.isReady()) {
-
-            return Collections.emptyList();
-        }
-
-        String phrase = normalized(query);
-
-        if (phrase.isEmpty()) {
-            return Collections.emptyList();
-        }
+        if(bible==null||!bible.isReady()||isBlankQuery(query)||
+            Thread.currentThread().isInterrupted())return Collections.emptyList();
+        List<Hit> reference=referenceHits(bible,query);
+        if(reference!=null)return reference;
+        Index index=INDEX;
+        if(index==null)return Collections.emptyList();
+        String phrase=normalized(query);
+        if(phrase.isEmpty())return Collections.emptyList();
 
         String[] terms = wordStems(phrase);
         LinkedHashSet<String> keys =
@@ -374,6 +452,7 @@ public final class BibleSearchLogic {
             }
         }
 
+        Corpus corpus=index.corpus(bible);
         List<Hit> exact = new ArrayList<>();
         List<Hit> other = new ArrayList<>();
 
@@ -402,70 +481,19 @@ public final class BibleSearchLogic {
 
             if (!present) continue;
 
-            int book = index.verseField(id, 0);
-            int chapter = index.verseField(id, 1);
-            int number = index.verseField(id, 2);
-
-            int chapterKey = book * 1000 + chapter;
-
-            List<Bible.Verse> verses =
-                    chapters.get(chapterKey);
-
-            if (verses == null) {
-                verses = bible.chapter(book, chapter);
-                chapters.put(chapterKey, verses);
+            SearchText cached=corpus.text.get(id);
+            if(cached==null){
+                int book=index.verseField(id,0),chapter=index.verseField(id,1),number=index.verseField(id,2);
+                int chapterKey=book*1000+chapter;
+                List<Bible.Verse> verses=chapters.get(chapterKey);
+                if(verses==null){verses=bible.chapter(book,chapter);chapters.put(chapterKey,verses);}
+                if(number<1||number>verses.size())continue;
+                cached=new SearchText(book,chapter,number,verses.get(number-1));
+                corpus.text.compareAndSet(id,null,cached);
             }
-
-            Bible.Verse verse = null;
-
-            if (number >= 1 &&
-                    number <= verses.size() &&
-                    verses.get(number - 1).ref.endsWith(
-                            ":" + number
-                    )) {
-
-                verse = verses.get(number - 1);
-            }
-
-            if (verse == null) {
-                for (Bible.Verse candidate : verses) {
-                    if (candidate.ref.endsWith(
-                            ":" + number
-                    )) {
-                        verse = candidate;
-                        break;
-                    }
-                }
-            }
-
-            if (verse == null) continue;
-
-            String text = normalized(verse.text);
-
-            boolean exactPhrase =
-                    text.contains(phrase);
-
-            if (!exactPhrase &&
-                    !matching(terms, wordStems(text))) {
-
-                continue;
-            }
-
-            Hit hit = new Hit(
-                    book,
-                    chapter,
-                    number,
-                    Bible.reference(
-                            book,
-                            chapter,
-                            number,
-                            chapter,
-                            number
-                    ),
-                    verse.text,
-                    exactPhrase ? 10 : 1
-            );
-
+            boolean exactPhrase=cached.text.contains(phrase);
+            if(!exactPhrase&&!matching(terms,cached.stems()))continue;
+            Hit hit=exactPhrase?cached.exact:cached.other;
             if (exactPhrase) {
                 exact.add(hit);
             } else {

@@ -170,7 +170,8 @@ public class PickerIntegrationTest {
     }
     @Test public void readerVersesHaveNoClickActions()throws Exception {
         set("screen",option("Screen","CHAPTER"));invoke("render");
-        assertNotNull(text("Текст главы"));assertNotNull(text("Глава 5  ▾"));
+        assertNull(text("Текст главы"));assertNotNull(text("Глава 5  ▾"));
+        assertNull(text("Скрыть статусы"));assertNull(text("Показать статусы"));
         assertNull(text("Выбрать отрывок"));assertNull(text("Задать диапазон"));
         assertNull(text("Просмотреть отрывок"));assertNull(text("Добавить в карточки"));
         ScrollView scroller=(ScrollView)field("currentScroller");
@@ -197,5 +198,80 @@ public class PickerIntegrationTest {
         assertEquals("CHAPTER",field("screen").toString());
         assertEquals(40,field("selectedBook"));assertEquals(5,field("selectedChapter"));
         assertTrue(store.entries(group).isEmpty());assertNull(text("Выбрать отрывок"));
+    }
+    private static final class ManualSearchExecutor extends java.util.concurrent.AbstractExecutorService {
+        final List<Runnable> queued=new ArrayList<>();boolean stopped;
+        public void execute(Runnable task){queued.add(task);}
+        public void shutdown(){stopped=true;}
+        public List<Runnable> shutdownNow(){stopped=true;return queued;}
+        public boolean isShutdown(){return stopped;}
+        public boolean isTerminated(){return stopped;}
+        public boolean awaitTermination(long timeout,java.util.concurrent.TimeUnit unit){return stopped;}
+    }
+    private ManualSearchExecutor manualSearch()throws Exception {
+        ((java.util.concurrent.ExecutorService)field("bibleSearchExecutor")).shutdownNow();
+        ManualSearchExecutor executor=new ManualSearchExecutor();set("bibleSearchExecutor",executor);
+        set("screen",option("Screen","BOOKS"));invoke("render");controller.visible();return executor;
+    }
+    private android.widget.EditText searchInput()throws Exception {
+        return (android.widget.EditText)call("findBibleSearchInput",new Class<?>[]{View.class},field("root"));
+    }
+    @Test public void blankSearchNeverQueuesWorkAndKeepsCatalog()throws Exception {
+        ManualSearchExecutor executor=manualSearch();
+        call("submitBibleSearch",new Class<?>[]{String.class},"   ");
+        assertFalse((Boolean)field("bibleSearchActive"));assertTrue(executor.queued.isEmpty());
+        assertNotNull(text("Бытие"));assertNotNull(text("Откровение"));assertNull(text("Ничего не найдено"));
+        assertNull(field("bibleSearchTask"));
+    }
+    @Test public void typingDebouncesAndClearCancelsQueuedRequest()throws Exception {
+        ManualSearchExecutor executor=manualSearch();android.widget.EditText input=searchInput();
+        input.setText("бог");
+        org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200));
+        assertTrue(executor.queued.isEmpty());input.setText("любовь");
+        org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(299));
+        assertTrue(executor.queued.isEmpty());
+        org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1));
+        assertEquals(1,executor.queued.size());
+        java.util.concurrent.Future<?> old=(java.util.concurrent.Future<?>)field("bibleSearchTask");
+        input.setText("");assertTrue(old.isCancelled());
+        for(Runnable task:executor.queued)task.run();
+        org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertFalse((Boolean)field("bibleSearchActive"));assertNotNull(text("Бытие"));
+        assertTrue(((List<?>)field("bibleSearchHits")).isEmpty());
+    }
+    @Test public void nonemptyNoMatchKeepsQueryUntilClear()throws Exception {
+        manualSearch();set("bibleSearchQuery","qzxvnotfound");set("bibleSearchActive",true);
+        set("bibleSearchLoading",false);set("bibleSearchHits",Collections.emptyList());invoke("render");
+        assertEquals("qzxvnotfound",searchInput().getText().toString());
+        assertNotNull(text((View)field("root"),"Ничего не найдено"));
+        assertNull(text((View)field("root"),"Бытие"));
+        searchInput().setText("");assertNotNull(text("Бытие"));assertNull(text("Ничего не найдено"));
+    }
+    @Test public void readerChapterGridHasNoCountSubtitle()throws Exception {
+        set("screen",option("Screen","CHAPTERS"));set("selectedBook",19);invoke("render");
+        assertNull(text("150 глав"));assertNotNull(text("150"));assertNotNull(text("Псалтирь"));
+    }
+    @Test public void leavingSearchCancelsAndReturnRestartsOnlyCurrentQuery()throws Exception {
+        ManualSearchExecutor executor=manualSearch();searchInput().setText("бог");
+        set("screen",option("Screen","CHAPTERS"));invoke("render");
+        assertNull(field("bibleSearchDebounce"));assertTrue((Boolean)field("bibleSearchNeedsRefresh"));
+        activity.onBackPressed();
+        org.robolectric.Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals("BOOKS",field("screen").toString());assertEquals(1,executor.queued.size());
+        assertEquals("бог",field("bibleSearchQuery"));
+        searchInput().setText("");
+        for(Runnable task:executor.queued)task.run();
+        assertFalse((Boolean)field("bibleSearchActive"));assertNotNull(text("Бытие"));
+    }
+    @Test public void clearingVirtualResultsPreservesCatalogScroll()throws Exception {
+        manualSearch();set("bibleSearchQuery","бог");set("bibleSearchActive",true);set("bibleSearchLoading",false);
+        set("bibleSearchHits",Collections.singletonList(new BibleSearchLogic.Hit(40,5,3,ref(5,3,5,3),bible.chapter(40,5).get(2).text,10)));
+        invoke("render");assertNull(field("currentScroller"));
+        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)field("savedScrollY");
+        Object books=option("Screen","BOOKS");saved.put(books,123);
+        @SuppressWarnings("unchecked") Map<Object,Object> tabs=(Map<Object,Object>)field("readyTabs");
+        Object tab=tabs.get(books);Field scroller=tab.getClass().getDeclaredField("scroller");scroller.setAccessible(true);
+        assertNull(scroller.get(tab));searchInput().setText("");
+        assertEquals(Integer.valueOf(123),saved.get(books));assertNotNull(text("Бытие"));
     }
 }
