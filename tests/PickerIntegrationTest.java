@@ -34,7 +34,23 @@ public class PickerIntegrationTest {
     }
     void chapter(int c)throws Exception {set("selectedChapter",c);set("screen",option("Screen","PICKER_TEXT"));invoke("render");}
     PassageSelection selection()throws Exception{return (PassageSelection)field("passageSelection");}
-    void tap(int v)throws Exception{call("selectPickerTextVerse",new Class<?>[]{int.class},v);}
+    TextView text(View view,String value){
+        if(view instanceof TextView&&value.equals(((TextView)view).getText().toString()))return (TextView)view;
+        if(view instanceof android.view.ViewGroup){
+            android.view.ViewGroup group=(android.view.ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++){TextView found=text(group.getChildAt(i),value);if(found!=null)return found;}
+        }
+        return null;
+    }
+    TextView text(String value)throws Exception{return text((View)field("content"),value);}
+    void choose(boolean end,int chapter,int verse)throws Exception {
+        call("beginPickerBoundary",new Class<?>[]{boolean.class},end);
+        assertEquals("PICKER_CHAPTERS",field("screen").toString());
+        assertNotNull(text(String.valueOf(chapter)));text(String.valueOf(chapter)).performClick();
+        assertEquals("PICKER_VERSES",field("screen").toString());
+        assertNotNull(text(String.valueOf(verse)));text(String.valueOf(verse)).performClick();
+        assertEquals("BIBLE_PICKER",field("screen").toString());
+    }
     String ref(int a,int b,int c,int d){return Bible.reference(40,a,b,c,d);}
     @Before public void setup()throws Exception {
         controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();activity=controller.get();
@@ -60,10 +76,10 @@ public class PickerIntegrationTest {
         verse.performClick();assertEquals(entry,store.entries(group).get(0).id);
     }
     @Test public void crossChapterRangeAndCoveredVerse()throws Exception {
-        selection().active=true;tap(3);chapter(6);assertTrue(selection().active);chapter(7);tap(29);
+        invoke("openPickerRange");choose(false,5,3);choose(true,7,29);
         assertEquals(109,bible.passage(40,5,3,7,29).size());
-        assertEquals("Добавить 109 стихов",((TextView)field("pickerSaveButton")).getText().toString());
-        invoke("saveTextSelection");assertEquals("COLLECTION_DETAIL",field("screen").toString());
+        assertEquals("Матфея 5:3–7:29 · 109 стихов",((TextView)field("pickerSelectionLabel")).getText().toString());
+        invoke("savePickerRange");assertEquals("COLLECTION_DETAIL",field("screen").toString());
         assertEquals(1,store.entries(group).size());assertEquals(109,store.entries(group).get(0).lines().size());
         assertEquals(109,store.flashcards(store.unifiedForGroup(group).deckId).size());
         chapter(5);
@@ -73,7 +89,7 @@ public class PickerIntegrationTest {
     }
     @Test public void overlapDuplicateAndDeletedCollection()throws Exception {
         store.addPickedPassage(group,ref(5,3,5,3),bible.passage(40,5,3,5,3),bible);
-        selection().active=true;tap(3);tap(12);invoke("saveTextSelection");
+        invoke("openPickerRange");choose(false,5,3);choose(true,5,12);invoke("savePickerRange");
         assertEquals(2,store.entries(group).size());
         assertEquals(10,store.flashcards(store.unifiedForGroup(group).deckId).size());
         assertFalse((Boolean)call("savePickedPassageFor",new Class<?>[]{int.class,int.class,int.class,int.class,int.class},40,5,3,5,12));
@@ -83,19 +99,22 @@ public class PickerIntegrationTest {
         assertEquals(2,store.entries(group).size());
     }
     @Test public void reversedBoundsEditingAndCancel()throws Exception {
-        selection().active=true;tap(12);tap(3);
-        assertArrayEquals(new int[]{5,3,5,12},selection().bounds());
-        ScrollView scroll=(ScrollView)field("currentScroller");tap(14);
-        assertEquals(14,selection().endVerse);selection().changingStart=true;tap(4);
-        assertEquals(4,selection().startVerse);assertSame(scroll,field("currentScroller"));
-        selection().cancel();invoke("updatePickerSelection");
-        assertFalse(selection().active);assertEquals(View.GONE,((View)field("pickerSelectionPanel")).getVisibility());
+        invoke("openPickerRange");choose(false,5,12);choose(true,5,3);
+        assertArrayEquals(new int[]{5,12,5,3},selection().bounds());
+        assertFalse(((View)field("pickerSaveButton")).isEnabled());
+        invoke("savePickerRange");assertTrue(store.entries(group).isEmpty());
+        choose(true,5,14);assertEquals(12,selection().startVerse);
+        choose(false,5,4);assertEquals(14,selection().endVerse);
+        activity.onBackPressed();assertFalse(selection().active);
+        assertEquals("PICKER_TEXT",field("screen").toString());
+        @SuppressWarnings("unchecked") List<View> buttons=(List<View>)field("pickerQuickButtons");
+        assertFalse(buttons.isEmpty());assertEquals(View.VISIBLE,buttons.get(0).getVisibility());
     }
     @Test public void recreateKeepsSelectionAndCollection()throws Exception {
-        selection().active=true;tap(3);chapter(7);tap(29);
+        invoke("openPickerRange");choose(false,5,3);choose(true,7,29);
         controller.recreate();activity=controller.get();
         ((Bible)field("bible")).load(activity);invoke("render");
-        assertEquals(group,field("pickerTargetId"));assertEquals("PICKER_TEXT",field("screen").toString());
+        assertEquals(group,field("pickerTargetId"));assertEquals("BIBLE_PICKER",field("screen").toString());
         assertTrue(selection().active);assertArrayEquals(new int[]{5,3,7,29},selection().bounds());
     }
     @Test public void atomicRollbackWhenCardSyncFails()throws Exception {
@@ -104,5 +123,49 @@ public class PickerIntegrationTest {
         catch(Exception expected){}
         assertTrue(store.entries(group).isEmpty());
         assertTrue(store.flashcards(store.unifiedForGroup(group).deckId).isEmpty());
+    }
+    @Test public void psalmsGridsExposeEveryNumberAndQuickTextDoesNotAdd()throws Exception {
+        set("selectedBook",19);set("selectedChapter",118);set("screen",option("Screen","PICKER_CHAPTERS"));invoke("render");
+        assertEquals(150,bible.chapterCount(19));assertNotNull(text("150"));assertNull(text("151"));
+        text("118").performClick();assertEquals(176,bible.chapter(19,118).size());
+        assertNotNull(text("1"));assertNotNull(text("176"));assertNull(text("177"));
+        text("176").performClick();assertEquals("PICKER_TEXT",field("screen").toString());
+        assertEquals(176,field("pickerVerseNumber"));assertTrue(store.entries(group).isEmpty());
+        assertNotNull(text("Главы · 118"));assertNotNull(text("Стихи"));
+        assertNull(text("‹ Глава"));assertNull(text("Глава ›"));
+        invoke("openPickerRange");choose(false,118,1);choose(true,118,176);
+        assertEquals("Псалтирь 118:1–176 · 176 стихов",((TextView)field("pickerSelectionLabel")).getText().toString());
+        invoke("savePickerRange");assertEquals(1,store.entries(group).size());
+        assertEquals(176,store.entries(group).get(0).lines().size());
+    }
+    @Test public void backCancelsOnlyPendingBoundaryAndKeepsQuickChapter()throws Exception {
+        invoke("openPickerRange");choose(false,5,3);choose(true,7,29);
+        call("beginPickerBoundary",new Class<?>[]{boolean.class},false);
+        text("6").performClick();activity.onBackPressed();
+        assertEquals("PICKER_CHAPTERS",field("screen").toString());
+        activity.onBackPressed();assertEquals("BIBLE_PICKER",field("screen").toString());
+        assertArrayEquals(new int[]{5,3,7,29},selection().bounds());
+        activity.onBackPressed();assertEquals("PICKER_TEXT",field("screen").toString());
+        assertEquals(5,field("selectedChapter"));
+    }
+    @Test public void identicalBoundaryAndLastVerseOfShortBook()throws Exception {
+        set("selectedBook",31);chapter(1);assertEquals(1,bible.chapterCount(31));
+        int last=bible.chapter(31,1).size();invoke("openPickerRange");choose(false,1,last);choose(true,1,last);
+        assertTrue(((View)field("pickerSaveButton")).isEnabled());
+        invoke("savePickerRange");assertEquals(1,store.entries(group).get(0).lines().size());
+    }
+    @Test public void collectionsAndReaderPreferencesStayIndependent()throws Exception {
+        activity.getSharedPreferences("bible_last_chapter",0).edit().putInt("40",2).commit();
+        @SuppressWarnings("unchecked") List<View> buttons=(List<View>)field("pickerQuickButtons");
+        buttons.get(0).performClick();assertEquals(1,store.entries(group).size());
+        long otherId=store.createUnifiedCollection("Other");long other=store.unifiedCollection(otherId).groupId;
+        Object target=option("BibleTarget","STUDY_GROUP"),back=option("Screen","COLLECTION_DETAIL");
+        call("openBiblePicker",new Class<?>[]{target.getClass(),long.class,back.getClass()},target,other,back);
+        set("selectedBook",40);chapter(5);
+        @SuppressWarnings("unchecked") List<View> fresh=(List<View>)field("pickerQuickButtons");
+        assertEquals("+",((TextView)fresh.get(0)).getText().toString());fresh.get(1).performClick();
+        assertEquals(1,store.entries(group).size());assertEquals(1,store.entries(other).size());
+        invoke("openPickerRange");choose(false,6,1);choose(true,7,1);activity.onBackPressed();
+        assertEquals(2,activity.getSharedPreferences("bible_last_chapter",0).getInt("40",-1));
     }
 }
