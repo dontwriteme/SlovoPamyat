@@ -1260,7 +1260,6 @@ public final class MainActivity extends Activity {
     private static final class SearchRowHolder {
         TextView reference;
         TextView verse;
-        TextView toggle;
         TextView open;
     }
 
@@ -1285,16 +1284,6 @@ public final class MainActivity extends Activity {
         searchHeader.setPadding(dp(19),0,dp(19),0);
         renderScrollingBibleSearch(searchHeader);
         list.addHeaderView(searchHeader,null,false);
-        final boolean quickActions = screen == Screen.BOOKS;
-        // Search rows reuse their views. Cache membership once for smooth scrolling,
-        // then update it when a user changes the active collection through + / −.
-        final Set<String> quickReferences=new HashSet<>();
-        if(quickActions){
-            LocalStore.UnifiedCollection active=activeUnified();
-            if(active!=null)for(LocalStore.Entry entry:store.entries(active.groupId))
-                quickReferences.add(entry.reference);
-        }
-
         // Показываем реальное число ВСЕХ результатов.
         TextView summary = txt(
                 "Найдено стихов: " + hits.size(),
@@ -1373,17 +1362,6 @@ public final class MainActivity extends Activity {
                             )
                     );
 
-                    TextView toggle = button(
-                            "+", false, () -> {}
-                    );
-
-                    heading.addView(
-                            toggle,
-                            new LinearLayout.LayoutParams(
-                                    dp(52), dp(48)
-                            )
-                    );
-
                     card.addView(heading);
 
                     TextView verse = prose("", 16);
@@ -1426,7 +1404,6 @@ public final class MainActivity extends Activity {
 
                     holder.reference = reference;
                     holder.verse = verse;
-                    holder.toggle = toggle;
                     holder.open = open;
 
                     outer.setTag(holder);
@@ -1452,27 +1429,6 @@ public final class MainActivity extends Activity {
                                 hit.text, query
                         )
                 );
-
-                holder.toggle.setVisibility(quickActions?View.VISIBLE:View.GONE);
-                if(quickActions){
-                    final String verseReference=Bible.reference(hit.book,hit.chapter,
-                        hit.verse,hit.chapter,hit.verse);
-                    boolean exists=quickReferences.contains(verseReference);
-                    holder.toggle.setText(exists?"−":"+");
-                    holder.toggle.setContentDescription(exists?
-                        "Удалить стих из выбранной коллекции":"Добавить стих в выбранную коллекцию");
-                    holder.toggle.setOnClickListener(v->{
-                        if(toggleQuickBibleVerse(hit.book,hit.chapter,hit.verse)){
-                            boolean now=quickBibleVerseExists(hit.book,hit.chapter,hit.verse);
-                            if(now)quickReferences.add(verseReference);
-                            else quickReferences.remove(verseReference);
-                            holder.toggle.setText(now?"−":"+");
-                            holder.toggle.setContentDescription(now?
-                                "Удалить стих из выбранной коллекции":
-                                "Добавить стих в выбранную коллекцию");
-                        }
-                    });
-                }else holder.toggle.setOnClickListener(null);
 
                 holder.open.setOnClickListener(v -> {
 
@@ -3510,7 +3466,6 @@ public final class MainActivity extends Activity {
         if(verses.isEmpty()){helper(content,"Нет текста главы.");return;}
         rememberChapter(selectedBook,selectedChapter);
         action(content,"Глава "+selectedChapter+"  ▾",false,this::showChapterJump);
-        renderInlineRangeBuilder();
         Map<Integer,LocalStore.VerseStatus> statuses=store.statusesForChapter(
             Bible.NAMES[selectedBook-1],selectedChapter);
         int mastered=0,early=0;
@@ -3830,18 +3785,19 @@ public final class MainActivity extends Activity {
             if(status.last>0)info.append("\nПоследнее воспроизведение: ").append(date(status.last));
             if(status.nextDue>0)info.append("\nСледующее повторение: ").append(date(status.nextDue));
         }
-        final int b=selectedBook,c=selectedChapter;
+        String reference=Bible.reference(selectedBook,selectedChapter,verseNo,selectedChapter,verseNo);
+        long savedEntry=-1;
+        for(LocalStore.Entry entry:store.allEntries())if(reference.equals(entry.reference)){
+            savedEntry=entry.id;break;
+        }
+        final long trainingEntry=savedEntry;
         LinearLayout choices=column();choices.setPadding(dp(20),dp(8),dp(20),dp(12));
         add(choices,txt(info.toString(),15,WHITE,false),5);
         AlertDialog d=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle(Bible.NAMES[selectedBook-1]+" "+verse.ref)
             .setView(choices).setNegativeButton("Закрыть",null).create();
-        action(choices,"Тренировать стих",true,()->{
-            d.dismiss();rangeStartChapter=c;rangeStartVerse=verseNo;
-            rangeEndChapter=-1;rangeEndVerse=-1;previewPassage();
-        });
-        action(choices,"Добавить в коллекции",false,()->{
-            d.dismiss();chooseGroup(id->saveBibleVerseToGroup(id,b,c,verseNo));
+        if(trainingEntry>=0)action(choices,"Тренировать стих",true,()->{
+            d.dismiss();openTraining(trainingEntry);
         });
         styledDialog(d);
     }
