@@ -168,23 +168,21 @@ public class PickerIntegrationTest {
         invoke("openPickerRange");choose(false,6,1);choose(true,7,1);activity.onBackPressed();
         assertEquals(2,activity.getSharedPreferences("bible_last_chapter",0).getInt("40",-1));
     }
-    @Test public void readerHasNoComposerOrHiddenAddInVerseDialog()throws Exception {
+    @Test public void readerVersesHaveNoClickActions()throws Exception {
         set("screen",option("Screen","CHAPTER"));invoke("render");
         assertNotNull(text("Текст главы"));assertNotNull(text("Глава 5  ▾"));
         assertNull(text("Выбрать отрывок"));assertNull(text("Задать диапазон"));
         assertNull(text("Просмотреть отрывок"));assertNull(text("Добавить в карточки"));
-        Class<?>[] types={Bible.Verse.class,LocalStore.VerseStatus.class,int.class};
-        call("showVerseInfo",types,bible.chapter(40,5).get(2),null,3);
-        android.app.AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-        assertNotNull(dialog);View dialogRoot=dialog.getWindow().getDecorView();
-        assertNull(text(dialogRoot,"Добавить в коллекции"));assertNull(text(dialogRoot,"Тренировать стих"));
-        dialog.dismiss();
-        long saved=store.addPickedPassage(group,ref(5,3,5,3),bible.passage(40,5,3,5,3),bible);
-        call("showVerseInfo",types,bible.chapter(40,5).get(2),null,3);
-        dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
-        assertNotNull(text(dialog.getWindow().getDecorView(),"Тренировать стих"));
-        assertNull(text(dialog.getWindow().getDecorView(),"Добавить в коллекции"));
-        assertEquals(saved,store.entries(group).get(0).id);dialog.dismiss();
+        ScrollView scroller=(ScrollView)field("currentScroller");
+        for(Bible.Verse verse:bible.chapter(40,5)){
+            TextView body=text(verse.text);assertNotNull(body);
+            View row=(View)body.getParent();
+            assertFalse(body.hasOnClickListeners());assertFalse(row.hasOnClickListeners());
+            assertFalse(body.performClick());assertFalse(row.performClick());
+        }
+        assertNull(org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog());
+        assertSame(scroller,field("currentScroller"));assertEquals("CHAPTER",field("screen").toString());
+        assertTrue(store.entries(group).isEmpty());
     }
     @Test public void searchOnlyOpensReadingAndCannotChangeCollection()throws Exception {
         set("screen",option("Screen","BOOKS"));

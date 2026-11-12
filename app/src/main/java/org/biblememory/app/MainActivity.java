@@ -3515,7 +3515,6 @@ public final class MainActivity extends Activity {
                     add(c,txt(stat.nextDue<=System.currentTimeMillis()?"Повторить сегодня":
                         "Следующее повторение: "+date(stat.nextDue),12,MUTED,false),4);
             }
-            c.setOnClickListener(v->showVerseInfo(verse,stat,verseNumber));
         }
     }
     private ArrayAdapter<String> spinnerAdapter(String[] values){
@@ -3774,32 +3773,6 @@ public final class MainActivity extends Activity {
             });
         }
         dialog.show();
-    }
-    private void showVerseInfo(Bible.Verse verse,LocalStore.VerseStatus status,int verseNo){
-        String label=status==null?"Не изучен":status.state;
-        int repeated=status==null?0:status.repetitions;
-        StringBuilder info=new StringBuilder(verse.text);
-        info.append("\n\nСтатус: ").append(label).append("\nПовторений: ").append(repeated);
-        if(status!=null){
-            info.append("\nУспешных: ").append(status.successful);
-            if(status.last>0)info.append("\nПоследнее воспроизведение: ").append(date(status.last));
-            if(status.nextDue>0)info.append("\nСледующее повторение: ").append(date(status.nextDue));
-        }
-        String reference=Bible.reference(selectedBook,selectedChapter,verseNo,selectedChapter,verseNo);
-        long savedEntry=-1;
-        for(LocalStore.Entry entry:store.allEntries())if(reference.equals(entry.reference)){
-            savedEntry=entry.id;break;
-        }
-        final long trainingEntry=savedEntry;
-        LinearLayout choices=column();choices.setPadding(dp(20),dp(8),dp(20),dp(12));
-        add(choices,txt(info.toString(),15,WHITE,false),5);
-        AlertDialog d=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle(Bible.NAMES[selectedBook-1]+" "+verse.ref)
-            .setView(choices).setNegativeButton("Закрыть",null).create();
-        if(trainingEntry>=0)action(choices,"Тренировать стих",true,()->{
-            d.dismiss();openTraining(trainingEntry);
-        });
-        styledDialog(d);
     }
     private void styledDialog(AlertDialog d){
         d.setOnShowListener(x->{
