@@ -843,6 +843,33 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();return changed>0;
         }finally{db.endTransaction();}
     }
+    /** One transaction for the passage and its per-verse card memberships. */
+    public long addPickedPassage(long groupId,String reference,List<Bible.Verse> verses,Bible bible){
+        return addPickedPassage(groupId,reference,verses,bible,-1);
+    }
+    public long addPickedPassage(long groupId,String reference,List<Bible.Verse> verses,Bible bible,long after){
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try{
+            UnifiedCollection collection=unifiedForGroup(groupId);
+            if(collection==null)throw new IllegalStateException("Коллекция больше не существует");
+            long id=restoreOrAddStudyPassage(groupId,reference,verses);
+            syncUnifiedCollection(collection.id,bible);
+            try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM unified_entry_cards x "+
+                "JOIN card_deck_members m ON m.card_id=x.card_id AND m.deck_id=? "+
+                "WHERE x.collection_id=? AND x.entry_id=?",
+                new String[]{String.valueOf(collection.deckId),String.valueOf(collection.id),String.valueOf(id)})){
+                if(!c.moveToFirst()||c.getInt(0)!=verses.size())
+                    throw new IllegalStateException("Не удалось сохранить отрывок полностью");
+            }
+            if(after>=0){
+                List<Long> ids=new ArrayList<>();
+                for(Entry item:entries(groupId))if(item.id!=id)ids.add(item.id);
+                int index=ids.indexOf(after);ids.add(index<0?ids.size():index+1,id);
+                reorderStudy(groupId,ids);
+            }
+            db.setTransactionSuccessful();return id;
+        }finally{db.endTransaction();}
+    }
     /** Moving the original row back retains all FK-linked lesson/recall history. */
     public long restoreOrAddStudyPassage(long groupId,String reference,List<Bible.Verse> verses){
         if(verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустой отрывок");

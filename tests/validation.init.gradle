@@ -1,0 +1,27 @@
+// Optional test harness: gradle -I tests/validation.init.gradle testDebugUnitTest
+// Keeps production dependency declarations unchanged.
+allprojects {
+    afterEvaluate { project ->
+        if (project.path == ':app') {
+            project.dependencies.add('testImplementation', 'junit:junit:4.13.2')
+            if(!project.hasProperty('pickerModelOnly'))
+                project.dependencies.add('testImplementation', 'org.robolectric:robolectric:4.14.1')
+            project.android.sourceSets.test.java.srcDirs = [rootProject.file('tests')]
+            if(project.hasProperty('pickerModelOnly'))project.android.sourceSets.test.java.exclude('**/PickerIntegrationTest.java')
+            project.android.testOptions.unitTests.includeAndroidResources = true
+            project.tasks.withType(Test).configureEach {
+                systemProperty 'user.home', gradle.gradleUserHomeDir.absolutePath
+                systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+                if(System.getProperty('javax.net.ssl.trustStore'))
+                    systemProperty 'javax.net.ssl.trustStore',System.getProperty('javax.net.ssl.trustStore')
+                ['http','https'].each { proto ->
+                    ['proxyHost','proxyPort'].each { suffix ->
+                        def key=proto+'.'+suffix
+                        if(System.getProperty(key))systemProperty key,System.getProperty(key)
+                    }
+                }
+                maxHeapSize = '2g'
+            }
+        }
+    }
+}

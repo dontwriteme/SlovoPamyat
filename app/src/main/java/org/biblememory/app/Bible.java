@@ -38,6 +38,13 @@ public final class Bible {
                  : new ArrayList<>(chapters.get(c));
     }
     public synchronized List<Verse> passage(int b, int sc, int sv, int ec, int ev) {
+        return passage(b,sc,sv,ec,ev,500);
+    }
+    /** Collection selection may span any number of chapters inside one book. */
+    public synchronized List<Verse> collectionPassage(int b,int sc,int sv,int ec,int ev){
+        return passage(b,sc,sv,ec,ev,Integer.MAX_VALUE);
+    }
+    private List<Verse> passage(int b,int sc,int sv,int ec,int ev,int limit){
         if (b<1 || b>66 || sc<1 || sv<1 || ec<sc || ev<1 || ec>chapterCount(b))
             throw new IllegalArgumentException("Неверный диапазон глав или стихов");
         List<Verse> out = new ArrayList<>();
@@ -49,7 +56,7 @@ public final class Bible {
             if (first>last || last>vs.size()) throw new IllegalArgumentException("Неверный номер стиха");
             for (int i=first;i<=last;i++) out.add(vs.get(i-1));
         }
-        if (out.size()>500) throw new IllegalArgumentException("Максимум 500 стихов в одном отрывке");
+        if (out.size()>limit) throw new IllegalArgumentException("Максимум 500 стихов в одном отрывке");
         return out;
     }
     public synchronized void load(Context context) throws IOException {

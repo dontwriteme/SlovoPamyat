@@ -375,6 +375,15 @@ public final class MainActivity extends Activity {
     private boolean pickerRange=false;
     private boolean pickerHasAnchor=false, pickerChooseEnd=false;
     private Screen pickerBackScreen=Screen.CARD_DECK;
+    private final PassageSelection passageSelection=new PassageSelection();
+    private final Map<Integer,LinearLayout> pickerRows=new HashMap<>();
+    private final Map<Integer,TextView> pickerMarkers=new HashMap<>();
+    private final List<View> pickerQuickButtons=new ArrayList<>();
+    private TextView pickerModeButton,pickerSelectionLabel,pickerStartButton,pickerSaveButton;
+    private LinearLayout pickerSelectionPanel;
+    private int pickerRestoredScroll=-1;
+    private int readerBookBeforePicker=1,readerChapterBeforePicker=1;
+
     // A card collection is studied as separate saved passages, never as one concatenated text.
     private final List<Long> cardStudyQueue=new ArrayList<>();
     private int cardStudyCursor=-1;
@@ -404,6 +413,7 @@ public final class MainActivity extends Activity {
         homeCollectionsExpanded=homeUi.getBoolean("collections_expanded",false);
         homeScrollY=Math.max(0,homeUi.getInt("scroll_y",0));
         refreshHomeIndex(false);
+        restorePickerState(savedInstanceState);
         render();
         new Thread(()->{
             try { bible.load(getApplicationContext());
@@ -414,8 +424,48 @@ public final class MainActivity extends Activity {
                 }catch(Exception ignored){ /* Preserve legacy rows for later recovery. */ }
             }
             catch(Exception ex) {bibleError=ex.getMessage()==null?"Невозможно открыть текст":ex.getMessage();}
-            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL) render();});
+            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||isPickerScreen(screen)||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL) render();});
         },"BibleLoader").start();
+    }
+    private boolean isPickerScreen(Screen value){
+        return value==Screen.PICKER_BOOKS||value==Screen.PICKER_CHAPTERS||
+            value==Screen.PICKER_VERSES||value==Screen.PICKER_TEXT||value==Screen.BIBLE_PICKER;
+    }
+    @Override protected void onSaveInstanceState(Bundle out){
+        super.onSaveInstanceState(out);
+        if(!isPickerScreen(screen))return;
+        out.putString("picker_screen",screen.name());out.putString("picker_target",pickerTarget.name());
+        out.putString("picker_back",pickerBackScreen.name());out.putLong("picker_id",pickerTargetId);
+        out.putLong("picker_unified",openUnifiedId);out.putLong("picker_group",selectedGroup);
+        out.putLong("picker_deck",selectedDeck);
+        out.putInt("picker_book",selectedBook);out.putInt("picker_chapter",selectedChapter);
+        out.putInt("reader_book",readerBookBeforePicker);out.putInt("reader_chapter",readerChapterBeforePicker);
+        out.putInt("picker_scroll",currentScroller==null?0:currentScroller.getScrollY());
+        out.putBoolean("picker_active",passageSelection.active);
+        out.putBoolean("picker_change_start",passageSelection.changingStart);
+        out.putIntArray("picker_bounds",new int[]{passageSelection.book,passageSelection.startChapter,
+            passageSelection.startVerse,passageSelection.endChapter,passageSelection.endVerse});
+        out.putLong("picker_insert_entry",insertAfterEntryId);out.putLong("picker_insert_card",insertAfterCardId);
+    }
+    private void restorePickerState(Bundle state){
+        if(state==null||!state.containsKey("picker_screen"))return;
+        try{
+            screen=Screen.valueOf(state.getString("picker_screen"));
+            pickerTarget=BibleTarget.valueOf(state.getString("picker_target"));
+            pickerBackScreen=Screen.valueOf(state.getString("picker_back"));
+            pickerTargetId=state.getLong("picker_id");openUnifiedId=state.getLong("picker_unified");
+            selectedGroup=state.getLong("picker_group");selectedDeck=state.getLong("picker_deck");
+            selectedBook=state.getInt("picker_book");selectedChapter=state.getInt("picker_chapter");
+            readerBookBeforePicker=state.getInt("reader_book",1);readerChapterBeforePicker=state.getInt("reader_chapter",1);
+            passageSelection.collectionId=pickerTargetId;passageSelection.chapter=selectedChapter;
+            int[] b=state.getIntArray("picker_bounds");
+            if(b!=null&&b.length==5){passageSelection.book=b[0];passageSelection.startChapter=b[1];
+                passageSelection.startVerse=b[2];passageSelection.endChapter=b[3];passageSelection.endVerse=b[4];}
+            passageSelection.active=state.getBoolean("picker_active");
+            passageSelection.changingStart=state.getBoolean("picker_change_start");
+            pickerRestoredScroll=state.getInt("picker_scroll",0);
+            insertAfterEntryId=state.getLong("picker_insert_entry",-1);insertAfterCardId=state.getLong("picker_insert_card",-1);
+        }catch(IllegalArgumentException ignored){screen=Screen.HOME;passageSelection.cancel();}
     }
     @Override protected void onResume() {
         super.onResume();
@@ -468,9 +518,9 @@ public final class MainActivity extends Activity {
                 clearInsertionContext();
                 screen=pickerBackScreen;render();break;
             case PICKER_BOOKS:
-                if(pickerHasAnchor)screen=Screen.BIBLE_PICKER;
-                else {clearInsertionContext();screen=pickerBackScreen;}
-                render();break;
+                clearInsertionContext();passageSelection.cancel();
+                selectedBook=readerBookBeforePicker;selectedChapter=readerChapterBeforePicker;
+                screen=pickerBackScreen;render();break;
             case PICKER_CHAPTERS:screen=Screen.PICKER_BOOKS;render();break;
             case PICKER_VERSES:screen=Screen.PICKER_CHAPTERS;render();break;
             case PICKER_TEXT:screen=Screen.PICKER_VERSES;render();break;
@@ -992,6 +1042,7 @@ public final class MainActivity extends Activity {
         }
 
 
+        if(screen==Screen.PICKER_TEXT && pickerSelectionPanel!=null)root.addView(pickerSelectionPanel);
         if(screen==Screen.COLLECTIONS||screen==Screen.CARDS||
             screen==Screen.COLLECTION_DETAIL) addUnifiedCollectionFooter();
         if(screen!=Screen.CUSTOM && screen!=Screen.RUN_SUMMARY) addNav(root);
@@ -1416,10 +1467,7 @@ public final class MainActivity extends Activity {
                     selectedBook = hit.book;
                     selectedChapter = hit.chapter;
 
-                    rememberChapter(
-                            hit.book,
-                            hit.chapter
-                    );
+                    if(!isPickerScreen(screen))rememberChapter(hit.book,hit.chapter);
 
                     focusVerse = hit.verse;
 
@@ -1696,6 +1744,10 @@ public final class MainActivity extends Activity {
                                 Screen.COLLECTIONS;
 
         if (screen == destination) return;
+        if(isPickerScreen(screen)){
+            passageSelection.cancel();clearInsertionContext();
+            selectedBook=readerBookBeforePicker;selectedChapter=readerChapterBeforePicker;
+        }
         // Tapping an already selected section from its details simply opens the root list.
         if(mainTabIndex()==index && !isMainTab(screen)){
             screen=destination;render();return;
@@ -2528,6 +2580,8 @@ public final class MainActivity extends Activity {
 
     /** Unified Bible entry: catalogue -> chapter grid -> verse grid -> highlighted chapter text. */
     private void openBiblePicker(BibleTarget target,long targetId,Screen back){
+        readerBookBeforePicker=selectedBook;readerChapterBeforePicker=selectedChapter;
+        passageSelection.cancel();passageSelection.book=0;passageSelection.collectionId=targetId;
         pickerTarget=target;pickerTargetId=targetId;pickerBackScreen=back;
         pickerRange=false;pickerHasAnchor=false;pickerChooseEnd=false;
         clearPassageSelection();focusVerse=-1;
@@ -2564,8 +2618,7 @@ public final class MainActivity extends Activity {
     private void renderPickerVerseGrid(){
         if(bibleNotReady())return;
         List<Bible.Verse> verses=bible.chapter(selectedBook,selectedChapter);
-        title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,
-            pickerChooseEnd?"Выбери конечный стих":"Выбери начальный стих");
+        title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,"Стихи");
         if(verses.isEmpty()){helper(content,"В главе нет стихов");return;}
         for(int base=1;base<=verses.size();base+=4){
             LinearLayout r=row();
@@ -2589,88 +2642,126 @@ public final class MainActivity extends Activity {
             add(content,r,2);
         }
     }
-    /** Full chapter view: highlight a target verse and allow direct collection +/-.
-     * Tapping the text still selects the range start/end for the existing composer.
-     * Membership controls are bound to pickerTargetId, NOT to the home selection. */
+    /** Shared Bible data and catalog; only this insertion screen owns selection controls. */
     private void renderPickerVerseText(){
+        pickerSelectionPanel=null;
         if(bibleNotReady())return;
+        passageSelection.openBook(selectedBook);passageSelection.chapter=selectedChapter;
+        pickerRows.clear();pickerMarkers.clear();pickerQuickButtons.clear();
         List<Bible.Verse> verses=bible.chapter(selectedBook,selectedChapter);
         title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,null);
-        helper(content,"Нажми на нужный стих в тексте, чтобы "+
-            (pickerChooseEnd?"указать конец отрывка":"указать начало отрывка"));
-        final ScrollView targetScroller=currentScroller;
-        final int targetVerse=focusVerse;
-        final boolean showQuickButtons=pickerTarget==BibleTarget.STUDY_GROUP &&
-            store.unifiedForGroup(pickerTargetId)!=null;
-        // Single lookup per screen, rather than querying the database for every row.
-        final Set<String> present=new HashSet<>();
-        final Set<String> includedInRanges=new HashSet<>();
-        if(showQuickButtons)for(LocalStore.Entry entry:store.entries(pickerTargetId)){
-            present.add(entry.reference);
-            if(entry.lines().size()>1 &&
-                entry.reference.startsWith(Bible.NAMES[selectedBook-1]+" "))
-                for(Bible.Verse part:entry.lines())includedInRanges.add(part.ref);
+        LinearLayout chapters=row();
+        TextView previous=button("‹ Глава",false,()->movePickerChapter(-1));
+        previous.setEnabled(selectedChapter>1);chapters.addView(previous,new LinearLayout.LayoutParams(0,-2,1));
+        TextView next=button("Глава ›",false,()->movePickerChapter(1));
+        next.setEnabled(selectedChapter<bible.chapterCount(selectedBook));chapters.addView(next,new LinearLayout.LayoutParams(0,-2,1));
+        add(content,chapters,4);
+        pickerModeButton=button("Выбрать отрывок",false,()->{
+            passageSelection.active=true;updatePickerSelection();
+        });add(content,pickerModeButton,6);
+        final ScrollView scroller=currentScroller;
+        final int targetVerse=focusVerse;focusVerse=-1;
+        final Set<String> present=new HashSet<>(),included=new HashSet<>();
+        if(pickerTarget==BibleTarget.STUDY_GROUP){
+            for(LocalStore.Entry entry:store.entries(pickerTargetId)){
+                present.add(entry.reference);
+                if(entry.lines().size()>1&&entry.reference.startsWith(Bible.NAMES[selectedBook-1]+" "))
+                    for(Bible.Verse part:entry.lines())included.add(part.ref);
+            }
         }
         for(Bible.Verse verse:verses){
-            final int number;
-            try{number=Integer.parseInt(verse.ref.substring(verse.ref.indexOf(':')+1));}
-            catch(Exception ignored){continue;}
-            final String reference=Bible.reference(selectedBook,selectedChapter,
-                number,selectedChapter,number);
-            LinearLayout line=card(content);
-            boolean focus=targetVerse==number;
-            if(focus){
-                line.setBackground(outlined(0xFFEDEBDD,20,SUCCESS));
-                line.post(()->{
-                    if(screen!=Screen.PICKER_TEXT || currentScroller!=targetScroller)return;
-                    int top=line.getTop();
-                    View parent=line.getParent() instanceof View?(View)line.getParent():null;
-                    if(parent!=null)top+=parent.getTop();
-                    targetScroller.smoothScrollTo(0,Math.max(0,top-dp(35)));
-                });
-            }
+            final int number=Integer.parseInt(verse.ref.substring(verse.ref.indexOf(':')+1));
+            final int book=selectedBook,chapter=selectedChapter;
+            final String reference=Bible.reference(book,chapter,number,chapter,number);
+            LinearLayout line=card(content);pickerRows.put(number,line);
             LinearLayout head=row();head.setGravity(Gravity.CENTER_VERTICAL);
-            TextView marker=txt(verse.ref+(focus?"   •":""),14,bookInk(selectedBook),true);
+            TextView marker=txt(verse.ref,14,bookInk(book),true);pickerMarkers.put(number,marker);
             head.addView(marker,new LinearLayout.LayoutParams(0,-2,1));
-            if(showQuickButtons){
-                final boolean coveredByRange=includedInRanges.contains(verse.ref);
-                final boolean covered=!present.contains(reference) && coveredByRange;
-                final TextView toggle=button(covered?"✓":present.contains(reference)?"−":"+",
-                    false,()->{});
-                toggle.setGravity(Gravity.CENTER);
-                toggle.setContentDescription(covered?
-                    "Стих уже входит в длинный отрывок этой коллекции":
-                    present.contains(reference)?"Убрать "+reference+" из этой коллекции":
-                    "Добавить "+reference+" в эту коллекцию");
-                head.addView(toggle,new LinearLayout.LayoutParams(dp(48),dp(44)));
-                if(covered){
-                    // Consume taps: they must not fall through to verse/range selection.
-                    toggle.setAlpha(.6f);
-                    toggle.setOnClickListener(v->
-                        toast("Стих уже входит в отрывок этой коллекции"));
-                }else toggle.setOnClickListener(v->{
-                    if(togglePickerCollectionVerse(selectedBook,selectedChapter,number)){
-                        boolean added=pickerCollectionContainsVerse(selectedBook,selectedChapter,number);
+            if(pickerTarget==BibleTarget.STUDY_GROUP){
+                boolean standalone=present.contains(reference),covered=!standalone&&included.contains(verse.ref);
+                TextView toggle=button(standalone?"−":covered?"✓":"+",false,()->{});
+                toggle.setContentDescription((standalone?"Убрать ":covered?"Уже в отрывке: ":"Добавить ")+reference);
+                pickerQuickButtons.add(toggle);head.addView(toggle,new LinearLayout.LayoutParams(dp(48),dp(48)));
+                toggle.setOnClickListener(v->{
+                    if(included.contains(verse.ref)&&!present.contains(reference))return;
+                    if(togglePickerCollectionVerse(book,chapter,number)){
+                        boolean added=pickerCollectionContainsVerse(book,chapter,number);
                         if(added)present.add(reference);else present.remove(reference);
-                        toggle.setText(added?"−":coveredByRange?"✓":"+");
-                        toggle.setContentDescription(added?
-                            "Убрать "+reference+" из этой коллекции":
-                            coveredByRange?"Стих уже входит в длинный отрывок этой коллекции":
-                            "Добавить "+reference+" в эту коллекцию");
-                        if(!added && coveredByRange){
-                            toggle.setAlpha(.6f);
-                            toggle.setOnClickListener(w->
-                                toast("Стих уже входит в отрывок этой коллекции"));
-                        }
+                        toggle.setText(added?"−":included.contains(verse.ref)?"✓":"+");
+                        toggle.setContentDescription((added?"Убрать ":included.contains(verse.ref)?"Уже в отрывке: ":"Добавить ")+reference);
                     }
                 });
             }
-            add(line,head,0);
-            add(line,prose(verse.text,19),8);
-            line.setClickable(true);line.setFocusable(true);
-            line.setContentDescription("Выбрать стих "+number);
+            add(line,head,0);add(line,prose(verse.text,19),8);
             line.setOnClickListener(v->selectPickerTextVerse(number));
+            if(targetVerse==number){
+                line.post(()->{
+                    if(currentScroller!=scroller)return;
+                    scroller.scrollTo(0,Math.max(0,line.getTop()-dp(16)));
+                    line.setBackground(outlined(0xFFFFE8B5,20,BORDER));
+                    line.postDelayed(()->{if(currentScroller==scroller)updatePickerSelection();},1100);
+                });
+            }
         }
+        pickerSelectionPanel=column();pickerSelectionPanel.setPadding(dp(19),dp(8),dp(19),dp(8));
+        pickerSelectionPanel.setBackground(outlined(CARD,16,BORDER));
+        pickerSelectionLabel=txt("",16,WHITE,true);add(pickerSelectionPanel,pickerSelectionLabel,2);
+        LinearLayout selectionActions=row();
+        pickerStartButton=button("Изменить начало",false,()->{
+            passageSelection.changingStart=true;updatePickerSelection();
+        });selectionActions.addView(pickerStartButton,new LinearLayout.LayoutParams(0,-2,1));
+        TextView cancelSelection=button("Отмена",false,()->{passageSelection.cancel();updatePickerSelection();});
+        selectionActions.addView(cancelSelection,new LinearLayout.LayoutParams(0,-2,1));
+        add(pickerSelectionPanel,selectionActions,2);
+        pickerSaveButton=button("Добавить",true,this::saveTextSelection);add(pickerSelectionPanel,pickerSaveButton,2);
+        updatePickerSelection();
+        if(targetVerse<1&&pickerRestoredScroll>=0){
+            int y=pickerRestoredScroll;pickerRestoredScroll=-1;
+            scroller.post(()->{if(currentScroller==scroller)scroller.scrollTo(0,y);});
+        }
+    }
+    private void movePickerChapter(int delta){
+        int next=selectedChapter+delta;
+        if(next<1||next>bible.chapterCount(selectedBook))return;
+        selectedChapter=next;focusVerse=-1;pickerRestoredScroll=-1;render();
+    }
+    private void updatePickerSelection(){
+        if(pickerModeButton==null||pickerSelectionPanel==null)return;
+        boolean active=passageSelection.active;
+        pickerModeButton.setVisibility(active?View.GONE:View.VISIBLE);
+        pickerSelectionPanel.setVisibility(active?View.VISIBLE:View.GONE);
+        for(View button:pickerQuickButtons)button.setVisibility(active?View.GONE:View.VISIBLE);
+        for(Map.Entry<Integer,LinearLayout> row:pickerRows.entrySet()){
+            int verse=row.getKey();boolean chosen=passageSelection.contains(selectedChapter,verse);
+            boolean edge=passageSelection.endpoint(selectedChapter,verse);
+            row.getValue().setBackground(outlined(chosen?0xFFE1EBDD:CARD,20,edge?SUCCESS:BORDER));
+            pickerMarkers.get(verse).setTextColor(edge?SUCCESS:bookInk(selectedBook));
+            pickerMarkers.get(verse).setBackground(edge?outlined(0xFFC6DEBD,8,SUCCESS):null);
+            row.getValue().setSelected(chosen);
+        }
+        int count=0;
+        if(passageSelection.startChapter>0){
+            int[] b=passageSelection.bounds();
+            String ref=Bible.reference(selectedBook,b[0],b[1],b[2],b[3]);
+            try{count=bible.collectionPassage(selectedBook,b[0],b[1],b[2],b[3]).size();}
+            catch(IllegalArgumentException ignored){count=0;}
+            pickerSelectionLabel.setText(ref+(passageSelection.complete()?" · "+PassageSelection.verses(count):""));
+        }else pickerSelectionLabel.setText("Выбрать отрывок");
+        pickerStartButton.setVisibility(passageSelection.startChapter>0?View.VISIBLE:View.GONE);
+        pickerStartButton.setText(passageSelection.changingStart?"Начало: выбрать стих":"Изменить начало");
+        pickerSaveButton.setText("Добавить "+PassageSelection.verses(count));
+        pickerSaveButton.setEnabled(passageSelection.complete()&&count>0);
+        pickerSaveButton.setAlpha(pickerSaveButton.isEnabled()?1f:.45f);
+    }
+    private void saveTextSelection(){
+        if(!passageSelection.complete()||!pickerSaveButton.isEnabled())return;
+        pickerSaveButton.setEnabled(false);
+        int[] b=passageSelection.bounds();
+        if(savePickedPassageFor(passageSelection.book,b[0],b[1],b[2],b[3])){
+            passageSelection.cancel();clearInsertionContext();
+            selectedBook=readerBookBeforePicker;selectedChapter=readerChapterBeforePicker;
+            screen=pickerBackScreen;render();
+        }else updatePickerSelection();
     }
     private boolean pickerCollectionContainsVerse(int book,int chapter,int verse){
         if(pickerTarget!=BibleTarget.STUDY_GROUP || pickerTargetId<0)return false;
@@ -2699,8 +2790,8 @@ public final class MainActivity extends Activity {
                         return false;
                     }
                 }
-                store.restoreOrAddStudyPassage(pickerTargetId,ref,
-                    bible.passage(book,chapter,verse,chapter,verse));
+                store.addPickedPassage(pickerTargetId,ref,
+                    bible.passage(book,chapter,verse,chapter,verse),bible);
                 toast("Добавлено в коллекцию: "+ref);
             }
             return true;
@@ -2709,18 +2800,7 @@ public final class MainActivity extends Activity {
         }
     }
     private void selectPickerTextVerse(int verse){
-        final int chapter=selectedChapter;
-        if(!pickerHasAnchor || !pickerChooseEnd){
-            rangeStartChapter=chapter;rangeStartVerse=verse;
-            rangeEndChapter=chapter;rangeEndVerse=verse;
-        }else{
-            if(!PassageRangeLogic.valid(rangeStartChapter,rangeStartVerse,chapter,verse)){
-                toast("Конец отрывка не может быть раньше начала");return;
-            }
-            rangeEndChapter=chapter;rangeEndVerse=verse;
-        }
-        pickerHasAnchor=true;pickerRange=true;pickerChooseEnd=false;
-        focusVerse=-1;screen=Screen.BIBLE_PICKER;render();
+        passageSelection.tap(selectedChapter,verse);updatePickerSelection();
     }
     /** Fast Bible-search membership does not alter range-picker state or the scroll. */
     private boolean quickBibleVerseExists(int book,int chapter,int verse){
@@ -2770,15 +2850,16 @@ public final class MainActivity extends Activity {
             if(!PassageRangeLogic.valid(sc,sv,ec,ev)){
                 toast("Конец отрывка раньше начала");return false;
             }
-            List<Bible.Verse> verses=bible.passage(book,sc,sv,ec,ev);
+            List<Bible.Verse> verses=pickerTarget==BibleTarget.STUDY_GROUP?
+                bible.collectionPassage(book,sc,sv,ec,ev):bible.passage(book,sc,sv,ec,ev);
             String ref=Bible.reference(book,sc,sv,ec,ev);
             if(pickerTarget==BibleTarget.STUDY_GROUP){
+                if(store.unifiedForGroup(pickerTargetId)==null){toast("Коллекция больше не существует");return false;}
                 for(LocalStore.Entry e:store.entries(pickerTargetId))if(ref.equals(e.reference)){
-                    toast("Этот отрывок уже в подборке");return false;
+                    toast("Уже в коллекции");return false;
                 }
-                long added=store.restoreOrAddStudyPassage(pickerTargetId,ref,verses);
+                long added=store.addPickedPassage(pickerTargetId,ref,verses,bible,insertAfterEntryId);
                 if(insertAfterEntryId>=0){
-                    repositionStudyAfter(pickerTargetId,added,insertAfterEntryId);
                     insertAfterEntryId=added;
                     studyInsertionTrail.add(added);
                 }
@@ -3321,12 +3402,13 @@ public final class MainActivity extends Activity {
             line.setMinimumHeight(dp(48));
             line.setContentDescription(Bible.NAMES[b-1]);
             line.setOnClickListener(v->{
-                selectedBook=book;selectedChapter=lastReadChapter(book);
-                selectingPassage=false;clearPassageSelection();
+                selectedBook=book;selectedChapter=screen==Screen.PICKER_BOOKS&&passageSelection.book==book?
+                    passageSelection.chapter:lastReadChapter(book);
                 if(screen==Screen.PICKER_BOOKS){
+                    passageSelection.openBook(book);
                     pickerHasAnchor=false;pickerChooseEnd=false;
                     screen=Screen.PICKER_CHAPTERS;
-                }else screen=Screen.CHAPTERS;
+                }else {selectingPassage=false;clearPassageSelection();screen=Screen.CHAPTERS;}
                 render();
             });
             groupedRows.addView(line,new LinearLayout.LayoutParams(-1,-2));
