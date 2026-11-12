@@ -1096,7 +1096,8 @@ public final class MainActivity extends Activity {
     }
     /** Search is the first scrolling item, both in the catalogue and the search results. */
     private void renderScrollingBibleSearch(LinearLayout into){
-        LinearLayout outer=column();outer.setBackgroundColor(BG);
+        LinearLayout outer=column();
+        if(screen!=Screen.BOOKS)outer.setBackgroundColor(BG);
         outer.setPadding(0,dp(8),0,dp(8));
         LinearLayout bar=row();bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(14),dp(3),dp(7),dp(3));
@@ -3468,13 +3469,7 @@ public final class MainActivity extends Activity {
         action(content,"Глава "+selectedChapter+"  ▾",false,this::showChapterJump);
         Map<Integer,LocalStore.VerseStatus> statuses=store.statusesForChapter(
             Bible.NAMES[selectedBook-1],selectedChapter);
-        int mastered=0,early=0;
-        for(LocalStore.VerseStatus stat:statuses.values()){
-            if(stat.rank==3)mastered++;
-            if(stat.rank==2)early++;
-        }
         LinearLayout statsControls=row();
-        add(statsControls,txt("Выучено "+mastered+" из "+verses.size(),13,MUTED,false),0);
         TextView toggle=button(showBibleStatuses?"Скрыть статусы":"Показать статусы",false,()->{
             showBibleStatuses=!showBibleStatuses;
             getSharedPreferences("bible_view",MODE_PRIVATE).edit()
