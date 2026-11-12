@@ -1,0 +1,234 @@
+
+import groovy.json.JsonSlurper
+import java.text.Normalizer
+import java.nio.charset.StandardCharsets
+
+// Индекс создаётся при сборке APK, не на телефоне.
+def endings = [
+        'иями','ями','ами','остью','ости',
+        'овать','евать','ящего','ющих',
+        'ному','ными','имым','емый',
+        'шая','шее','ших','ого','ему',
+        'иях','ыми','ими','ах','ях',
+        'ов','ев','ей','ою','ею',
+        'ые','ие','ий','ый','ая','яя',
+        'ое','ее','ому','ых','их',
+        'ам','ям','ом','ем','ую','юю',
+        'ить','еть','ть','ся','ет','ют',
+        'ат','ят','ит','ал','ил','ела',
+        'а','я','ы','и','е','о','у','ю'
+]
+
+def exceptions = [
+        'любовь':'любов',
+        'любви':'любов',
+        'любовью':'любов',
+        'любовию':'любов',
+        'жизнь':'жизн',
+        'жизни':'жизн',
+        'жизнью':'жизн',
+        'бога':'бог',
+        'богу':'бог',
+        'богом':'бог',
+        'боге':'бог',
+        'господа':'господ',
+        'господу':'господ',
+        'господом':'господ'
+]
+
+def stemWord = { String word ->
+    if (exceptions.containsKey(word)) {
+        return exceptions[word]
+    }
+
+    if (word.length() < 5) {
+        return word
+    }
+
+    for (String ending : endings) {
+        if (word.endsWith(ending) &&
+                word.length() - ending.length() >= 4) {
+
+            return word.substring(
+                    0,
+                    word.length() - ending.length()
+            )
+        }
+    }
+
+    return word
+}
+
+def bibleFile = file('src/main/assets/synodal.json')
+def indexFile = file('src/main/assets/synodal.sidx')
+
+tasks.register('createSynodalSearchIndex') {
+    dependsOn tasks.named('prepareSynodal')
+
+    inputs.file(bibleFile)
+    outputs.file(indexFile)
+
+    doLast {
+        def bible = new JsonSlurper().parse(bibleFile)
+
+        List<int[]> locations = []
+        Map<String, List<Integer>> postings = [:]
+
+        def addTerm = { String term, int verseId ->
+            List<Integer> ids = postings.get(term)
+
+            if (ids == null) {
+                ids = []
+                postings.put(term, ids)
+            }
+
+            if (ids.isEmpty() ||
+                    ids.get(ids.size() - 1) != verseId) {
+                ids.add(verseId)
+            }
+        }
+
+        bible.books
+                .sort { a,b -> a.bookId <=> b.bookId }
+                .each { book ->
+
+                    book.chapters
+                            .sort { a,b -> a.chapter <=> b.chapter }
+                            .each { chapter ->
+
+                                chapter.verses
+                                        .sort { a,b -> a.number <=> b.number }
+                                        .each { verse ->
+
+                                            int id = locations.size()
+
+                                            locations.add([
+                                                    book.bookId as int,
+                                                    chapter.chapter as int,
+                                                    verse.number as int
+                                            ] as int[])
+
+                                            String text = Normalizer.normalize(
+                                                    (verse.text ?: '').toString()
+                                                            .toLowerCase(Locale.ROOT),
+                                                    Normalizer.Form.NFKC
+                                            )
+                                                    .replace('ё', 'е')
+                                                    .replaceAll('[^\\p{L}\\p{Nd}]+', ' ')
+                                                    .trim()
+
+                                            if (!text.isEmpty()) {
+                                                text.split(' +').each { raw ->
+                                                    String word = stemWord(raw)
+
+                                                    addTerm('=' + word, id)
+
+                                                    if (word.length() >= 4) {
+                                                        addTerm(
+                                                                '#' + word.substring(0, 4),
+                                                                id
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                            }
+                }
+
+        // UTF-8-порядок нужен для двоичного поиска.
+        def compareUtf8 = { String x, String y ->
+            byte[] a = x.getBytes(StandardCharsets.UTF_8)
+            byte[] b = y.getBytes(StandardCharsets.UTF_8)
+
+            for (int k = 0;
+                 k < Math.min(a.length, b.length);
+                 k++) {
+
+                int c = (a[k] & 255) <=> (b[k] & 255)
+                if (c != 0) return c
+            }
+
+            return a.length <=> b.length
+        }
+
+        List<String> terms =
+                postings.keySet().toList().sort(compareUtf8)
+
+        indexFile.parentFile.mkdirs()
+
+        indexFile.withOutputStream { stream ->
+            DataOutputStream out =
+                    new DataOutputStream(
+                            new BufferedOutputStream(stream)
+                    )
+
+            int dictionaryAt =
+                    24 + locations.size() * 12
+
+            int postingsAt =
+                    dictionaryAt + terms.size() * 104
+
+            // Заголовок файла.
+            out.writeInt(0x53564958)
+            out.writeInt(1)
+            out.writeInt(locations.size())
+            out.writeInt(terms.size())
+            out.writeInt(dictionaryAt)
+            out.writeInt(postingsAt)
+
+            // Координаты всех стихов.
+            locations.each { int[] loc ->
+                loc.each { n -> out.writeInt(n) }
+            }
+
+            int offset = 0
+
+            // Словарь поисковых терминов.
+            terms.each { String term ->
+                byte[] bytes =
+                        term.getBytes(StandardCharsets.UTF_8)
+
+                if (bytes.length > 96) {
+                    throw new GradleException(
+                            'Слишком длинный поисковый термин: ' +
+                                    term
+                    )
+                }
+
+                out.write(bytes)
+                out.write(new byte[96 - bytes.length])
+
+                out.writeInt(offset * 4)
+                out.writeInt(postings[term].size())
+
+                offset += postings[term].size()
+            }
+
+            // Отсортированные списки стихов.
+            terms.each { term ->
+                postings[term].each { id ->
+                    out.writeInt(id)
+                }
+            }
+
+            out.flush()
+        }
+
+        logger.lifecycle(
+                "Search index ready: " +
+                        "${locations.size()} verses, " +
+                        "${terms.size()} terms"
+        )
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('createSynodalSearchIndex')
+}
+
+tasks.matching {
+    it.name.startsWith('merge') &&
+            it.name.endsWith('Assets')
+}.configureEach {
+    dependsOn tasks.named('createSynodalSearchIndex')
+}

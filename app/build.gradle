@@ -1,0 +1,62 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'org.biblememory.app'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'org.biblememory.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 27
+        versionName '0.21.5'
+
+    }
+    // Search index must be stored uncompressed for direct memory mapping.
+    androidResources {
+        noCompress += ['sidx']
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// The public-domain Russian Synodal text is bundled into the APK during build.
+// The application itself needs no network permission or runtime connection.
+def bibleAsset = file('src/main/assets/synodal.json')
+tasks.register('prepareSynodal') {
+    outputs.file(bibleAsset)
+    doLast {
+        if (bibleAsset.exists() && bibleAsset.length() > 1000000L) {
+            logger.lifecycle('Using bundled Synodal text: ' + bibleAsset.length() + ' bytes')
+            return
+        }
+        def url = 'https://raw.githubusercontent.com/midvash/bible-data/main/versions/ru/synodal/synodal.json'
+        logger.lifecycle('Downloading public-domain Synodal Bible once for packaging...')
+        bibleAsset.parentFile.mkdirs()
+        def tmp = new File(bibleAsset.parentFile, 'synodal.json.tmp')
+        try {
+            def connection = new URL(url).openConnection()
+            connection.setConnectTimeout(20000)
+            connection.setReadTimeout(60000)
+            connection.setRequestProperty('User-Agent','SlovoPamyat-Android-Build/0.1')
+            connection.inputStream.withCloseable { source ->
+                tmp.withOutputStream { target -> target << source }
+            }
+            def parsed = new groovy.json.JsonSlurper().parse(tmp)
+            if (!(parsed.books instanceof List) || parsed.books.size() != 66 ||
+                    parsed.books[0].bookId != 1 || parsed.books[65].bookId != 66) {
+                throw new GradleException('Invalid Bible file: expected 66 books')
+            }
+            java.nio.file.Files.move(tmp.toPath(), bibleAsset.toPath(),
+                 java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } catch (Exception e) {
+            tmp.delete()
+            throw new GradleException('Could not download full Synodal text for the APK. Connect the development computer to the Internet and rebuild.', e)
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn(tasks.named('prepareSynodal')) }
+
+
+apply from: 'search-index.gradle'

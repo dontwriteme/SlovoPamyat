@@ -1,0 +1,20 @@
+<resources>
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">#FFF1E8</item>
+        <item name="android:navigationBarColor">#FFFAF5</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#BC6448</item>
+        <item name="android:windowBackground">#FFF1E8</item>
+    </style>
+    <style name="MemoryDialogTheme" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/bg_memory_dialog</item>
+        <item name="android:colorAccent">#BC6448</item>
+        <item name="android:textColorPrimary">#27372D</item>
+        <item name="android:textColorSecondary">#735D51</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+</resources>
