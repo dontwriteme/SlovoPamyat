@@ -8,7 +8,7 @@ allprojects {
                 project.dependencies.add('testImplementation', 'org.robolectric:robolectric:4.14.1')
             project.android.sourceSets.test.java.srcDirs = [rootProject.file('tests')]
             project.android.sourceSets.test.java.exclude('search/**')
-            if(project.hasProperty('pickerModelOnly'))project.android.sourceSets.test.java.exclude('**/PickerIntegrationTest.java', '**/BookNavigationIconTest.java')
+            if(project.hasProperty('pickerModelOnly'))project.android.sourceSets.test.java.exclude('**/PickerIntegrationTest.java', '**/BookNavigationIconTest.java', '**/HomeNavigationIconTest.java')
             project.android.testOptions.unitTests.includeAndroidResources = true
             project.tasks.withType(Test).configureEach {
                 systemProperty 'user.home', gradle.gradleUserHomeDir.absolutePath
