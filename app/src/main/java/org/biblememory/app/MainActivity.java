@@ -477,9 +477,11 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        settleBibleIcons();
         if(store!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
+        settleBibleIcons();
         revealCleanup.run();
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)saveCardSession();
@@ -1653,14 +1655,20 @@ public final class MainActivity extends Activity {
             int ink=i==current?0xFFB7553D:MUTED;
             LinearLayout tab=column();tab.setGravity(Gravity.CENTER);
             tab.setPadding(dp(5),dp(3),dp(5),dp(3));
-            NavigationGlyph symbol=new NavigationGlyph(glyphs[i],ink);
+            View symbol=i==1 ? new BookNavigationIcon(this,ink,current==1)
+                    : new NavigationGlyph(glyphs[i],ink);
             LinearLayout.LayoutParams glyph=new LinearLayout.LayoutParams(dp(27),dp(27));
             glyph.gravity=Gravity.CENTER_HORIZONTAL;tab.addView(symbol,glyph);
             TextView name=txt(names[i],12,ink,i==current);
             name.setGravity(Gravity.CENTER);add(tab,name,1);
             tab.setClickable(true);tab.setFocusable(true);
             tab.setContentDescription("Открыть раздел "+names[i]);
-            tab.setOnClickListener(v->goToMainTab(index));
+            tab.setOnClickListener(v->{
+                if(index==1 && mainTabIndex()==1){
+                    animateBibleIcon(root,true,true);return;
+                }
+                goToMainTab(index);
+            });
             row.addView(tab,new LinearLayout.LayoutParams(0,dp(57),1));
         }
         floating.addView(row,new FrameLayout.LayoutParams(-1,dp(71)));
@@ -1680,6 +1688,19 @@ public final class MainActivity extends Activity {
             }else indicator.setTranslationX(slot*current);
         });
         lastNavIndex=current;
+    }
+    private void animateBibleIcon(View page, boolean selected, boolean previous) {
+        if(page==null)return;
+        BookNavigationIcon icon=page.findViewWithTag(BookNavigationIcon.TAG);
+        if(icon!=null)icon.transition(selected,previous);
+    }
+    private void settleBibleIcons() {
+        if(root!=null)settleBibleIcon(root);
+        for(ReadyTab tab:readyTabs.values())settleBibleIcon(tab.page);
+    }
+    private void settleBibleIcon(View page) {
+        BookNavigationIcon icon=page.findViewWithTag(BookNavigationIcon.TAG);
+        if(icon!=null)icon.settle();
     }
     private int mainTabIndex(){
         switch(screen){
@@ -1887,6 +1908,8 @@ public final class MainActivity extends Activity {
             }
         }
 
+        // The destination can be a cached page: animate its icon without rebuilding it.
+        if(oldIndex!=index)animateBibleIcon(root,index==1,oldIndex==1);
         final LinearLayout entering = root;
 
         if (leaving == null
@@ -6374,6 +6397,7 @@ public final class MainActivity extends Activity {
             .setMessage(ex.getMessage()).setPositiveButton("OK",null).show();}
     }
     @Override protected void onDestroy(){
+        settleBibleIcons();
         cancelBibleSearchWork();bibleSearchHandler.removeCallbacksAndMessages(null);bibleSearchExecutor.shutdownNow();
         homeHandler.removeCallbacks(homeTicker);super.onDestroy();if(store!=null)store.close();
     }
