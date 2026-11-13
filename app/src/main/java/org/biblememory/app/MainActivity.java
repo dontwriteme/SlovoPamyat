@@ -1679,7 +1679,7 @@ public final class MainActivity extends Activity {
                 if(index==1 && mainTabIndex()==1){
                     // Keep the normal section-root navigation before replaying the sheet.
                     goToMainTab(index);
-                    animateBibleIcon(root,true,true);return;
+                    animateBibleIcon(root,true,true,null);return;
                 }
                 goToMainTab(index);
             });
@@ -1716,10 +1716,10 @@ public final class MainActivity extends Activity {
         HomeNavigationIcon icon=page.findViewWithTag(HomeNavigationIcon.TAG);
         if(icon!=null)icon.settle();
     }
-    private void animateBibleIcon(View page, boolean selected, boolean previous) {
+    private void animateBibleIcon(View page, boolean selected, boolean previous, float[] state) {
         if(page==null)return;
         BookNavigationIcon icon=page.findViewWithTag(BookNavigationIcon.TAG);
-        if(icon!=null)icon.transition(selected,previous);
+        if(icon!=null)icon.transition(selected,previous,state);
     }
     private void settleBibleIcons() {
         if(root!=null)settleBibleIcon(root);
@@ -1825,6 +1825,9 @@ public final class MainActivity extends Activity {
             clearInsertionContext();
         }
 
+        // Read the visible icon before detaching the outgoing cached page.
+        BookNavigationIcon leavingBook=root==null?null:root.findViewWithTag(BookNavigationIcon.TAG);
+        final float[] bibleIconState=leavingBook==null?null:leavingBook.snapshot();
         final LinearLayout leaving = root;
         final LinearLayout leavingBody = content;
         final ScrollView leavingScroller = currentScroller;
@@ -1936,7 +1939,7 @@ public final class MainActivity extends Activity {
         }
 
         // The destination can be a cached page: animate its icon without rebuilding it.
-        if(oldIndex!=index)animateBibleIcon(root,index==1,oldIndex==1);
+        if(oldIndex!=index)animateBibleIcon(root,index==1,oldIndex==1,bibleIconState);
         if(oldIndex!=index && (oldIndex==0 || index==0))
             animateHomeIcon(root,index==0,oldIndex==0);
         final LinearLayout entering = root;

@@ -1,0 +1,9 @@
+// Framework-only tests: gradle -I tests/bible-icon-device.init.gradle :app:assembleDebugAndroidTest
+allprojects {
+    afterEvaluate { p ->
+        if(p.path==':app') {
+            p.android.defaultConfig.testInstrumentationRunner='org.biblememory.app.BibleIconCheck'
+            p.android.sourceSets.androidTest.java.srcDirs=[rootProject.file('tests/device')]
+        }
+    }
+}
