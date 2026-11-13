@@ -1,0 +1,10 @@
+// Framework-only instrumentation: no Robolectric or external Android test dependencies.
+// gradle -I tests/home-icon-device.init.gradle :app:assembleDebugAndroidTest
+allprojects {
+    afterEvaluate { p ->
+        if(p.path==':app') {
+            p.android.defaultConfig.testInstrumentationRunner='org.biblememory.app.HomeIconCheck'
+            p.android.sourceSets.androidTest.java.srcDirs=[rootProject.file('tests/device')]
+        }
+    }
+}

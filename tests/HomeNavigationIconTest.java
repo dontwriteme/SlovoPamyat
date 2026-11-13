@@ -42,7 +42,7 @@ public class HomeNavigationIconTest {
     @Test public void windowWarmsBeforeSmokeAndStaysLitAfterFiniteWelcome()throws Exception {
         assertEquals(0f,(Float)field("light"),0f);
         icon.transition(true,false);
-        frame(100);assertTrue((Float)field("light")>0f);assertTrue((Float)field("light")<1f);
+        frame(200);assertTrue((Float)field("light")>0f);assertTrue((Float)field("light")<1f);
         frame(400);assertEquals(1f,(Float)field("light"),0f);
         assertTrue((Boolean)field("smoking"));
         ValueAnimator motion=(ValueAnimator)field("animator");assertEquals(1050L,motion.getDuration());
@@ -75,14 +75,21 @@ public class HomeNavigationIconTest {
         assertNull(field("animator"));assertFalse((Boolean)field("smoking"));
         assertTrue(icon.isSelected());
     }
-    @Test public void disabledAndReducedMotionImmediatelyUseFinalState()throws Exception {
-        for(float setting:new float[]{0f,.5f}) {
+    @Test public void disabledMotionImmediatelyUsesFinalState()throws Exception {
+        for(float setting:new float[]{0f}) {
             scale(setting);icon.transition(true,false);
             assertEquals(1f,(Float)field("light"),0f);assertNull(field("animator"));
             assertFalse((Boolean)field("smoking"));
             icon.transition(false,true);
             assertEquals(0f,(Float)field("light"),0f);assertNull(field("animator"));
         }
+    }
+    @Test public void reducedDurationStillShowsSmoke()throws Exception {
+        scale(.5f);icon.transition(true,false);frame(450);
+        assertNotNull(field("animator"));assertTrue((Boolean)field("smoking"));
+        assertEquals(1f,(Float)field("light"),0f);
+        ((ValueAnimator)field("animator")).end();
+        assertNull(field("animator"));assertFalse((Boolean)field("smoking"));
     }
     private Object activityField(MainActivity activity,String name)throws Exception {
         Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);
