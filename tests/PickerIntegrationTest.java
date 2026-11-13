@@ -274,4 +274,73 @@ public class PickerIntegrationTest {
         assertNull(scroller.get(tab));searchInput().setText("");
         assertEquals(Integer.valueOf(123),saved.get(books));assertNotNull(text("Бытие"));
     }
+    private void reader(String destination,int book,int chapter)throws Exception {
+        set("selectedBook",book);set("selectedChapter",chapter);
+        set("screen",option("Screen",destination));invoke("render");
+    }
+    private void tapBibleTab()throws Exception {
+        View root=(View)field("root");
+        BookNavigationIcon icon=root.findViewWithTag(BookNavigationIcon.TAG);
+        assertNotNull(icon);((View)icon.getParent()).performClick();
+    }
+    private void layoutReader()throws Exception {
+        View page=(View)field("root");
+        page.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));
+        page.layout(0,0,1080,1920);
+        page.getViewTreeObserver().dispatchOnGlobalLayout();
+    }
+    @Test public void ordinaryReaderUsesAll176VerseNumbersAndBackStack()throws Exception {
+        reader("HOME",19,1);
+        tapBibleTab();assertEquals("BOOKS",field("screen").toString());
+        for(String book:Bible.NAMES)assertNotNull(text(book));
+        ((View)text("Псалтирь").getParent()).performClick();
+        assertEquals("CHAPTERS",field("screen").toString());
+        text("118").performClick();assertEquals("VERSES",field("screen").toString());
+        for(int number=1;number<=176;number++)assertNotNull(text(String.valueOf(number)));
+        assertNull(text("177"));
+        Object pickerBounds=field("passageSelection");
+        int pickerVerse=(Integer)field("pickerVerseNumber");
+        text("176").performClick();assertEquals("CHAPTER",field("screen").toString());
+        assertEquals(176,field("readerVerseNumber"));
+        assertEquals(pickerVerse,field("pickerVerseNumber"));assertSame(pickerBounds,field("passageSelection"));
+        assertTrue(store.entries(group).isEmpty());
+        TextView last=text(bible.chapter(19,118).get(175).text);assertNotNull(last);
+        View card=(View)last.getParent();Object highlighted=card.getBackground();
+        layoutReader();
+        assertTrue(((ScrollView)field("currentScroller")).getScrollY()>0);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1200));
+        assertNotSame(highlighted,card.getBackground());
+        activity.onBackPressed();assertEquals("VERSES",field("screen").toString());
+        assertNotNull(text("176"));activity.onBackPressed();
+        assertEquals("CHAPTERS",field("screen").toString());
+        activity.onBackPressed();assertEquals("BOOKS",field("screen").toString());
+    }
+    @Test public void bibleReselectReturnsFromEveryReaderLevelAndKeepsCatalogInstance()throws Exception {
+        for(String destination:new String[]{"CHAPTERS","VERSES","CHAPTER"}) {
+            reader(destination,19,118);tapBibleTab();
+            assertEquals("BOOKS",field("screen").toString());
+            for(String book:Bible.NAMES)assertNotNull(text(book));
+            BookNavigationIcon icon=((View)field("root")).findViewWithTag(BookNavigationIcon.TAG);
+            assertTrue(icon.isSelected());
+            View catalog=(View)field("root");tapBibleTab();
+            assertSame(catalog,field("root"));
+        }
+    }
+    @Test public void readerVerseChoiceDoesNotEditActiveCollectionRange()throws Exception {
+        invoke("openPickerRange");choose(false,5,3);choose(true,5,12);
+        int[] bounds=selection().bounds();
+        reader("CHAPTERS",19,118);text("118").performClick();text("176").performClick();
+        assertEquals("CHAPTER",field("screen").toString());
+        assertArrayEquals(bounds,selection().bounds());assertTrue(store.entries(group).isEmpty());
+    }
+    @Test public void readerFocusOverridesPreviouslySavedChapterScroll()throws Exception {
+        reader("CHAPTER",40,5);
+        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)field("savedScrollY");
+        saved.put(option("Screen","CHAPTER"),0);
+        reader("VERSES",40,5);text("40").performClick();layoutReader();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));
+        assertTrue(((ScrollView)field("currentScroller")).getScrollY()>0);
+    }
+
 }

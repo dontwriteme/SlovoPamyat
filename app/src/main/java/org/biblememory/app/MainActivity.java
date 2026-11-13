@@ -45,7 +45,7 @@ public final class MainActivity extends Activity {
     private static final int SUCCESS=0xFF4D815C, GOLD=0xFFD8A75C;
     private static final int PRIMARY_ON=0xFFFFFFFF;
     private static final int EXPORT=10,IMPORT=11;
-    private enum Screen {HOME,BOOKS,CHAPTERS,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,RUN,RUN_SUMMARY}
+    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,RUN,RUN_SUMMARY}
     private Screen screen=Screen.HOME;
     private static final String UNIFIED_PREFS="unified_library_ui";
     private long activeUnifiedId=-1,openUnifiedId=-1;
@@ -124,6 +124,8 @@ public final class MainActivity extends Activity {
     private TextView lessonHotbarCounter;
 
     private int weakVerse=-1,weakTransitionFrom=-1;
+    private int readerVerseNumber=1;
+    private boolean chapterFromVerseGrid=false;
     // One selection model shared by tapping verses and the chapter/verse range picker.
     private boolean selectingPassage=false; // legacy selection mode retained only for old saved preferences
     private int rangeStartChapter=-1,rangeStartVerse=-1,rangeEndChapter=-1,rangeEndVerse=-1;
@@ -428,7 +430,7 @@ public final class MainActivity extends Activity {
                 }catch(Exception ignored){ /* Preserve legacy rows for later recovery. */ }
             }
             catch(Exception ex) {bibleError=ex.getMessage()==null?"Невозможно открыть текст":ex.getMessage();}
-            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||isPickerScreen(screen)||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL){if(isBibleSearchScreen())renderBibleSearchKeepingInput();else render();}});
+            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.VERSES||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||isPickerScreen(screen)||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL){if(isBibleSearchScreen())renderBibleSearchKeepingInput();else render();}});
         },"BibleLoader").start();
     }
     private boolean isPickerScreen(Screen value){
@@ -542,7 +544,8 @@ public final class MainActivity extends Activity {
             case PICKER_TEXT:screen=Screen.PICKER_VERSES;render();break;
             case CARD_SESSION:saveCardSession();screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();break;
             case CHAPTERS:screen=Screen.BOOKS;render();break;
-            case CHAPTER:screen=Screen.CHAPTERS;render();break;
+            case VERSES:screen=Screen.CHAPTERS;render();break;
+            case CHAPTER:screen=chapterFromVerseGrid?Screen.VERSES:Screen.CHAPTERS;render();break;
             case ENTRIES:screen=Screen.HOME;render();break;
             case REORDER_STUDY:
                 {LocalStore.UnifiedCollection u=store.unifiedForGroup(selectedGroup);
@@ -1003,6 +1006,7 @@ public final class MainActivity extends Activity {
         if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();return;}
         if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
         for(int i=0;i<bottomModeButtons.length;i++)bottomModeButtons[i]=null;
+        boolean focusedReaderChapter=screen==Screen.CHAPTER && chapterFromVerseGrid && focusVerse>0;
         boolean virtualBibleSearch=isBibleSearchScreen()&&bibleSearchActive&&!bibleSearchLoading&&bibleSearchError.isEmpty();
         root=column();root.setBackground(pageBackground());
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
@@ -1014,6 +1018,7 @@ public final class MainActivity extends Activity {
             case HOME: renderHome();break;
             case BOOKS: if(!virtualBibleSearch)renderBooks();break;
             case CHAPTERS: renderChapters();break;
+            case VERSES: renderVerseGrid(true);break;
             case CHAPTER: renderChapter();break;
             case ENTRIES: renderEntries();break;
             case REORDER_STUDY: renderStudyReorder();break;
@@ -1082,7 +1087,7 @@ public final class MainActivity extends Activity {
             int y=pickerRestoredScroll;pickerRestoredScroll=-1;
             afterPickerLayout(content,()->{if(currentScroller==scroll)scroll.scrollTo(0,y);});
         }
-        if(!restoredPickerScroll && screen!=Screen.HOME && savedScrollY.containsKey(screen) &&
+        if(!restoredPickerScroll && !focusedReaderChapter && screen!=Screen.HOME && savedScrollY.containsKey(screen) &&
             !(screen==Screen.BOOKS&&bibleSearchActive) &&
             !(screen==Screen.PICKER_BOOKS&&bibleSearchActive) &&
             screen!=Screen.PICKER_TEXT){
@@ -1496,6 +1501,7 @@ public final class MainActivity extends Activity {
                     if (inPicker) {
                         screen = Screen.PICKER_TEXT;
                     } else {
+                        chapterFromVerseGrid = false;
                         screen = Screen.CHAPTER;
                     }
 
@@ -1671,6 +1677,8 @@ public final class MainActivity extends Activity {
                     animateHomeIcon(root,true,true);return;
                 }
                 if(index==1 && mainTabIndex()==1){
+                    // Keep the normal section-root navigation before replaying the sheet.
+                    goToMainTab(index);
                     animateBibleIcon(root,true,true);return;
                 }
                 goToMainTab(index);
@@ -1723,7 +1731,7 @@ public final class MainActivity extends Activity {
     }
     private int mainTabIndex(){
         switch(screen){
-            case BOOKS:case CHAPTERS:case CHAPTER:return 1;
+            case BOOKS:case CHAPTERS:case VERSES:case CHAPTER:return 1;
             case COLLECTIONS:case COLLECTION_DETAIL:case ENTRIES:case REORDER_STUDY:
             case CARDS:case CARD_DECK:case CARD_PICK:case CARD_SESSION:case REORDER_CARDS:return 2;
             case BIBLE_PICKER:case PICKER_BOOKS:case PICKER_CHAPTERS:
@@ -2718,7 +2726,8 @@ public final class MainActivity extends Activity {
             scroller.scrollTo(0,Math.max(0,row.getTop()-dp(8)));});
     }
     /** Four-column number grid, identical to the chapters grid. */
-    private void renderPickerVerseGrid(){
+    private void renderPickerVerseGrid(){renderVerseGrid(false);}
+    private void renderVerseGrid(boolean reader){
         if(bibleNotReady())return;
         List<Bible.Verse> verses=bible.chapter(selectedBook,selectedChapter);
         title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,"Стихи");
@@ -2733,23 +2742,26 @@ public final class MainActivity extends Activity {
                 final int verse=k;
                 int boundaryChapter=pickerChooseEnd?passageSelection.endChapter:passageSelection.startChapter;
                 int boundaryVerse=pickerChooseEnd?passageSelection.endVerse:passageSelection.startVerse;
-                boolean selected=passageSelection.active?
+                boolean selected=reader?verse==readerVerseNumber:passageSelection.active?
                     selectedChapter==boundaryChapter&&verse==boundaryVerse:verse==pickerVerseNumber;
                 TextView b=button(String.valueOf(verse),selected,()->{
-                    if(passageSelection.active){
+                    if(reader){
+                        readerVerseNumber=verse;focusVerse=verse;
+                        chapterFromVerseGrid=true;screen=Screen.CHAPTER;
+                    }else if(passageSelection.active){
                         passageSelection.setBoundary(pickerChooseEnd,selectedChapter,verse);
                         screen=Screen.BIBLE_PICKER;
                     }else{pickerVerseNumber=verse;focusVerse=verse;screen=Screen.PICKER_TEXT;}
                     render();
                 });
                 b.setPadding(dp(4),dp(4),dp(4),dp(4));
-                b.setContentDescription((passageSelection.active?"Выбрать стих ":"Открыть текст стиха ")+verse+
+                b.setContentDescription((!reader&&passageSelection.active?"Выбрать стих ":"Открыть текст стиха ")+verse+
                     (selected?", выбран":""));
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(50),1);
                 p.setMargins(dp(3),dp(4),dp(3),dp(4));r.addView(b,p);
             }
             add(content,r,2);
-            if(passageSelection.active){
+            if(!reader&&passageSelection.active){
                 int c=pickerChooseEnd?passageSelection.endChapter:passageSelection.startChapter;
                 int v=pickerChooseEnd?passageSelection.endVerse:passageSelection.startVerse;
                 if(selectedChapter==c&&v>=base&&v<base+4)scrollPickerGridTo(r,Screen.PICKER_VERSES);
@@ -3474,7 +3486,8 @@ public final class MainActivity extends Activity {
                     passageSelection.openBook(book);passageSelection.active=rangeActive;
                     pickerHasAnchor=false;
                     screen=Screen.PICKER_CHAPTERS;
-                }else {selectingPassage=false;clearPassageSelection();screen=Screen.CHAPTERS;}
+                }else {selectingPassage=false;clearPassageSelection();readerVerseNumber=1;
+                    savedScrollY.remove(Screen.VERSES);screen=Screen.CHAPTERS;}
                 render();
             });
             groupedRows.addView(line,new LinearLayout.LayoutParams(-1,-2));
@@ -3493,6 +3506,12 @@ public final class MainActivity extends Activity {
         getSharedPreferences("bible_last_chapter",MODE_PRIVATE).edit()
             .putInt(String.valueOf(book),chapter).apply();
     }
+    private void openReaderVerseGrid(int chapter) {
+        selectedChapter=chapter;readerVerseNumber=1;
+        rememberChapter(selectedBook,chapter);
+        savedScrollY.remove(Screen.VERSES);
+        screen=Screen.VERSES;render();
+    }
     private void renderChapters() {
         if(bibleNotReady())return;
         int n=bible.chapterCount(selectedBook);
@@ -3509,7 +3528,7 @@ public final class MainActivity extends Activity {
                     if(screen==Screen.PICKER_CHAPTERS&&!passageSelection.active&&selectedChapter!=c)pickerVerseNumber=1;
                     selectedChapter=c;
                     if(screen==Screen.PICKER_CHAPTERS)screen=Screen.PICKER_VERSES;
-                    else{rememberChapter(selectedBook,c);screen=Screen.CHAPTER;}
+                    else{openReaderVerseGrid(c);return;}
                     render();
                 });
                 if(screen==Screen.PICKER_CHAPTERS){
@@ -3568,7 +3587,15 @@ public final class MainActivity extends Activity {
             LinearLayout c=card(content);
             if(highlighted){
                 c.setBackground(outlined(0xFFEDEBDD,20,SUCCESS));
-                c.post(()->{if(currentScroller!=null){
+                if(chapterFromVerseGrid){
+                    final ScrollView scroller=currentScroller;
+                    afterPickerLayout(c,()->{if(screen==Screen.CHAPTER&&currentScroller==scroller){
+                        scroller.scrollTo(0,Math.max(0,c.getTop()-dp(30)));
+                        c.postDelayed(()->{
+                            if(currentScroller==scroller)c.setBackground(outlined(CARD,22,BORDER));
+                        },1100);
+                    }});
+                }else c.post(()->{if(currentScroller!=null){
                     int top=c.getTop();View node=c.getParent() instanceof View?(View)c.getParent():null;
                     if(node!=null)top+=node.getTop();
                     currentScroller.smoothScrollTo(0,Math.max(0,top-dp(30)));
@@ -3577,7 +3604,7 @@ public final class MainActivity extends Activity {
             }
             LinearLayout head=row();
             head.addView(txt(verse.ref,14,bookInk(selectedBook),true));
-            if(highlighted){TextView tick=txt("✓ Выбран",12,GREEN,true);
+            if(highlighted&&!chapterFromVerseGrid){TextView tick=txt("✓ Выбран",12,GREEN,true);
                 head.addView(tick);}
             add(c,head,0);
             add(c,prose(verse.text,19),8);
@@ -3651,8 +3678,7 @@ public final class MainActivity extends Activity {
                 if(numberFilter<=total){
                     final int selection=numberFilter;
                     TextView one=button("Глава "+selection,true,()->{
-                        dialog.dismiss();selectedChapter=selection;
-                        rememberChapter(selectedBook,selection);render();
+                        dialog.dismiss();openReaderVerseGrid(selection);
                     });
                     add(list,one,5);
                 }else helper(list,"В этой книге только "+total+" глав.");
@@ -3664,8 +3690,7 @@ public final class MainActivity extends Activity {
                     if(k>total){row.addView(new View(this),new LinearLayout.LayoutParams(0,dp(52),1));continue;}
                     final int chapter=k;
                     TextView b=button(String.valueOf(k),k==selectedChapter,()->{
-                        dialog.dismiss();selectedChapter=chapter;
-                        rememberChapter(selectedBook,chapter);render();
+                        dialog.dismiss();openReaderVerseGrid(chapter);
                     });
                     LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(52),1);
                     p.setMargins(dp(3),dp(4),dp(3),dp(4));row.addView(b,p);
