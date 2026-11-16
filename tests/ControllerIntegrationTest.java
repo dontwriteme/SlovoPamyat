@@ -40,6 +40,18 @@ public class ControllerIntegrationTest {
         public SharedPreferences gapPreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("gap_rotation",0);}
         public boolean collectionQueueActive(){return false;}
         public int lessonTileLimit(){return 14;}
+        public Screen screen(){return readerScreen;}
+        public void navigate(Screen destination){readerScreen=destination;renders++;}
+        public boolean collectionStepPending(){return false;}
+        public void collectionStepStarted(){}
+        public boolean collectionQueueReady(){return false;}
+        public boolean cardStudyActive(){return false;}
+        public void advanceCollection(){}
+        public void advanceCardStudy(){}
+        public void saveCardCheckpoint(){}
+        public void leaveLesson(){readerScreen=Screen.HOME;}
+        public void writingErrors(LocalStore.Entry entry,String expected,String actual,boolean detailed){message=actual;}
+        public void markInlineAnswers(boolean[] correct){}
         public void render(){renders++;}
         public void toast(String text){message=text;}
     });}
@@ -220,6 +232,37 @@ public class ControllerIntegrationTest {
         CollectionController restored=collections();restored.restoreCollectionQueue();assertEquals(Arrays.asList(entry.id,second),restored.collectionQueue);
         assertTrue(restored.resumeCollectionTraining());assertEquals(entry.id,openedEntry);restored.advanceStudyCollection();assertEquals(second,openedEntry);
         restored.advanceStudyCollection();assertEquals(Screen.HOME,readerScreen);assertTrue(restored.collectionQueue.isEmpty());
+    }
+
+    @Test public void correctedWritingAfterFeedbackRequiresAFreshUnaidedAttempt(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();store.finishExercise(entry.id,0,3);
+        session.selectedEntry=entry.id;session.activeEntry=entry;session.activeStep=new StudyPlanLogic.Step(0,1,"1:1");
+        session.trainingMode=StudySessionController.TrainingMode.TYPE;session.draft="Неправильный ответ";session.validateLessonWriting(entry);
+        assertTrue(session.lessonWriteHadFeedback);assertFalse(session.passed);assertEquals(3,store.exerciseDone(entry.id,0));
+        session.draft="Слово истины";session.validateLessonWriting(entry);
+        assertFalse(session.lessonWriteHadFeedback);assertFalse(session.passed);assertEquals("",session.draft);
+        assertFalse(store.isStepMastered(entry.id,"VERSE",0,1));assertEquals(3,store.exerciseDone(entry.id,0));
+        session.draft="Слово истины";session.validateLessonWriting(entry);
+        assertTrue(session.passed);assertTrue(session.checked);assertEquals(5,store.exerciseDone(entry.id,0));assertTrue(store.isStepMastered(entry.id,"VERSE",0,1));
+    }
+    @Test public void combinedReviewRecordsEachVerseWithoutMasteringASyntheticChain(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();
+        LocalStore.DueItem due=new LocalStore.DueItem(entry.id,"VERSE_RUN",0,2,0);session.openReview(due);
+        session.activeEntry=entry;session.activeStep=session.forcedStep;session.draft="Слово истины Слово живо";session.validateLessonWriting(entry);
+        assertTrue(session.passed);assertFalse(store.isStepMastered(entry.id,"CHAIN",0,2));
+        try(android.database.Cursor rows=store.getReadableDatabase().rawQuery("SELECT first_line,last_line,last_score FROM review_schedule WHERE entry_id=? ORDER BY first_line",new String[]{String.valueOf(entry.id)})){
+            assertEquals(2,rows.getCount());assertTrue(rows.moveToFirst());assertEquals(0,rows.getInt(0));assertEquals(1,rows.getInt(1));
+            assertTrue(rows.moveToNext());assertEquals(1,rows.getInt(0));assertEquals(2,rows.getInt(1));
+        }
+        assertEquals(0,store.exerciseDone(entry.id,0));
+    }
+    @Test public void finishingReviewQueueClearsOnlyItsCheckpointAndReturnsHome(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();
+        session.reviewQueue.add(new LocalStore.DueItem(entry.id,"VERSE",0,1,0));session.openReview(session.reviewQueue.get(0));
+        SharedPreferences saved=RuntimeEnvironment.getApplication().getSharedPreferences("study_session",0);
+        saved.edit().putBoolean("review_pending",true).putString("entry_"+entry.id+"_draft","ordinary draft").apply();
+        session.advanceReviewSession();assertEquals(Screen.HOME,readerScreen);assertFalse(session.reviewMode);assertTrue(session.reviewQueue.isEmpty());
+        assertFalse(saved.getBoolean("review_pending",false));assertEquals("ordinary draft",saved.getString("entry_"+entry.id+"_draft",""));
     }
 
 }

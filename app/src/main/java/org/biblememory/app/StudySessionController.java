@@ -13,6 +13,18 @@ final class StudySessionController {
         SharedPreferences gapPreferences();
         boolean collectionQueueActive();
         int lessonTileLimit();
+        Screen screen();
+        void navigate(Screen destination);
+        boolean collectionStepPending();
+        void collectionStepStarted();
+        boolean collectionQueueReady();
+        boolean cardStudyActive();
+        void advanceCollection();
+        void advanceCardStudy();
+        void saveCardCheckpoint();
+        void leaveLesson();
+        void writingErrors(LocalStore.Entry entry,String expected,String actual,boolean detailed);
+        void markInlineAnswers(boolean[] correct);
         void render();
         void toast(String message);
     }
@@ -603,5 +615,323 @@ final class StudySessionController {
         LocalStore.UnifiedCollection collection=ports.store().unifiedCollection(runCollectionId);
         runLines.clear();if(collection!=null)buildRunLines(collection);
         runCursor=Math.max(0,Math.min(runCursor,runLines.size()));
+    }
+    void practiceFragment(String fragment){
+        weakFragmentText=fragment;practiceWeakFragment=true;draft="";
+        saveTrainingSession();ports.render();
+    }
+
+    void startReviewSession() {
+        reviewQueue.clear();reviewPointer=0;
+        List<ReviewQueueLogic.Item> raw=new ArrayList<>();
+        Set<String> reviewSeen=new HashSet<>();
+        for(LocalStore.DueItem due:ports.store().dueItems(System.currentTimeMillis())){
+            LocalStore.Entry source=ports.store().entry(due.entryId);
+            if(source==null || (reviewCollectionGroup>0 &&
+                !ports.store().belongsToGroupMaterial(reviewCollectionGroup,due)))continue;
+            // Across collections, check each identical Bible segment only once.
+            String key="entry:"+due.entryId+":"+due.stage+":"+due.start+":"+due.end;
+            List<Bible.Verse> lines=source.lines();
+            if(bookForEntry(source)>0 && due.start>=0 && due.end<=lines.size() && due.start<due.end){
+                StringBuilder unique=new StringBuilder("bible:").append(bookForEntry(source))
+                    .append(':').append(due.stage);
+                for(int i=due.start;i<due.end;i++)unique.append('|').append(lines.get(i).ref)
+                    .append('~').append(lines.get(i).text);
+                key=unique.toString();
+            }
+            if(reviewSeen.add(key))raw.add(new ReviewQueueLogic.Item(
+                due.entryId,due.stage,due.start,due.end,due.due));
+        }
+        List<ReviewQueueLogic.Item> items=ReviewQueueLogic.plan(raw,new ReviewQueueLogic.Source(){
+            @Override public List<String> references(long id){
+                LocalStore.Entry e=ports.store().entry(id);List<String> refs=new ArrayList<>();
+                if(e!=null)for(Bible.Verse v:e.lines())refs.add(v.ref);return refs;
+            }
+            @Override public List<String> texts(long id){
+                LocalStore.Entry e=ports.store().entry(id);List<String> texts=new ArrayList<>();
+                if(e!=null)for(Bible.Verse v:e.lines())texts.add(v.text);return texts;
+            }
+        });
+        for(ReviewQueueLogic.Item item:items)
+            reviewQueue.add(new LocalStore.DueItem(item.entryId,item.stage,item.start,item.end,item.due));
+        android.content.SharedPreferences old=ports.studyPreferences();
+        if(old.getBoolean("review_pending",false)){
+            long id=old.getLong("review_review_entry",-1);
+            LocalStore.Entry e=ports.store().entry(id);
+            int a=old.getInt("review_begin",-1),b=old.getInt("review_end",-1);
+            String stage=old.getString("review_review_stage","");
+            if(e!=null && (reviewCollectionGroup<0 ||
+                ports.store().belongsToGroupMaterial(reviewCollectionGroup,
+                    new LocalStore.DueItem(id,stage,a,b,0))) &&
+                a>=0&&b>a&&b<=e.lines().size() &&
+                ("VERSE_RUN".equals(stage)||"VERSE".equals(stage)||"CHAIN".equals(stage)||
+                 "SECTION".equals(stage)||"CHAPTER".equals(stage))){
+                final long targetId=id;final int first=a,last=b;
+                // A saved unfinished review takes precedence; avoid duplicate overlapping tasks.
+                reviewQueue.removeIf(t->t.entryId==targetId && t.start<last && first<t.end);
+                reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,0));
+            }else old.edit().remove("review_pending").apply();
+        }
+        if(reviewQueue.isEmpty()){ports.navigate(Screen.DUE);return;}
+        LocalStore.DueItem first=reviewQueue.get(0);
+        boolean restore=old.getBoolean("review_pending",false) &&
+            old.getLong("review_review_entry",-1)==first.entryId &&
+            old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end;
+        openReview(first);
+        if(restore){
+            draft=old.getString("review_draft","");
+            lessonWriteHadFeedback=old.getBoolean("review_lesson_had_feedback",false);
+            ports.render();
+        }
+    }
+
+    void openReview(LocalStore.DueItem item){
+        LocalStore.Entry e=ports.store().entry(item.entryId);if(e==null)return;
+        selectedEntry=item.entryId;lessonPracticeAgain=false;
+        // VERSE_RUN is a temporary coherent unit, never recorded as a mastered group.
+        studyStage="VERSE_RUN".equals(item.stage)?StudyPlanLogic.Stage.CHAIN:
+            StudyPlanLogic.Stage.valueOf(item.stage);
+        forcedStep=new StudyPlanLogic.Step(item.start,item.end,"Повторение · "+e.lines().get(item.start).ref);
+        currentReview=item;groupMode=false;reviewMode=true;stepCursor=0;
+        weakVerse=-1;weakTransitionFrom=-1;
+        mask=0;checked=false;passed=false;draft="";testAssisted=false;lastAccuracy=-1;
+        lessonWriteHadFeedback=false;lessonPracticeAgain=false;
+        trainingMode=StudySessionController.TrainingMode.TYPE;resetWordTiles();ports.navigate(Screen.TRAIN);
+    }
+
+    void advanceReviewSession(){
+        reviewPointer++;
+        if(reviewPointer<reviewQueue.size()){openReview(reviewQueue.get(reviewPointer));return;}
+        reviewMode=false;forcedStep=null;currentReview=null;reviewQueue.clear();reviewPointer=0;
+        ports.studyPreferences().edit().remove("review_pending").apply();
+        ports.navigate(Screen.HOME);ports.toast("Все запланированные повторения завершены");
+    }
+
+    void rememberRecent(long id) {
+        JSONArray updated=new JSONArray();updated.put(id);
+        int count=1;
+        for(Long prev:recentIds()) {
+            if(prev==id || ports.store().entry(prev)==null)continue;
+            updated.put(prev);
+            if(++count>=7)break;
+        }
+        ports.studyPreferences().edit().putString("recent",updated.toString()).apply();
+    }
+
+    List<Long> recentIds() {
+        List<Long> ids=new ArrayList<>();
+        try {
+            JSONArray array=new JSONArray(ports.studyPreferences()
+                .getString("recent","[]"));
+            for(int i=0;i<Math.min(7,array.length());i++)ids.add(array.getLong(i));
+        }catch(JSONException ex){ /* Corrupt metadata must not block the app. */ }
+        return ids;
+    }
+
+    void openTraining(long id) {
+        reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
+        if(ports.screen()==Screen.TRAIN)saveTrainingSession();
+        if(ports.screen()==Screen.CARD_SESSION)ports.saveCardCheckpoint();
+        selectedEntry=ports.store().canonicalStudyEntryId(id);
+        id=selectedEntry;
+        LocalStore.Entry entry=ports.store().entry(id);
+        if(entry==null){ports.toast("Отрывок не найден");ports.navigate(Screen.HOME);return;}
+        android.content.SharedPreferences linked=ports.studyPreferences();
+        String lk="linked_"+id+"_";
+        if(linked.getBoolean(lk+"pending",false)){
+            int a=linked.getInt(lk+"begin",0),b=linked.getInt(lk+"end",0);
+            String stage=linked.getString(lk+"group_stage","CHAIN");
+            if(a>=0&&b>a&&b<=entry.lines().size()&&
+                !ports.store().isStepMastered(id,stage,a,b)){
+                GroupLearningLogic.Candidate cand=GroupLearningLogic.candidate(stage,a,b,"Продолжить связку");
+                returnVerseCursor=linked.getInt(lk+"return_cursor",0);
+                openGroup(cand);restoreTrainingSession(id,true);
+                returnVerseCursor=linked.getInt(lk+"return_cursor",0);ports.render();return;
+            }
+            linked.edit().remove(lk+"pending").apply();
+        }
+        if(!restoreTrainingSession(id)){
+            selectRecommendation(entry);resetTrainingStep(entry);
+        } else if(trainingMode!=StudySessionController.TrainingMode.TYPE) {
+            List<StudyPlanLogic.Step> steps=studySteps(entry);
+            if(!steps.isEmpty()) {
+                StudyPlanLogic.Step current=steps.get(Math.min(stepCursor,steps.size()-1));
+                testAssisted=ports.store().isStepMastered(entry.id,studyStage.name(),current.start,current.end);
+            }
+        }
+        // If an old session points beyond the newly protected lesson boundary, restore safely.
+        if(studyStage==StudyPlanLogic.Stage.VERSE)
+            stepCursor=Math.min(stepCursor,ports.store().unlockedPosition(id,entry.lines().size()));
+        if(ports.collectionQueueActive() && ports.collectionStepPending()){
+            // Revisit every record even if it was previously mastered. Do not erase progress.
+            studyStage=StudyPlanLogic.Stage.VERSE;
+            stepCursor=0;groupMode=false;forcedStep=null;
+            checked=false;passed=false;draft="";
+            lessonWriteHadFeedback=false;lessonPracticeAgain=false;
+            resetTrainingStep(entry);ports.collectionStepStarted();
+        }
+        rememberRecent(id);saveTrainingSession();
+        ports.navigate(Screen.TRAIN);
+    }
+
+    void followRecommendation(LocalStore.Entry e) {
+        selectRecommendation(e);resetTrainingStep(e);saveTrainingSession();ports.render();
+    }
+
+    void openGroup(GroupLearningLogic.Candidate group){
+        if(!groupMode) returnVerseCursor=studyStage==StudyPlanLogic.Stage.VERSE?stepCursor:
+            ports.store().firstUnmastered(selectedEntry,ports.store().entry(selectedEntry).lines().size());
+        reviewMode=false;groupMode=true;currentReview=null;
+        ports.studyPreferences().edit().putBoolean("linked_"+selectedEntry+"_pending",true).apply();
+        studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
+        forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
+        stepCursor=0;resetWordTiles();mask=0;draft="";checked=false;passed=false;
+        lessonVariant=0;lessonChunk=0;
+        testAssisted=false;lessonWriteHadFeedback=false;lessonPracticeAgain=false;
+        lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;practiceWeakFragment=false;weakFragmentText="";resetLessonTiles();
+        trainingMode=StudySessionController.TrainingMode.ORDER;ports.navigate(Screen.TRAIN);
+    }
+
+    void advanceAfterSuccess(LocalStore.Entry e){
+        final GroupLearningLogic.Candidate pending=!reviewMode&&!groupMode?
+            pendingAfterCurrent(e,activeStep.start):null;
+        if(reviewMode){advanceReviewSession();}
+        else if(groupMode){
+            ports.studyPreferences().edit()
+                .remove("linked_"+selectedEntry+"_pending").apply();
+            groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;
+            stepCursor=returnVerseCursor;resetTrainingStep(e);saveTrainingSession();
+            GroupLearningLogic.Candidate more=pendingAfterCurrent(e,stepCursor);
+            if(more!=null){openGroup(more);return;}
+            if(stepCursor+1<e.lines().size()){
+                stepCursor++;resetTrainingStep(e);saveTrainingSession();ports.render();
+            }else if(ports.collectionQueueReady()){advanceStudyCollectionAfterGroups(e);}
+            else if(ports.cardStudyActive()){ports.advanceCardStudy();}
+            else ports.render();
+        }else if(pending!=null)openGroup(pending);
+        else if(activeStep.end<e.lines().size()){
+            stepCursor=activeStep.end;studyStage=StudyPlanLogic.Stage.VERSE;
+            resetTrainingStep(e);saveTrainingSession();ports.render();
+        }else if(ports.collectionQueueReady())advanceStudyCollectionAfterGroups(e);
+        else if(ports.cardStudyActive())ports.advanceCardStudy();
+        else ports.leaveLesson();
+    }
+
+    void advanceStudyCollectionAfterGroups(LocalStore.Entry e){
+        GroupLearningLogic.Candidate unfinished=nextGroup(e);
+        if(unfinished!=null){openGroup(unfinished);return;}
+        ports.advanceCollection();
+    }
+
+    void validateLessonWriting(LocalStore.Entry e){
+        List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
+        lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
+        LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
+        boolean full=kind==LessonCurriculumLogic.Variant.FULL;
+        String original=writingExpected(e,kind);
+        String entered=full?draft:InlineGapLogic.response(inlineDrafts);
+        if(entered.trim().isEmpty()){ports.toast("Напиши текст, затем нажми «Проверить»");return;}
+        List<String> refs=new ArrayList<>();
+        for(Bible.Verse line:e.lines().subList(activeStep.start,activeStep.end))refs.add(line.ref);
+        boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
+        boolean exact=AcceptedTextLogic.exact(original,entered,special);
+        original=AcceptedTextLogic.bestExpected(original,entered,special);
+        int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
+        if(practiceWeakFragment){
+            if(!exact){
+                ports.writingErrors(e,original,entered,false);
+                return;
+            }
+            practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
+            lessonWriteVariant=LessonCurriculumLogic.variants(
+                ReviewLogic.words(PassageText.join(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
+            if(reviewMode)lessonWriteVariant=0;
+            saveTrainingSession();ports.render();
+            ports.toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");
+            return;
+        }
+        if(exact && !full){
+            lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
+            lessonSeed=new Random().nextLong();saveTrainingSession();ports.render();return;
+        }
+        long now=System.currentTimeMillis();
+        if(!exact && !full){
+            boolean[] correct=new boolean[Math.min(inlineExpected.size(),inlineDrafts.length)];
+            for(int i=0;i<correct.length;i++)correct[i]=LessonCurriculumLogic.exact(inlineExpected.get(i),inlineDrafts[i]);
+            ports.markInlineAnswers(correct);
+            ports.writingErrors(e,original,entered,false);
+            return;
+        }
+        if(!exact){
+            weakVerse=-1;weakTransitionFrom=-1;
+            if(!(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)))
+                ports.store().recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
+            lessonWriteHadFeedback=true;
+            saveTrainingSession();
+            lastAccuracy=accuracy;lastExpected=original;
+            if(activeStep.end-activeStep.start>1){
+                List<String> sources=new ArrayList<>();
+                for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))sources.add(v.text);
+                WeakTransitionLogic.WeakSpot weak=WeakTransitionLogic.locate(sources,entered);
+                weakVerse=activeStep.start+weak.verseIndex;
+                weakTransitionFrom=weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
+                if(weakVerse>=activeStep.start && weak.errors>0){
+                    ports.store().rescheduleWeakVerse(e.id,weakVerse,now);
+                    if(weakTransitionFrom>=0)
+                        ports.store().recordWeakTransition(e.id,weakTransitionFrom,weakVerse,now);
+                }
+            }
+            ports.writingErrors(e,original,entered,true);
+            if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
+                // A failed combined attempt is attributed only to the weak verse.
+                // Other due verses remain due; none is falsely marked as successfully recalled.
+                if(weakVerse>=activeStep.start && weakVerse<activeStep.end){
+                    ports.store().recordRecall(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
+                    ports.store().scheduleReview(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
+                }
+            } else if(reviewMode || groupMode || studyStage!=StudyPlanLogic.Stage.VERSE)
+                ports.store().scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
+            return;
+        }
+        if(lessonWriteHadFeedback){
+            // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
+            ports.store().recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,true,now);
+            lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
+            ports.render();
+            ports.toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
+            return;
+        }
+        if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
+            for(int i=activeStep.start;i<activeStep.end;i++){
+                ports.store().recordRecall(e.id,"VERSE",i,i+1,100,false,now);
+                ports.store().scheduleReview(e.id,"VERSE",i,i+1,100,false,now);
+            }
+        }else{
+            ports.store().recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
+            ports.store().scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
+            if(!ports.store().isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end))
+                ports.store().markMastered(e.id,activeStep.start,activeStep.end,100,studyStage.name());
+        }
+        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE)
+            ports.store().finishExercise(e.id,activeStep.start,5);
+        lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
+        if(reviewMode)ports.studyPreferences().edit()
+            .remove("review_pending").apply();
+        if(!reviewMode&&!groupMode)saveTrainingSession();
+        ports.render();
+    }
+
+    void finishRunLine(){
+        if(runLines.isEmpty())return;
+        StudySessionController.RunLine line=runLines.get(runCursor);
+        if(runChecked&&runPassed)runCorrect++;
+        else runMistakes.add(line.reference);
+        runCursor++;runDraft="";runChecked=false;runPassed=false;
+        if(runCursor>=runLines.size()){
+            saveCompletedRun();
+            ports.runPreferences().edit()
+                .remove(runKey(runCollectionId)+"active").apply();
+            ports.navigate(Screen.RUN_SUMMARY);
+        }else{saveRunSession();ports.render();}
     }
 }

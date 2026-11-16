@@ -131,4 +131,13 @@ public class ActivityRecreationIntegrationTest {
         lifecycle.pause().stop().destroy();lifecycle=Robolectric.buildActivity(MainActivity.class).create(restored).start().resume();activity=lifecycle.get();store=(LocalStore)get("store");finishLoading();
         assertEquals(Screen.TRAIN,get("screen"));assertEquals("Ответ перед выгрузкой",input(root()).getText().toString());assertEquals(3,store.exerciseDone(entry,0));
     }
+    @Test public void failedWritingKeepsFeedbackAndStillDemandsAFreshAttempt()throws Exception{
+        store.finishExercise(entry,0,3);call("openTraining",new Class<?>[]{long.class},entry);input(root()).setText("Неверный ответ");
+        study().validateLessonWriting(store.entry(entry));assertTrue(study().lessonWriteHadFeedback);recreate();
+        assertTrue(study().lessonWriteHadFeedback);assertEquals("Неверный ответ",input(root()).getText().toString());
+        ViewGroup errors=(ViewGroup)get("lessonErrorArea");assertTrue(errors.getChildCount()>0);
+        input(root()).setText("Слово истины");study().validateLessonWriting(store.entry(entry));
+        assertFalse(study().passed);assertEquals("",study().draft);assertEquals(3,store.exerciseDone(entry,0));
+    }
+
 }

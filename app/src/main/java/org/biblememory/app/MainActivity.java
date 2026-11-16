@@ -49,18 +49,8 @@ public final class MainActivity extends Activity {
     private Screen screen=Screen.HOME;
     private Screen pendingRestoredScreen;
     private int pendingRestoredY,pendingSearchPosition,pendingSearchTop;
-    private boolean pendingSearchScroll;
+    private boolean pendingSearchScroll,pendingLessonFeedback;
     private static final String UNIFIED_PREFS="unified_library_ui";
-
-
-
-
-
-
-
-
-
-
 
     private LocalStore store;
     private final CollectionController collectionActions=new CollectionController(new CollectionController.Ports(){
@@ -73,7 +63,7 @@ public final class MainActivity extends Activity {
         public int readerBook(){return bibleReader.selectedBook;}
         public void stopCardStudy(){flashcardSession.stopCardStudy();}
         public boolean hasPendingGroup(LocalStore.Entry entry){return studySession.nextGroup(entry)!=null;}
-        public void openTraining(long entry){MainActivity.this.openTraining(entry);}
+        public void openTraining(long entry){studySession.openTraining(entry);}
         public void navigate(Screen destination){screen=destination;MainActivity.this.render();}
         public void toast(String message){MainActivity.this.toast(message);}
         public void clearRunHistory(long collection){studySession.clearRunHistory(collection);}
@@ -109,6 +99,18 @@ public final class MainActivity extends Activity {
         public android.content.SharedPreferences runPreferences(){return getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);}
         public android.content.SharedPreferences gapPreferences(){return getSharedPreferences("gap_rotation",MODE_PRIVATE);}
         public boolean collectionQueueActive(){return collectionActions.executingCollectionQueue;}
+        public Screen screen(){return screen;}
+        public void navigate(Screen destination){screen=destination;MainActivity.this.render();}
+        public boolean collectionStepPending(){return collectionActions.collectionQueueNewStep;}
+        public void collectionStepStarted(){collectionActions.collectionQueueNewStep=false;}
+        public boolean collectionQueueReady(){return collectionActions.executingCollectionQueue&&collectionActions.collectionQueueCursor>=0;}
+        public boolean cardStudyActive(){return flashcardSession.cardStudyCursor>=0;}
+        public void advanceCollection(){collectionActions.advanceStudyCollection();}
+        public void advanceCardStudy(){MainActivity.this.advanceCardStudy();}
+        public void saveCardCheckpoint(){flashcardSession.saveCardSession();}
+        public void leaveLesson(){onBackPressed();}
+        public void writingErrors(LocalStore.Entry entry,String expected,String actual,boolean detailed){showWritingErrors(entry,expected,actual,detailed);}
+        public void markInlineAnswers(boolean[] correct){for(int i=0;i<correct.length&&i<inlineFields.size();i++)inlineFields.get(i).setBackgroundTintList(android.content.res.ColorStateList.valueOf(correct[i]?GREEN:RED));}
         public int lessonTileLimit(){return lessonMaxTiles();}
         public void render(){MainActivity.this.render();}
         public void toast(String message){MainActivity.this.toast(message);}
@@ -118,20 +120,6 @@ public final class MainActivity extends Activity {
         public android.content.SharedPreferences preferences(){return getSharedPreferences("card_sessions",MODE_PRIVATE);}
     });
 
-
-
-
-
-
-
-     // A text created via a collection menu belongs to that collection.
-
-
-
-
-
-
-
     private ScrollView currentScroller;
     // The Home page is a single scroll surface; its expansion and scroll position survive navigation.
     private static final String HOME_UI_PREFS="home_ui";
@@ -140,7 +128,6 @@ public final class MainActivity extends Activity {
     private boolean homeScrollRestored=false;
     private Screen lastRenderedScreen=null;
     private ValueAnimator collectionAnimator;
-
 
     private int homeIndex=0;
     private static final int[][] HOME_REFS={{19,118,11},{40,5,14},{43,14,6},{45,12,21},{50,4,13},{40,6,33}};
@@ -153,21 +140,9 @@ public final class MainActivity extends Activity {
     private final TextView[] bottomModeButtons=new TextView[3];
     private static final String SESSION_PREFS="study_session";
 
-
-
-
-
-
-
-
-
     // Three-phase fullscreen lesson: stable footer, adaptive word-tile exercises.
 
-
-
-
     private Runnable revealCleanup=()->{};
-
 
     private TextView lessonBuildPrompt,lessonBuildCounter,lessonBuildError,lessonBuildAction;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
@@ -176,44 +151,9 @@ public final class MainActivity extends Activity {
     private final List<List<TextView>> lessonHotbarCells=new ArrayList<>();
     private TextView lessonHotbarCounter;
 
-
-
-
-    // One selection model shared by tapping verses and the chapter/verse range picker.
-     // legacy selection mode retained only for old saved preferences
-
-
-
-
-
     private final List<EditText> inlineFields=new ArrayList<>();
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private final EnumMap<Screen,Integer> savedScrollY=new EnumMap<>(Screen.class);
-
-
-
-
-
-
-    // Each subsequent choice goes after the last inserted item, not the original anchor.
-
-
-
 
     private static final class ReadyTab {
         final LinearLayout page;
@@ -416,7 +356,6 @@ public final class MainActivity extends Activity {
         });
     }
 
-
     private ValueAnimator tabSwitchAnimator;
     private LinearLayout tabSwitchLeaving,tabSwitchEntering;
     private boolean tabSwitchInProgress=false;
@@ -425,38 +364,9 @@ public final class MainActivity extends Activity {
     private boolean swipeIntercepted=false;
     private int lastNavIndex=0;
 
-
-
-
-
-
-
-
-
-
-
-
     private final List<View> pickerQuickButtons=new ArrayList<>();
     private TextView pickerSelectionLabel,pickerSaveButton;
     private LinearLayout pickerSelectionPanel;
-
-
-
-
-    // A card collection is studied as separate saved passages, never as one concatenated text.
-
-
-
-
-
-    // Preserve the mask of the current unfinished GAPS exercise across renders and restarts.
-
-
-
-
-
-
-
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -518,6 +428,7 @@ public final class MainActivity extends Activity {
         if(state.getBoolean("scroll_available")){pendingRestoredScreen=screen;pendingRestoredY=Math.max(0,state.getInt("scroll_y"));}
         pendingSearchScroll=state.getBoolean("search_scroll");pendingSearchPosition=state.getInt("search_position");pendingSearchTop=state.getInt("search_top");
         if(pendingSearchScroll)pendingRestoredScreen=screen;
+        pendingLessonFeedback=screen==Screen.TRAIN&&studySession.lessonWriteHadFeedback&&studySession.lastAccuracy>=0;
     }
     private ScrollView findScroll(View view){
         if(view instanceof ScrollView)return (ScrollView)view;
@@ -773,8 +684,6 @@ public final class MainActivity extends Activity {
     }
     /** Restored verse-of-the-day hierarchy, over a light, readable scenic backdrop. */
 
-
-
     private void homeVerseHero(
             int scene,
             String reference,
@@ -970,8 +879,6 @@ public final class MainActivity extends Activity {
         content.addView(hero, heroParams);
     }
 
-
-
     private TextView button(String label,boolean primary,Runnable action) {
         TextView b=txt(label,15,primary?PRIMARY_ON:WHITE,true);
         b.setGravity(Gravity.CENTER);b.setMinHeight(dp(49));
@@ -1115,7 +1022,6 @@ public final class MainActivity extends Activity {
             case PICKER_TEXT:renderPickerVerseText();break;
         }
 
-
         if (virtualBibleSearch) {
 
             // Убираем обычную прокрутку, которая
@@ -1134,7 +1040,6 @@ public final class MainActivity extends Activity {
 
             currentScroller = null;
         }
-
 
         if(screen==Screen.BIBLE_PICKER && pickerSelectionPanel!=null)root.addView(pickerSelectionPanel);
         if(screen==Screen.COLLECTIONS||screen==Screen.CARDS||
@@ -1231,9 +1136,6 @@ public final class MainActivity extends Activity {
         into.addView(outer,new LinearLayout.LayoutParams(-1,-2));
     }
 
-
-
-
     private EditText findBibleSearchInput(View view){
         if(view instanceof EditText&&"Поиск по словам Библии".contentEquals(view.getContentDescription()==null?"":view.getContentDescription()))return (EditText)view;
         if(view instanceof ViewGroup){
@@ -1317,7 +1219,6 @@ public final class MainActivity extends Activity {
         // При наличии результатов список создаётся
         // отдельно, методом createSearchResultsList().
     }
-
 
     private static final class SearchRowHolder {
         TextView reference;
@@ -1522,7 +1423,6 @@ public final class MainActivity extends Activity {
         state.adapter=adapter;list.setAdapter(adapter);
         return list;
     }
-
 
     /** Outline navigation icons, independent of system fonts and Android theme packs. */
     private final class NavigationGlyph extends View {
@@ -1808,7 +1708,6 @@ public final class MainActivity extends Activity {
         tabSwitchEntering = null;
         tabSwitchInProgress = false;
     }
-
 
     /** One continuous two-page slide; the bottom bar is never moved or blanked. */
 
@@ -2100,16 +1999,6 @@ public final class MainActivity extends Activity {
         return super.dispatchTouchEvent(event);
     }
 
-
-    /** Collection queue contains independent records; never links across entries/books. */
-
-
-
-
-
-
-
-
     private void chooseCardDeck(Pick action){
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
         String[] options=new String[collections.size()+1];
@@ -2378,7 +2267,6 @@ public final class MainActivity extends Activity {
     }
     /** Attached to root rather than the scrolling list, so the footer never overlays a verse. */
 
-
     private void addCardDeckFooter(
             LocalStore.CardDeck deck,
             boolean hasCards) {
@@ -2495,7 +2383,6 @@ public final class MainActivity extends Activity {
         );
     }
 
-
     private void addBibleFooter(BibleReaderController.BibleTarget target,long groupId,Screen back){
         LinearLayout footer=column();footer.setPadding(dp(19),dp(8),dp(19),dp(10));
         footer.setBackgroundColor(BG);
@@ -2504,7 +2391,6 @@ public final class MainActivity extends Activity {
         footer.addView(add,new LinearLayout.LayoutParams(-1,dp(54)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
     }
-
 
     private void addStudyCollectionFooter(LocalStore.Group group) {
 
@@ -2611,12 +2497,9 @@ public final class MainActivity extends Activity {
         );
     }
 
-
     /** Unified Bible entry: catalogue -> chapter grid -> verse grid -> highlighted chapter text. */
 
     /** Range settings reuse the same catalog and numeric grids as quick insertion. */
-
-
 
     private void renderUnifiedBiblePicker(){
         pickerSelectionPanel=null;
@@ -2780,22 +2663,16 @@ public final class MainActivity extends Activity {
 
     /** Fast Bible-search membership does not alter range-picker state or the scroll. */
 
-
-
-
-
-
-
     /** Study each card as its own entry; a range retains its internal contiguous links. */
     private void studyCardDeck(){
         FlashcardSessionController.StudyStart result=flashcardSession.studyCardDeck(bibleReader.bible);
         if(result.message!=null){if(result.failed)collectionActions.executingCollectionQueue=false;toast(result.message);return;}
-        if(result.firstEntry>0)openTraining(result.firstEntry);
+        if(result.firstEntry>0)studySession.openTraining(result.firstEntry);
     }
     private void advanceCardStudy(){
         long next=flashcardSession.advanceCardStudy();
         if(next<0){onBackPressed();return;}
-        if(next>0){openTraining(next);return;}
+        if(next>0){studySession.openTraining(next);return;}
         screen=Screen.CARD_DECK;render();
     }
 
@@ -2825,8 +2702,6 @@ public final class MainActivity extends Activity {
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
         }catch(Exception ex){toast(ex.getMessage()==null?"Не удалось добавить карточку":ex.getMessage());}
     }
-
-
 
     private void startCardSession(){
         if(!flashcardSession.startCardSession()){toast("Подборка пуста");return;}
@@ -3236,9 +3111,6 @@ public final class MainActivity extends Activity {
         }
     }
 
-
-
-
     private void renderChapters() {
         if(bibleNotReady())return;
         int n=bibleReader.bible.chapterCount(bibleReader.selectedBook);
@@ -3282,7 +3154,6 @@ public final class MainActivity extends Activity {
         render();
         if(currentScroller!=null)currentScroller.post(()->currentScroller.scrollTo(0,scroll));
     }
-
 
     private void renderChapter() {
         title(Bible.NAMES[bibleReader.selectedBook-1]+" "+bibleReader.selectedChapter,null);
@@ -3574,7 +3445,7 @@ public final class MainActivity extends Activity {
         if(existing!=null){
             final long entryId=existing.id;
             dialog.setPositiveButton("Продолжить изучение",(d,w)->{
-                bibleReader.selectingPassage=false;openTraining(entryId);
+                bibleReader.selectingPassage=false;studySession.openTraining(entryId);
             });
             dialog.setNeutralButton("Добавить в другую подборку",(d,w)->{
                 chooseGroup(groupId->{store.add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
@@ -3582,7 +3453,7 @@ public final class MainActivity extends Activity {
         }else{
             dialog.setPositiveButton("Начать изучение",(d,w)->{
                 chooseGroup(groupId->{long id=store.add(groupId,ref,ref,verses);
-                    bibleReader.selectingPassage=false;openTraining(id);});
+                    bibleReader.selectingPassage=false;studySession.openTraining(id);});
             });
             dialog.setNeutralButton("Добавить в подборку",(d,w)->{
                 chooseGroup(groupId->{store.add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
@@ -3642,7 +3513,6 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
 
-
     private void renderEntries() {
 
         LocalStore.Group group = store.group(collectionActions.selectedGroup);
@@ -3683,10 +3553,6 @@ public final class MainActivity extends Activity {
                 store.renameGroup(group.id,value(name));render();
             }).setNegativeButton("Отмена",null).create());
     }
-    /** Reset only when leaving the shared picker or starting a distinct insertion action. */
-
-
-
 
     /** Dedicated drag-to-reorder mode; dragging never starts in normal study lists. */
     private void renderStudyReorder(){
@@ -3919,7 +3785,7 @@ public final class MainActivity extends Activity {
         more.setContentDescription("Действия с отрывком "+e.reference);
         row.addView(more,new LinearLayout.LayoutParams(dp(48),dp(54)));
         more.setOnClickListener(v->showEntryActions(e,more));
-        body.setOnClickListener(v->openTraining(e.id));
+        body.setOnClickListener(v->studySession.openTraining(e.id));
         add(c,row,0);
     }
     private String date(long millis){return new SimpleDateFormat("dd.MM",Locale.forLanguageTag("ru-RU")).format(new Date(millis));}
@@ -3944,77 +3810,15 @@ public final class MainActivity extends Activity {
                 if(store.group(groupId)==null){toast("Коллекция не найдена");return;}
                 collectionActions.customTargetGroupId=-1;
                 long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);
-                openTraining(id);
+                studySession.openTraining(id);
             }else{
-                chooseGroup(groupId->{long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);openTraining(id);});
+                chooseGroup(groupId->{long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);studySession.openTraining(id);});
             }
         });
 
     }
     /** Pressing 'Повторить изученное' starts the first due exercise immediately. */
-    private void startReviewSession() {
-        studySession.reviewQueue.clear();studySession.reviewPointer=0;
-        List<ReviewQueueLogic.Item> raw=new ArrayList<>();
-        Set<String> reviewSeen=new HashSet<>();
-        for(LocalStore.DueItem due:store.dueItems(System.currentTimeMillis())){
-            LocalStore.Entry source=store.entry(due.entryId);
-            if(source==null || (studySession.reviewCollectionGroup>0 &&
-                !store.belongsToGroupMaterial(studySession.reviewCollectionGroup,due)))continue;
-            // Across collections, check each identical Bible segment only once.
-            String key="entry:"+due.entryId+":"+due.stage+":"+due.start+":"+due.end;
-            List<Bible.Verse> lines=source.lines();
-            if(studySession.bookForEntry(source)>0 && due.start>=0 && due.end<=lines.size() && due.start<due.end){
-                StringBuilder unique=new StringBuilder("bible:").append(studySession.bookForEntry(source))
-                    .append(':').append(due.stage);
-                for(int i=due.start;i<due.end;i++)unique.append('|').append(lines.get(i).ref)
-                    .append('~').append(lines.get(i).text);
-                key=unique.toString();
-            }
-            if(reviewSeen.add(key))raw.add(new ReviewQueueLogic.Item(
-                due.entryId,due.stage,due.start,due.end,due.due));
-        }
-        List<ReviewQueueLogic.Item> items=ReviewQueueLogic.plan(raw,new ReviewQueueLogic.Source(){
-            @Override public List<String> references(long id){
-                LocalStore.Entry e=store.entry(id);List<String> refs=new ArrayList<>();
-                if(e!=null)for(Bible.Verse v:e.lines())refs.add(v.ref);return refs;
-            }
-            @Override public List<String> texts(long id){
-                LocalStore.Entry e=store.entry(id);List<String> texts=new ArrayList<>();
-                if(e!=null)for(Bible.Verse v:e.lines())texts.add(v.text);return texts;
-            }
-        });
-        for(ReviewQueueLogic.Item item:items)
-            studySession.reviewQueue.add(new LocalStore.DueItem(item.entryId,item.stage,item.start,item.end,item.due));
-        android.content.SharedPreferences old=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        if(old.getBoolean("review_pending",false)){
-            long id=old.getLong("review_review_entry",-1);
-            LocalStore.Entry e=store.entry(id);
-            int a=old.getInt("review_begin",-1),b=old.getInt("review_end",-1);
-            String stage=old.getString("review_review_stage","");
-            if(e!=null && (studySession.reviewCollectionGroup<0 ||
-                store.belongsToGroupMaterial(studySession.reviewCollectionGroup,
-                    new LocalStore.DueItem(id,stage,a,b,0))) &&
-                a>=0&&b>a&&b<=e.lines().size() &&
-                ("VERSE_RUN".equals(stage)||"VERSE".equals(stage)||"CHAIN".equals(stage)||
-                 "SECTION".equals(stage)||"CHAPTER".equals(stage))){
-                final long targetId=id;final int first=a,last=b;
-                // A saved unfinished review takes precedence; avoid duplicate overlapping tasks.
-                studySession.reviewQueue.removeIf(t->t.entryId==targetId && t.start<last && first<t.end);
-                studySession.reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,0));
-            }else old.edit().remove("review_pending").apply();
-        }
-        if(studySession.reviewQueue.isEmpty()){screen=Screen.DUE;render();return;}
-        LocalStore.DueItem first=studySession.reviewQueue.get(0);
-        boolean restore=old.getBoolean("review_pending",false) &&
-            old.getLong("review_review_entry",-1)==first.entryId &&
-            old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end;
-        openReview(first);
-        if(restore){
-            studySession.draft=old.getString("review_draft","");
-            studySession.lessonWriteHadFeedback=old.getBoolean("review_lesson_had_feedback",false);
-            render();
-        }
-    }
+
     private void renderDue() {
         title("Повторить изученное","Повторения запускаются автоматически по расписанию.");
         LinearLayout c=headerCard(content);
@@ -4022,98 +3826,7 @@ public final class MainActivity extends Activity {
         helper(c,"Новые стихи не добавляются в повторение до освоения.");
 
     }
-    private void openReview(LocalStore.DueItem item){
-        LocalStore.Entry e=store.entry(item.entryId);if(e==null)return;
-        studySession.selectedEntry=item.entryId;studySession.lessonPracticeAgain=false;
-        // VERSE_RUN is a temporary coherent unit, never recorded as a mastered group.
-        studySession.studyStage="VERSE_RUN".equals(item.stage)?StudyPlanLogic.Stage.CHAIN:
-            StudyPlanLogic.Stage.valueOf(item.stage);
-        studySession.forcedStep=new StudyPlanLogic.Step(item.start,item.end,"Повторение · "+e.lines().get(item.start).ref);
-        studySession.currentReview=item;studySession.groupMode=false;studySession.reviewMode=true;studySession.stepCursor=0;
-        studySession.weakVerse=-1;studySession.weakTransitionFrom=-1;
-        studySession.mask=0;studySession.checked=false;studySession.passed=false;studySession.draft="";studySession.testAssisted=false;studySession.lastAccuracy=-1;
-        studySession.lessonWriteHadFeedback=false;studySession.lessonPracticeAgain=false;
-        studySession.trainingMode=StudySessionController.TrainingMode.TYPE;studySession.resetWordTiles();screen=Screen.TRAIN;render();
-    }
-    private void advanceReviewSession(){
-        studySession.reviewPointer++;
-        if(studySession.reviewPointer<studySession.reviewQueue.size()){openReview(studySession.reviewQueue.get(studySession.reviewPointer));return;}
-        studySession.reviewMode=false;studySession.forcedStep=null;studySession.currentReview=null;studySession.reviewQueue.clear();studySession.reviewPointer=0;
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().remove("review_pending").apply();
-        screen=Screen.HOME;render();toast("Все запланированные повторения завершены");
-    }
-    private void rememberRecent(long id) {
-        JSONArray updated=new JSONArray();updated.put(id);
-        int count=1;
-        for(Long prev:recentIds()) {
-            if(prev==id || store.entry(prev)==null)continue;
-            updated.put(prev);
-            if(++count>=7)break;
-        }
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().putString("recent",updated.toString()).apply();
-    }
-    private List<Long> recentIds() {
-        List<Long> ids=new ArrayList<>();
-        try {
-            JSONArray array=new JSONArray(getSharedPreferences(SESSION_PREFS,MODE_PRIVATE)
-                .getString("recent","[]"));
-            for(int i=0;i<Math.min(7,array.length());i++)ids.add(array.getLong(i));
-        }catch(JSONException ex){ /* Corrupt metadata must not block the app. */ }
-        return ids;
-    }
 
-
-
-
-    private void openTraining(long id) {
-        studySession.reviewMode=false;studySession.groupMode=false;studySession.forcedStep=null;studySession.currentReview=null;
-        if(screen==Screen.TRAIN)studySession.saveTrainingSession();
-        if(screen==Screen.CARD_SESSION)flashcardSession.saveCardSession();
-        studySession.selectedEntry=store.canonicalStudyEntryId(id);
-        id=studySession.selectedEntry;
-        LocalStore.Entry entry=store.entry(id);
-        if(entry==null){toast("Отрывок не найден");screen=Screen.HOME;render();return;}
-        android.content.SharedPreferences linked=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        String lk="linked_"+id+"_";
-        if(linked.getBoolean(lk+"pending",false)){
-            int a=linked.getInt(lk+"begin",0),b=linked.getInt(lk+"end",0);
-            String stage=linked.getString(lk+"group_stage","CHAIN");
-            if(a>=0&&b>a&&b<=entry.lines().size()&&
-                !store.isStepMastered(id,stage,a,b)){
-                GroupLearningLogic.Candidate cand=GroupLearningLogic.candidate(stage,a,b,"Продолжить связку");
-                studySession.returnVerseCursor=linked.getInt(lk+"return_cursor",0);
-                openGroup(cand);studySession.restoreTrainingSession(id,true);
-                studySession.returnVerseCursor=linked.getInt(lk+"return_cursor",0);render();return;
-            }
-            linked.edit().remove(lk+"pending").apply();
-        }
-        if(!studySession.restoreTrainingSession(id)){
-            studySession.selectRecommendation(entry);studySession.resetTrainingStep(entry);
-        } else if(studySession.trainingMode!=StudySessionController.TrainingMode.TYPE) {
-            List<StudyPlanLogic.Step> steps=studySession.studySteps(entry);
-            if(!steps.isEmpty()) {
-                StudyPlanLogic.Step current=steps.get(Math.min(studySession.stepCursor,steps.size()-1));
-                studySession.testAssisted=store.isStepMastered(entry.id,studySession.studyStage.name(),current.start,current.end);
-            }
-        }
-        // If an old session points beyond the newly protected lesson boundary, restore safely.
-        if(studySession.studyStage==StudyPlanLogic.Stage.VERSE)
-            studySession.stepCursor=Math.min(studySession.stepCursor,store.unlockedPosition(id,entry.lines().size()));
-        if(collectionActions.executingCollectionQueue && collectionActions.collectionQueueNewStep){
-            // Revisit every record even if it was previously mastered. Do not erase progress.
-            studySession.studyStage=StudyPlanLogic.Stage.VERSE;
-            studySession.stepCursor=0;studySession.groupMode=false;studySession.forcedStep=null;
-            studySession.checked=false;studySession.passed=false;studySession.draft="";
-            studySession.lessonWriteHadFeedback=false;studySession.lessonPracticeAgain=false;
-            studySession.resetTrainingStep(entry);collectionActions.collectionQueueNewStep=false;
-        }
-        rememberRecent(id);studySession.saveTrainingSession();
-        screen=Screen.TRAIN;render();
-    }
-
-    private void followRecommendation(LocalStore.Entry e) {
-        studySession.selectRecommendation(e);studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
-    }
     private void showAnyVerse(LocalStore.Entry e) {
         int max=store.unlockedPosition(e.id,e.lines().size());
         final EditText positionInput=numeric("Номер стиха в подборке",String.valueOf(studySession.stepCursor+1));
@@ -4129,10 +3842,6 @@ public final class MainActivity extends Activity {
                 studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
             }).setNegativeButton("Отмена",null).show();
     }
-
-
-
-
 
     private void chooseTrainingMode(StudySessionController.TrainingMode chosen,boolean mastered) {
         if(chosen==StudySessionController.TrainingMode.HIDE) {
@@ -4452,7 +4161,7 @@ public final class MainActivity extends Activity {
             GroupLearningLogic.Candidate group=studySession.nextGroup(e);
             if(group!=null){
                 add(stat,txt("Рекомендуется: "+group.reason,13,WHITE,false),13);
-                action(stat,"Тренировать связку",false,()->openGroup(group));
+                action(stat,"Тренировать связку",false,()->studySession.openGroup(group));
             }
             if(studySession.studyStage==StudyPlanLogic.Stage.VERSE){
                 int completed=store.exerciseDone(e.id,studySession.stepCursor);
@@ -4505,7 +4214,7 @@ public final class MainActivity extends Activity {
                     if(studySession.stepCursor+1<e.lines().size())
                         action(content,"→  Следующий стих",true,()->studySession.moveStep(e,1));
                     GroupLearningLogic.Candidate group=studySession.nextGroup(e);
-                    if(group!=null)action(content,"✦  "+group.reason,false,()->openGroup(group));
+                    if(group!=null)action(content,"✦  "+group.reason,false,()->studySession.openGroup(group));
                 }
             }
 
@@ -4525,21 +4234,6 @@ public final class MainActivity extends Activity {
         TextView tv=txt("",17,WHITE,false);tv.setText(annotated);return tv;
     }
 
-
-
-    private void openGroup(GroupLearningLogic.Candidate group){
-        if(!studySession.groupMode) studySession.returnVerseCursor=studySession.studyStage==StudyPlanLogic.Stage.VERSE?studySession.stepCursor:
-            store.firstUnmastered(studySession.selectedEntry,store.entry(studySession.selectedEntry).lines().size());
-        studySession.reviewMode=false;studySession.groupMode=true;studySession.currentReview=null;
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().putBoolean("linked_"+studySession.selectedEntry+"_pending",true).apply();
-        studySession.studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
-        studySession.forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
-        studySession.stepCursor=0;studySession.resetWordTiles();studySession.mask=0;studySession.draft="";studySession.checked=false;studySession.passed=false;
-        studySession.lessonVariant=0;studySession.lessonChunk=0;
-        studySession.testAssisted=false;studySession.lessonWriteHadFeedback=false;studySession.lessonPracticeAgain=false;
-        studySession.lessonWriteVariant=0;studySession.groupBuildDone=false;studySession.groupIntroDone=false;studySession.practiceWeakFragment=false;studySession.weakFragmentText="";studySession.resetLessonTiles();
-        studySession.trainingMode=StudySessionController.TrainingMode.ORDER;screen=Screen.TRAIN;render();
-    }
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderFullscreenLesson() {
         LocalStore.Entry e=store.entry(studySession.selectedEntry);
@@ -4619,7 +4313,7 @@ public final class MainActivity extends Activity {
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             lessonPhaseHeader("Написание",e);
             renderLessonWriting();
-            mainAction=button("Проверить",true,()->validateLessonWriting(e));
+            mainAction=button("Проверить",true,()->studySession.validateLessonWriting(e));
         } else {
             renderCompletion(e);
             return;
@@ -4678,7 +4372,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(availableArt));
         ap.topMargin=dp(10);central.addView(art,ap);
         LinearLayout footer=column();footer.setPadding(dp(24),dp(14),dp(24),dp(25));
-        TextView continueButton=button("Продолжить",true,()->advanceAfterSuccess(e));
+        TextView continueButton=button("Продолжить",true,()->studySession.advanceAfterSuccess(e));
         continueButton.setTextSize(20);
         footer.addView(continueButton,new LinearLayout.LayoutParams(-1,dp(61)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
@@ -4730,37 +4424,9 @@ public final class MainActivity extends Activity {
             p.quadTo(x-r*.2f,y-r*.2f,x,y-r);c.drawPath(p,paint);
         }
     }
-    private void advanceAfterSuccess(LocalStore.Entry e){
-        final GroupLearningLogic.Candidate pending=!studySession.reviewMode&&!studySession.groupMode?
-            studySession.pendingAfterCurrent(e,studySession.activeStep.start):null;
-        if(studySession.reviewMode){advanceReviewSession();}
-        else if(studySession.groupMode){
-            getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
-                .remove("linked_"+studySession.selectedEntry+"_pending").apply();
-            studySession.groupMode=false;studySession.forcedStep=null;studySession.studyStage=StudyPlanLogic.Stage.VERSE;
-            studySession.stepCursor=studySession.returnVerseCursor;studySession.resetTrainingStep(e);studySession.saveTrainingSession();
-            GroupLearningLogic.Candidate more=studySession.pendingAfterCurrent(e,studySession.stepCursor);
-            if(more!=null){openGroup(more);return;}
-            if(studySession.stepCursor+1<e.lines().size()){
-                studySession.stepCursor++;studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
-            }else if(collectionActions.executingCollectionQueue&&collectionActions.collectionQueueCursor>=0){advanceStudyCollectionAfterGroups(e);}
-            else if(flashcardSession.cardStudyCursor>=0){advanceCardStudy();}
-            else render();
-        }else if(pending!=null)openGroup(pending);
-        else if(studySession.activeStep.end<e.lines().size()){
-            studySession.stepCursor=studySession.activeStep.end;studySession.studyStage=StudyPlanLogic.Stage.VERSE;
-            studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
-        }else if(collectionActions.executingCollectionQueue&&collectionActions.collectionQueueCursor>=0)advanceStudyCollectionAfterGroups(e);
-        else if(flashcardSession.cardStudyCursor>=0)advanceCardStudy();
-        else onBackPressed();
-    }
 
     /** Finish all internal bridges and complete-passage checks before advancing to the next independent entry. */
-    private void advanceStudyCollectionAfterGroups(LocalStore.Entry e){
-        GroupLearningLogic.Candidate unfinished=studySession.nextGroup(e);
-        if(unfinished!=null){openGroup(unfinished);return;}
-        collectionActions.advanceStudyCollection();
-    }
+
     /** The hotbar is an observer only. It never advances or changes lesson exercises. */
 
     /** Compact three-part task trail matching the approved visual reference. */
@@ -5089,7 +4755,6 @@ public final class MainActivity extends Activity {
 
     private LinearLayout lessonErrorArea;
 
-
     /** Partial writing is edited directly in the sentence, not in a separate answer field. */
     private void renderLessonWriting(){
         List<LessonCurriculumLogic.Variant> variants=studySession.writingVariants(studySession.activeEntry);
@@ -5121,6 +4786,9 @@ public final class MainActivity extends Activity {
             add(content,answer,18);
         }
         lessonErrorArea=column();add(content,lessonErrorArea,12);
+        if(pendingLessonFeedback){
+            pendingLessonFeedback=false;showWritingErrors(studySession.activeEntry,studySession.lastExpected,studySession.draft,true);
+        }
         // Verification is always explicitly triggered by the existing footer button.
     }
     private void renderInlineGapInputs(LessonCurriculumLogic.Variant variant){
@@ -5242,123 +4910,21 @@ public final class MainActivity extends Activity {
         if(issues.size()>limit)helper(panel,"Ещё ошибок: "+(issues.size()-limit));
         add(target,panel,0);
     }
-    private void validateLessonWriting(LocalStore.Entry e){
-        List<LessonCurriculumLogic.Variant> variants=studySession.writingVariants(e);
-        studySession.lessonWriteVariant=Math.min(studySession.lessonWriteVariant,variants.size()-1);
-        LessonCurriculumLogic.Variant kind=variants.get(studySession.lessonWriteVariant);
-        boolean full=kind==LessonCurriculumLogic.Variant.FULL;
-        String original=studySession.writingExpected(e,kind);
-        String entered=full?studySession.draft:InlineGapLogic.response(studySession.inlineDrafts);
-        if(entered.trim().isEmpty()){toast("Напиши текст, затем нажми «Проверить»");return;}
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse line:e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))refs.add(line.ref);
-        boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
-        boolean exact=AcceptedTextLogic.exact(original,entered,special);
-        original=AcceptedTextLogic.bestExpected(original,entered,special);
-        int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
-        if(studySession.practiceWeakFragment){
-            if(!exact){
-                if(lessonErrorArea!=null){lessonErrorArea.removeAllViews();showModernErrors(lessonErrorArea,original,entered);}
-                return;
-            }
-            studySession.practiceWeakFragment=false;studySession.weakFragmentText="";studySession.inlineDrafts=new String[0];studySession.draft="";studySession.lessonWriteHadFeedback=false;
-            studySession.lessonWriteVariant=LessonCurriculumLogic.variants(
-                ReviewLogic.words(PassageText.join(e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))).size()).size()-1;
-            if(studySession.reviewMode)studySession.lessonWriteVariant=0;
-            studySession.saveTrainingSession();render();
-            toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");
-            return;
+
+    private void showWritingErrors(LocalStore.Entry e,String expected,String actual,boolean detailed){
+        if(lessonErrorArea==null)return;
+        lessonErrorArea.removeAllViews();showModernErrors(lessonErrorArea,expected,actual);
+        if(!detailed)return;
+        final String weakPart=StudySessionController.weakPhrase(expected,actual);
+        if(!weakPart.isEmpty())action(lessonErrorArea,"Потренировать ошибочный фрагмент",false,()->studySession.practiceFragment(weakPart));
+        if(studySession.weakVerse>=0){
+            add(lessonErrorArea,txt("Слабый участок: "+e.lines().get(studySession.weakVerse).ref+
+                (studySession.weakTransitionFrom>=0?" (переход "+e.lines().get(studySession.weakTransitionFrom).ref+
+                " → "+e.lines().get(studySession.weakVerse).ref+")":""),14,MUTED,false),10);
         }
-        if(exact && !full){
-            studySession.lessonWriteVariant++;studySession.inlineDrafts=new String[0];studySession.draft="";studySession.lastAccuracy=-1;studySession.lessonWriteHadFeedback=false;
-            studySession.lessonSeed=new Random().nextLong();studySession.saveTrainingSession();render();return;
-        }
-        long now=System.currentTimeMillis();
-        if(!exact && !full){
-            for(int i=0;i<inlineFields.size()&&i<studySession.inlineExpected.size()&&i<studySession.inlineDrafts.length;i++){
-                boolean ok=LessonCurriculumLogic.exact(studySession.inlineExpected.get(i),studySession.inlineDrafts[i]);
-                inlineFields.get(i).setBackgroundTintList(android.content.res.ColorStateList.valueOf(ok?GREEN:RED));
-            }
-            if(lessonErrorArea!=null){lessonErrorArea.removeAllViews();
-                showModernErrors(lessonErrorArea,original,entered);
-            }
-            return;
-        }
-        if(!exact){
-            studySession.weakVerse=-1;studySession.weakTransitionFrom=-1;
-            if(!(studySession.reviewMode && studySession.currentReview!=null && "VERSE_RUN".equals(studySession.currentReview.stage)))
-                store.recordRecall(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,accuracy,false,now);
-            studySession.lessonWriteHadFeedback=true;
-            studySession.saveTrainingSession();
-            studySession.lastAccuracy=accuracy;studySession.lastExpected=original;
-            if(studySession.activeStep.end-studySession.activeStep.start>1){
-                List<String> sources=new ArrayList<>();
-                for(Bible.Verse v:e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))sources.add(v.text);
-                WeakTransitionLogic.WeakSpot weak=WeakTransitionLogic.locate(sources,entered);
-                studySession.weakVerse=studySession.activeStep.start+weak.verseIndex;
-                studySession.weakTransitionFrom=weak.transitionFrom<0?-1:studySession.activeStep.start+weak.transitionFrom;
-                if(studySession.weakVerse>=studySession.activeStep.start && weak.errors>0){
-                    store.rescheduleWeakVerse(e.id,studySession.weakVerse,now);
-                    if(studySession.weakTransitionFrom>=0)
-                        store.recordWeakTransition(e.id,studySession.weakTransitionFrom,studySession.weakVerse,now);
-                }
-            }
-            if(lessonErrorArea!=null){
-                lessonErrorArea.removeAllViews();
-                showModernErrors(lessonErrorArea,original,entered);
-                final String weakPart=StudySessionController.weakPhrase(original,entered);
-                if(!weakPart.isEmpty())action(lessonErrorArea,"Потренировать ошибочный фрагмент",false,()->{
-                    studySession.weakFragmentText=weakPart;studySession.practiceWeakFragment=true;studySession.draft="";
-                    studySession.saveTrainingSession();render();
-                });
-                if(studySession.weakVerse>=0){
-                    add(lessonErrorArea,txt("Слабый участок: "+e.lines().get(studySession.weakVerse).ref+
-                        (studySession.weakTransitionFrom>=0?" (переход "+e.lines().get(studySession.weakTransitionFrom).ref+
-                        " → "+e.lines().get(studySession.weakVerse).ref+")":""),14,MUTED,false),10);
-                }
-            }
-            if(studySession.reviewMode && studySession.currentReview!=null && "VERSE_RUN".equals(studySession.currentReview.stage)){
-                // A failed combined attempt is attributed only to the weak verse.
-                // Other due verses remain due; none is falsely marked as successfully recalled.
-                if(studySession.weakVerse>=studySession.activeStep.start && studySession.weakVerse<studySession.activeStep.end){
-                    store.recordRecall(e.id,"VERSE",studySession.weakVerse,studySession.weakVerse+1,0,false,now);
-                    store.scheduleReview(e.id,"VERSE",studySession.weakVerse,studySession.weakVerse+1,0,false,now);
-                }
-            } else if(studySession.reviewMode || studySession.groupMode || studySession.studyStage!=StudyPlanLogic.Stage.VERSE)
-                store.scheduleReview(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,accuracy,false,now);
-            return;
-        }
-        if(studySession.lessonWriteHadFeedback){
-            // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
-            store.recordRecall(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,100,true,now);
-            studySession.lessonWriteHadFeedback=false;studySession.draft="";studySession.lastAccuracy=-1;studySession.saveTrainingSession();
-            render();
-            toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
-            return;
-        }
-        if(studySession.reviewMode && studySession.currentReview!=null && "VERSE_RUN".equals(studySession.currentReview.stage)){
-            for(int i=studySession.activeStep.start;i<studySession.activeStep.end;i++){
-                store.recordRecall(e.id,"VERSE",i,i+1,100,false,now);
-                store.scheduleReview(e.id,"VERSE",i,i+1,100,false,now);
-            }
-        }else{
-            store.recordRecall(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,100,false,now);
-            store.scheduleReview(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,100,false,now);
-            if(!store.isStepMastered(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end))
-                store.markMastered(e.id,studySession.activeStep.start,studySession.activeStep.end,100,studySession.studyStage.name());
-        }
-        if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE)
-            store.finishExercise(e.id,studySession.activeStep.start,5);
-        studySession.lessonPracticeAgain=false;studySession.draft="";studySession.lastAccuracy=100;studySession.passed=true;studySession.checked=true;
-        if(studySession.reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
-            .remove("review_pending").apply();
-        if(!studySession.reviewMode&&!studySession.groupMode)studySession.saveTrainingSession();
-        render();
     }
 
     // ===== Unified Collections (v0.21) =====
-
-
 
     private interface UnifiedCreated {void accept(LocalStore.UnifiedCollection collection);}
     private void newUnifiedCollection(UnifiedCreated after){
@@ -5469,7 +5035,7 @@ public final class MainActivity extends Activity {
         LocalStore.UnifiedCollection u=collectionActions.activeUnified();
         if(u==null&&!all){toast("Выбери коллекцию");return;}
         studySession.reviewCollectionGroup=all?-1:u.groupId;
-        startReviewSession();
+        studySession.startReviewSession();
     }
     private void renderUnifiedCollections(){
         // Prominent full-width search field: accent border, magnifier, larger input.
@@ -5643,8 +5209,6 @@ public final class MainActivity extends Activity {
 
     // ===== Independent writing run: diagnostic only, never modifies lesson/review tables. =====
 
-
-
     private void startActiveRun(){
         LocalStore.UnifiedCollection u=collectionActions.activeUnified();if(u==null)return;
         studySession.buildRunLines(u);
@@ -5660,22 +5224,6 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("Продолжить",(d,w)->{studySession.restoreRunSession();screen=Screen.RUN;render();})
                 .setNegativeButton("Сначала",(d,w)->{studySession.resetRun();screen=Screen.RUN;render();}).create());
         }else{studySession.resetRun();screen=Screen.RUN;render();}
-    }
-
-
-
-    private void finishRunLine(){
-        if(studySession.runLines.isEmpty())return;
-        StudySessionController.RunLine line=studySession.runLines.get(studySession.runCursor);
-        if(studySession.runChecked&&studySession.runPassed)studySession.runCorrect++;
-        else studySession.runMistakes.add(line.reference);
-        studySession.runCursor++;studySession.runDraft="";studySession.runChecked=false;studySession.runPassed=false;
-        if(studySession.runCursor>=studySession.runLines.size()){
-            studySession.saveCompletedRun();
-            getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-                .remove(studySession.runKey(studySession.runCollectionId)+"active").apply();
-            screen=Screen.RUN_SUMMARY;render();
-        }else{studySession.saveRunSession();render();}
     }
 
     private void renderWritingRun(){
@@ -5724,14 +5272,14 @@ public final class MainActivity extends Activity {
         LinearLayout footer=column();footer.setPadding(dp(20),dp(10),dp(20),dp(20));
         footer.setBackgroundColor(CARD);
         TextView go=button(studySession.runChecked?"Следующий стих": "Проверить",true,()->{
-            if(studySession.runChecked){finishRunLine();return;}
+            if(studySession.runChecked){studySession.finishRunLine();return;}
             if(studySession.runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}
             studySession.runPassed=AcceptedTextLogic.exact(line.text,studySession.runDraft,false);
             studySession.runChecked=true;studySession.saveRunSession();render();
         });
         footer.addView(go,new LinearLayout.LayoutParams(-1,dp(55)));
         if(!studySession.runChecked){
-            TextView skip=button("Пропустить стих",false,this::finishRunLine);
+            TextView skip=button("Пропустить стих",false,studySession::finishRunLine);
             footer.addView(skip,new LinearLayout.LayoutParams(-1,dp(47)));
         }
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
