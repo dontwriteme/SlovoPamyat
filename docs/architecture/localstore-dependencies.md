@@ -136,3 +136,20 @@
 ## Безопасная последовательность
 
 Baseline build/tests → RepositoryScope (одно подключение и transaction helper) → Study → Progress → Flashcard → Collection → LibraryBackup (существующий codec) → общие транзакции/fault injection → typed callers → подтверждённые query bottlenecks → upgrade/regression. После каждого шага сборка/тесты/коммит. Модели LocalStore.* и совместимый старый API сохраняются без копий реализации.
+
+## Результат этапа 3
+
+Фактическая реализация: один RepositoryScope, четыре предметных SQL-репозитория и
+LibraryBackup для неизменённого формата. LocalStore — 276 строк с инфраструктурой,
+семью прежними DTO и 65 совместимыми делегатами. Приложение обращается к
+типизированным репозиториям; адаптеры контроллеров не предоставляют весь LocalStore.
+
+Все многотабличные сценарии, отмеченные выше, проверены на общем transaction owner.
+Дополнительные границы охватывают removeUnifiedPassage, removeFlashcard,
+changeCardInDeck, deleteCardDeck, findOrCreateCardStudyEntry и recordWeakTransition.
+Перенос истории при reviseStudyPassage выполняет ProgressRepository, очистку
+инвалидированных mapping выполняет CollectionRepository, передаётся тот же db.
+
+Итог: 106 unit-тестов, 23 прежних storage guards, 11 новых repository guards,
+сохранение checkpoints/recreation и проверка обновления старой установленной APK.
+Полные ограничения и результаты: [отчёт этапа 3](../ARCHITECTURE_REFACTOR_STAGE_3.md).

@@ -1,0 +1,124 @@
+Stage 3 SQLite repository refactor: validation protocol
+Base: c160206; implementation: dd3b3c8; branch: refactor/localstore-repositories
+JDK 17 / Gradle 8.9 / SDK 35 / AGP 8.7.3 / Robolectric 4.14.1
+Native: Android API 28 AVD, software rendering; no physical-phone FPS claim.
+
+BASELINE
+stage3-baseline.log: ordinary APK + test APK build successful.
+stage3-baseline-tests.log: --rerun-tasks, 98 tests passed.
+stage3-baseline-native.log: GUARDS_PASSED=23 EXPECTED_FAILURES=0 UNEXPECTED_FAILURES=0.
+
+FINAL ORDINARY BUILD (no excluded tasks)
+gradle --no-daemon --max-workers=4 -I tests/validation.init.gradle -I tests/repository-safety-device.init.gradle :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
+stage3-final-complete-build.log: BUILD SUCCESSFUL in 32s.
+JUnit XML totals: tests=106, failures=0, errors=0, skipped=0
+RepositoryIntegrationTest: 8 tests (schema, shared/nested tx, editing and history rollback, assisted schedule, deck deletion and card-study creation rollback).
+
+stage3-upgrade-seed.log
+UPGRADE_FIXTURE_SEEDED_WITH_PRE_REFACTOR_APK
+
+stage3-complete-repository.log
+REPOSITORY_GUARD_PASS cross-repository-rollback
+REPOSITORY_GUARD_PASS collection-detach-and-membership-rollback
+REPOSITORY_GUARD_PASS card-delete-rollback
+REPOSITORY_GUARD_PASS card-replacement-rollback
+REPOSITORY_GUARD_PASS deck-delete-rollback
+REPOSITORY_GUARD_PASS independent-study-create-rollback
+REPOSITORY_GUARD_PASS weak-transition-rollback
+REPOSITORY_GUARD_PASS rename-all-titles-rollback
+REPOSITORY_GUARD_PASS revision-history-rollback
+REPOSITORY_GUARD_PASS clear-all-links-rollback
+SYNC_FULL_CARD_SCANS_FOR_12_VERSES=1
+SYNC_POINT_LOOKUP_PLAN=1:0|1:0|1:0|165:SEARCH TABLE flashcards AS f USING COVERING INDEX sqlite_autoindex_flashcards_1 (book_id=? AND first_chapter=? AND first_verse=? AND last_chapter=? AND last_verse=?)| 1:0|1:1|1:1|119:SEARCH TABLE card_deck_members AS m USING COVERING INDEX sqlite_autoindex_card_deck_members_1 (deck_id=? AND card_id=?)| 
+REPOSITORY_GUARD_PASS sync-query-count-and-idempotence
+REPOSITORY_GUARDS_PASSED=11 UNEXPECTED_FAILURES=0
+
+stage3-complete-storage-safety.log
+INSTALLED_DATABASE_UNCHANGED
+GUARDS_PASSED=23 EXPECTED_FAILURES=0 UNEXPECTED_FAILURES=0
+
+stage3-complete-installed-upgrade.log
+INSTALLED_UPGRADE_PASS: same file, v8 schema, IDs, text, partial exercises, mastery, recall, attempts, schedules, collections, cards, order; readonly repositories unchanged
+
+stage3-final-session-safety.log
+SESSION_GUARDS_PASSED=8 UNEXPECTED_FAILURES=0
+
+stage3-final-recreation.log
+RECREATION_GUARDS_PASSED=3 UNEXPECTED_FAILURES=0
+
+stage3-final-bible-icon.log
+PASS: bookmark/pages/cross/glow, repeat, rapid exit, catalog, 176-verse grid, lifecycle
+
+stage3-final-collections-icon.log
+PASS: Collections reference, three independent books, cross-shelf turns, star, repeat/restart, cached exit reset, active rebuild, lifecycle, disabled=false, unchanged collection export
+
+stage3-final-home-icon.log
+PASS: Bible/Collections tab gestures, animator survives attachment, smoke frames, lit rest, repeat deduplication, exit cleanup and pause/resume
+
+Confirmed pre-fix failures, isolated real SQLite fixtures:
+- collection detach/membership, card deletion, card replacement, weak-transition INSERT/UPDATE;
+- legacy deck deletion/orphan cleanup; independent card-study group/material creation.
+All six now require complete rollback. No Ignore/expected-failure exemptions added.
+Before optimization: SYNC_FULL_CARD_SCANS_FOR_12_VERSES=13 (stage3-profile-before.log).
+After: SYNC_FULL_CARD_SCANS_FOR_12_VERSES=1. This counts full deck reads, not all SQL statements.
+Query plan uses both existing covering UNIQUE/PK indexes; no new indexes/caches.
+
+SCHEMA / COMPATIBILITY AUDIT
+17 application tables, database filename slovo_pamyat.db, version 8 unchanged.
+All 11 schema/migration/configuration methods and all 7 nested LocalStore model classes are byte-for-byte identical to c160206.
+All string literals in MainActivity and the three changed controllers are identical to Stage 2.
+Only LocalStore extends SQLiteOpenHelper; repositories share its RepositoryScope.
+LocalStore: 1401 -> 276 lines; 65 compatible delegates retained, actual domain SQL moved.
+
+OTHER CHECKS
+python tests/check_bible_grids.py: PASS, 66 books / Psalms 150 chapters, Psalm 118 has 176 verses / Matthew ranges 10 and 109.
+apksigner verify app/build/outputs/apk/debug/app-debug.apk: PASS.
+git diff --check c160206: PASS.
+Production dependencies/resources/icon classes/pure learning algorithms: no diff.
+Lint (stage3-complete-lint.log): FAIL, existing styles.xml:5 NewApi, API 27 versus minSdk 26; 1 error, 41 warnings. No suppression or UI/resource changes.
+
+REPRODUCING NATIVE CHECKS
+Build/reinstall the instrumentation APK for each tests/<fixture>-device.init.gradle:
+  repository-safety / RepositorySafetyCheck (11 guards)
+  storage-safety / StorageSafetyCheck (23 guards)
+  session-safety / SessionStateSafetyCheck (8 guards)
+  recreation / ActivityRecreationCheck (3 guards)
+  bible-icon / BibleIconCheck; collections-icon / CollectionsIconCheck; home-icon / HomeIconCheck.
+Example:
+  gradle --no-daemon --max-workers=4 -I tests/repository-safety-device.init.gradle :app:assembleDebug :app:assembleDebugAndroidTest
+  adb install -r app/build/outputs/apk/debug/app-debug.apk
+  adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+  adb shell am instrument -w org.biblememory.app.test/org.biblememory.app.RepositorySafetyCheck
+Read the PASS/guard summaries; shell am-instrument status alone is insufficient.
+
+INSTALLED APK UPGRADE
+1. Keep/install the pre-extraction APK. The runner checks that study() is absent.
+2. Build/install only the new test APK with tests/installed-upgrade-device.init.gradle.
+3. adb shell am instrument -w -e phase seed org.biblememory.app.test/org.biblememory.app.InstalledUpgradeCheck
+4. Install the new application APK using pm install -r (same package/signature; preserve data).
+5. adb shell am instrument -w -e phase verify org.biblememory.app.test/org.biblememory.app.InstalledUpgradeCheck
+The seed refuses to overwrite an existing fixture. Verification requires the same pre-existing file, path, v8 schema, all table rows/IDs/order, and no mutation on read. Fixture is private and isolated from the default installed application database. A fresh empty DB is not accepted as an upgrade test.
+
+CHANGED FILES (relative to c160206)
+app/src/main/java/org/biblememory/app/CollectionController.java
+app/src/main/java/org/biblememory/app/CollectionRepository.java
+app/src/main/java/org/biblememory/app/FlashcardRepository.java
+app/src/main/java/org/biblememory/app/FlashcardSessionController.java
+app/src/main/java/org/biblememory/app/LibraryBackup.java
+app/src/main/java/org/biblememory/app/LocalStore.java
+app/src/main/java/org/biblememory/app/MainActivity.java
+app/src/main/java/org/biblememory/app/ProgressRepository.java
+app/src/main/java/org/biblememory/app/RepositoryScope.java
+app/src/main/java/org/biblememory/app/StudyRepository.java
+app/src/main/java/org/biblememory/app/StudySessionController.java
+docs/ARCHITECTURE_REFACTOR_STAGE_3.md
+docs/architecture/localstore-dependencies.md
+docs/validation/architecture-stage3.txt
+tests/ControllerIntegrationTest.java
+tests/RepositoryIntegrationTest.java
+tests/device/org/biblememory/app/InstalledUpgradeCheck.java
+tests/device/org/biblememory/app/RepositorySafetyCheck.java
+tests/fixtures/sqlite-v8-schema.sql
+tests/installed-upgrade-device.init.gradle
+tests/repository-safety-device.init.gradle
+tests/validation.init.gradle
