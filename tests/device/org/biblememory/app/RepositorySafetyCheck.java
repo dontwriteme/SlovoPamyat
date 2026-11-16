@@ -74,6 +74,8 @@ public final class RepositorySafetyCheck extends Instrumentation {
             LocalStore.UnifiedCollection u=collection(store);List<Bible.Verse> lines=new ArrayList<>();for(int i=3;i<15;i++)lines.add(new Bible.Verse("5:"+i,"Verse "+i));
             store.study().add(u.groupId,"Fixture","Матфея 5:3–14",lines);counted.fullCardScans=0;
             store.collections().syncUnifiedCollection(u.id,null);int scans=counted.fullCardScans;report("SYNC_FULL_CARD_SCANS_FOR_12_VERSES="+scans);
+            String plan=StorageSafetyCheck.rows(store.getReadableDatabase(),"EXPLAIN QUERY PLAN SELECT f.id FROM flashcards f JOIN card_deck_members m ON m.card_id=f.id WHERE m.deck_id=1 AND f.book_id=40 AND f.first_chapter=5 AND f.first_verse=3 AND f.last_chapter=5 AND f.last_verse=3");
+            report("SYNC_POINT_LOOKUP_PLAN="+plan.replace('\n',' '));
             require(store.flashcards().flashcards(u.deckId).size()==12,"Incomplete synchronized cards");require(scans==1,"Per-verse full-deck scans remain: "+scans);
             Map<String,String> before=rows(store);store.collections().syncUnifiedCollection(u.id,null);require(before.equals(rows(store)),"Repeated sync changed stored rows/order");
         }

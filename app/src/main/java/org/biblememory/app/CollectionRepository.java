@@ -115,13 +115,13 @@ public final class CollectionRepository {
         return false;
     }
 
-    static int bibleBookFromReference(String reference){
+    private static int bibleBookFromReference(String reference){
         if(reference==null)return 0;
         for(int i=0;i<Bible.NAMES.length;i++)if(reference.startsWith(Bible.NAMES[i]+" "))return i+1;
         return 0;
     }
 
-    static int[] verseNumbers(String ref){
+    private static int[] verseNumbers(String ref){
         try{String[] parts=ref.split(":",2);return new int[]{Integer.parseInt(parts[0]),Integer.parseInt(parts[1])};}
         catch(Exception ignored){return null;}
     }
@@ -139,7 +139,7 @@ public final class CollectionRepository {
         }finally{db.endTransaction();}
     }
 
-    void syncUnifiedCollectionInTransaction(long collectionId,Bible bible){
+    private void syncUnifiedCollectionInTransaction(long collectionId,Bible bible){
         UnifiedCollection u=unifiedCollection(collectionId);
         if(u==null)return;
         // Legacy decks previously had no study entries. Preserve their original card records.
@@ -195,12 +195,12 @@ public final class CollectionRepository {
         }
     }
 
-    boolean mappedCardEntry(long collection,long card){
+    private boolean mappedCardEntry(long collection,long card){
         try(Cursor c=scope.read().rawQuery("SELECT 1 FROM unified_card_entries WHERE collection_id=? AND card_id=? LIMIT 1",
             new String[]{String.valueOf(collection),String.valueOf(card)})){return c.moveToFirst();}
     }
 
-    boolean mappedEntryCard(long collection,long entry,int pos){
+    private boolean mappedEntryCard(long collection,long entry,int pos){
         try(Cursor c=scope.read().rawQuery(
             "SELECT 1 FROM unified_entry_cards x JOIN unified_collections u ON u.id=x.collection_id "+
             "JOIN card_deck_members m ON m.deck_id=u.deck_id AND m.card_id=x.card_id "+
@@ -208,12 +208,12 @@ public final class CollectionRepository {
             new String[]{String.valueOf(collection),String.valueOf(entry),String.valueOf(pos)})){return c.moveToFirst();}
     }
 
-    void mapCardEntry(long collection,long card,long entry){
+    private void mapCardEntry(long collection,long card,long entry){
         ContentValues v=new ContentValues();v.put("collection_id",collection);v.put("card_id",card);v.put("entry_id",entry);
         scope.write().insertWithOnConflict("unified_card_entries",null,v,SQLiteDatabase.CONFLICT_IGNORE);
     }
 
-    void mapEntryCard(long collection,long entry,int pos,long card){
+    private void mapEntryCard(long collection,long entry,int pos,long card){
         ContentValues v=new ContentValues();v.put("collection_id",collection);v.put("entry_id",entry);
         v.put("verse_position",pos);v.put("card_id",card);
         scope.write().insertWithOnConflict("unified_entry_cards",null,v,SQLiteDatabase.CONFLICT_REPLACE);

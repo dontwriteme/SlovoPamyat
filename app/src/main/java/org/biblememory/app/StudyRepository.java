@@ -213,7 +213,7 @@ public final class StudyRepository {
         }finally{db.endTransaction();}
     }
 
-    Entry readEntry(Cursor c) {
+    private Entry readEntry(Cursor c) {
         Entry e=new Entry();e.id=c.getLong(0);e.groupId=c.getLong(1);
         e.title=c.getString(2);e.reference=c.getString(3);e.linesJson=c.getString(4);
         e.learned=c.getInt(5);e.repetitions=c.getInt(6);e.days=c.getInt(7);

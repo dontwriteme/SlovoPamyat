@@ -39,7 +39,7 @@ public final class ProgressRepository {
         db.insertWithOnConflict("review_schedule",null,v,SQLiteDatabase.CONFLICT_REPLACE);
     }
 
-    List<long[]> matchingVerseLocations(long id,int position){
+    private List<long[]> matchingVerseLocations(long id,int position){
         List<long[]> matches=new ArrayList<>();
         Entry original=scope.study.entry(id);
         if(original==null)return matches;
@@ -69,7 +69,7 @@ public final class ProgressRepository {
         return matches;
     }
 
-    int sharedVerseCompletion(long entryId,int position){
+    private int sharedVerseCompletion(long entryId,int position){
         int completed=0;
         for(long[] match:matchingVerseLocations(entryId,position)){
             try(Cursor c=scope.read().rawQuery(
@@ -256,7 +256,7 @@ public final class ProgressRepository {
         }
     }
 
-    boolean consolidatedLocal(long id,String stage,int start,int end) {
+    private boolean consolidatedLocal(long id,String stage,int start,int end) {
         try(Cursor c=scope.read().rawQuery(
             "SELECT first_success,last_success,success_count,fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
             new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})) {

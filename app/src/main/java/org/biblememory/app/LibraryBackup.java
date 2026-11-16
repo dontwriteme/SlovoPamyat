@@ -12,7 +12,7 @@ public final class LibraryBackup {
     private final RepositoryScope scope;
     LibraryBackup(RepositoryScope scope){this.scope=scope;}
 
-    List<Group> groupsForBackup(){
+    private List<Group> groupsForBackup(){
         List<Group> list=new ArrayList<>();
         try(Cursor c=scope.read().rawQuery(
             "SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id GROUP BY g.id ORDER BY g.id",null)){

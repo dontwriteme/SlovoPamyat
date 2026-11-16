@@ -6,7 +6,9 @@ import android.database.sqlite.*;
 import org.json.*;
 import java.util.*;
 
-/** Private on-device SQLite database. No account, server or network permission. */
+/** Owns the existing on-device database, schema and repository scope.
+ * Domain SQL lives in the typed repositories; legacy methods delegate for compatibility.
+ * Nested model names remain stable for existing callers and saved-data tooling. */
 public final class LocalStore extends SQLiteOpenHelper {
     private final RepositoryScope scope=new RepositoryScope(this);
     RepositoryScope repositoryScope(){return scope;}
