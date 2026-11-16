@@ -56,6 +56,12 @@ public class PickerIntegrationTest {
         controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();activity=controller.get();
         bible=(Bible)field("bible");bible.load(activity);
         store=(LocalStore)field("store");
+        // load() returning does not mean BibleLoader has posted its final render.
+        // Finish startup before installing this test's reader/picker state.
+        for(Thread worker:Thread.getAllStackTraces().keySet())if("BibleLoader".equals(worker.getName())){
+            worker.join(10000);assertFalse("BibleLoader did not finish startup",worker.isAlive());
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
         long id=store.createUnifiedCollection("Picker test");
         LocalStore.UnifiedCollection u=store.unifiedCollection(id);group=u.groupId;
         set("openUnifiedId",id);set("selectedGroup",group);
@@ -214,6 +220,8 @@ public class PickerIntegrationTest {
         set("screen",option("Screen","BOOKS"));invoke("render");controller.visible();return executor;
     }
     private android.widget.EditText searchInput()throws Exception {
+        // ListView materializes its header only after attachment and layout.
+        layoutReader();
         return (android.widget.EditText)call("findBibleSearchInput",new Class<?>[]{View.class},field("root"));
     }
     @Test public void blankSearchNeverQueuesWorkAndKeepsCatalog()throws Exception {
@@ -285,10 +293,19 @@ public class PickerIntegrationTest {
     }
     private void layoutReader()throws Exception {
         View page=(View)field("root");
+        if(!page.isAttachedToWindow())controller.visible();
         page.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));
         page.layout(0,0,1080,1920);
         page.getViewTreeObserver().dispatchOnGlobalLayout();
+        // View.post scroll/focus work is queued until the view has an AttachInfo.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));
+    }
+    private String readerGeometry()throws Exception {
+        ScrollView scroll=(ScrollView)field("currentScroller");
+        return "screen="+field("screen")+",scroll="+scroll.getScrollY()+",viewport="+scroll.getHeight()+
+            ",content="+scroll.getChildAt(0).getHeight()+",attached="+scroll.isAttachedToWindow()+
+            ",lastChildTop="+((android.view.ViewGroup)field("content")).getChildAt(((android.view.ViewGroup)field("content")).getChildCount()-1).getTop();
     }
     @Test public void ordinaryReaderUsesAll176VerseNumbersAndBackStack()throws Exception {
         reader("HOME",19,1);
@@ -308,7 +325,7 @@ public class PickerIntegrationTest {
         TextView last=text(bible.chapter(19,118).get(175).text);assertNotNull(last);
         View card=(View)last.getParent();Object highlighted=card.getBackground();
         layoutReader();
-        assertTrue(((ScrollView)field("currentScroller")).getScrollY()>0);
+        assertTrue(readerGeometry(),((ScrollView)field("currentScroller")).getScrollY()>0);
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1200));
         assertNotSame(highlighted,card.getBackground());
         activity.onBackPressed();assertEquals("VERSES",field("screen").toString());
@@ -340,7 +357,7 @@ public class PickerIntegrationTest {
         saved.put(option("Screen","CHAPTER"),0);
         reader("VERSES",40,5);text("40").performClick();layoutReader();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));
-        assertTrue(((ScrollView)field("currentScroller")).getScrollY()>0);
+        assertTrue(readerGeometry(),((ScrollView)field("currentScroller")).getScrollY()>0);
     }
 
 }
