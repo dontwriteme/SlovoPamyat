@@ -8,6 +8,8 @@ import java.util.*;
 
 /** Private on-device SQLite database. No account, server or network permission. */
 public final class LocalStore extends SQLiteOpenHelper {
+    private final RepositoryScope scope=new RepositoryScope(this);
+    RepositoryScope repositoryScope(){return scope;}
     private static final String CARD_STUDY_GROUP="__slovo_cards_study_library__";
     public static final class Group {
         public long id; public String title; public int count;
