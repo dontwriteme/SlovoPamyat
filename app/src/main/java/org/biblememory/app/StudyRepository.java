@@ -45,7 +45,7 @@ public final class StudyRepository {
             new String[]{selected.reference,selected.linesJson})){
             while(c.moveToNext()){
                 long id=c.getLong(0);
-                int current=scope.legacy.masteryCount(id)*10+scope.legacy.completedExerciseCount(id);
+                int current=scope.progress.masteryCount(id)*10+scope.progress.completedExerciseCount(id);
                 if(current>score){score=current;best=id;}
             }
         }

@@ -6,9 +6,11 @@ import android.database.sqlite.SQLiteDatabase;
 final class RepositoryScope {
     final LocalStore legacy;
     final StudyRepository study;
+    final ProgressRepository progress;
     RepositoryScope(LocalStore helper){
         legacy=helper;
         study=new StudyRepository(this);
+        progress=new ProgressRepository(this);
     }
     SQLiteDatabase read(){return legacy.getReadableDatabase();}
     SQLiteDatabase write(){return legacy.getWritableDatabase();}

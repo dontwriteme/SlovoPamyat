@@ -72,4 +72,16 @@ public class RepositoryIntegrationTest {
         assertEquals(before,savedRows());
     }
 
+    @Test public void progressRepositoryKeepsAssistedDueAndRollsBackRejectedSchedule(){
+        long group=store.newGroup("Review fixture");long id=store.study().add(group,"Text","Свой текст",Collections.singletonList(new Bible.Verse("1:1","Альфа")));
+        ProgressRepository progress=store.progress();assertSame(progress,store.progress());progress.markMastered(id,0,1,100,"VERSE");
+        long now=1700000000000L;progress.scheduleReview(id,"VERSE",0,1,100,false,now);
+        long due;try(Cursor c=store.getReadableDatabase().rawQuery("SELECT due FROM review_schedule WHERE entry_id=?",new String[]{String.valueOf(id)})){assertTrue(c.moveToFirst());due=c.getLong(0);assertEquals(now+86400000L,due);}
+        progress.scheduleReview(id,"VERSE",0,1,100,true,now+1);
+        try(Cursor c=store.getReadableDatabase().rawQuery("SELECT due FROM review_schedule WHERE entry_id=?",new String[]{String.valueOf(id)})){assertTrue(c.moveToFirst());assertEquals(due,c.getLong(0));}
+        Map<String,String> before=savedRows();store.getWritableDatabase().execSQL("CREATE TRIGGER reject_schedule BEFORE INSERT ON review_schedule BEGIN SELECT RAISE(ABORT,'injected-schedule'); END");
+        try{progress.scheduleReview(id,"VERSE",0,1,40,false,now+2);fail();}catch(android.database.sqlite.SQLiteException expected){}
+        assertEquals(before,savedRows());
+    }
+
 }
