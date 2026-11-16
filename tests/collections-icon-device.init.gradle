@@ -1,0 +1,9 @@
+// Framework-only instrumentation; leaves production dependencies unchanged.
+allprojects {
+    afterEvaluate { p ->
+        if(p.path==':app') {
+            p.android.defaultConfig.testInstrumentationRunner='org.biblememory.app.CollectionsIconCheck'
+            p.android.sourceSets.androidTest.java.srcDirs=[rootProject.file('tests/device')]
+        }
+    }
+}

@@ -481,11 +481,13 @@ public final class MainActivity extends Activity {
         super.onResume();
         settleBibleIcons();
         settleHomeIcons();
+        settleCollectionsIcons();
         if(store!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
         settleBibleIcons();
         settleHomeIcons();
+        settleCollectionsIcons();
         revealCleanup.run();
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)saveCardSession();
@@ -990,6 +992,9 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
+        if(previousCollections!=null && previousCollections.isSelected())
+            collectionsIconCycle=previousCollections.settledCycle();
         if(!isBibleSearchScreen()&&bibleSearchLoading){
             cancelBibleSearchWork();bibleSearchLoading=false;bibleSearchNeedsRefresh=true;
         }
@@ -1643,6 +1648,7 @@ public final class MainActivity extends Activity {
             canvas.restore();
         }
     }
+    private int collectionsIconCycle=1;
     /** A raised pill, with an indicator that travels between all three destinations. */
     private void addNav(LinearLayout parent){
         final Screen[] destinations={Screen.HOME,Screen.BOOKS,Screen.COLLECTIONS};
@@ -1665,7 +1671,7 @@ public final class MainActivity extends Activity {
             tab.setPadding(dp(5),dp(3),dp(5),dp(3));
             View symbol=i==0 ? new HomeNavigationIcon(this,ink,current==0)
                     : i==1 ? new BookNavigationIcon(this,ink,current==1)
-                    : new NavigationGlyph(glyphs[i],ink);
+                    : new CollectionsNavigationIcon(this,ink,current==2,collectionsIconCycle);
             LinearLayout.LayoutParams glyph=new LinearLayout.LayoutParams(dp(27),dp(27));
             glyph.gravity=Gravity.CENTER_HORIZONTAL;tab.addView(symbol,glyph);
             TextView name=txt(names[i],12,ink,i==current);
@@ -1680,6 +1686,10 @@ public final class MainActivity extends Activity {
                     // Keep the normal section-root navigation before replaying the sheet.
                     goToMainTab(index);
                     animateBibleIcon(root,true,true,null);return;
+                }
+                if(index==2 && mainTabIndex()==2){
+                    goToMainTab(index);
+                    animateCollectionsIcon(root,true,true);return;
                 }
                 goToMainTab(index);
             });
@@ -1702,6 +1712,19 @@ public final class MainActivity extends Activity {
             }else indicator.setTranslationX(slot*current);
         });
         lastNavIndex=current;
+    }
+    private void animateCollectionsIcon(View page,boolean selected,boolean previous){
+        if(page==null)return;
+        CollectionsNavigationIcon icon=page.findViewWithTag(CollectionsNavigationIcon.TAG);
+        if(icon!=null)icon.transition(selected,previous);
+    }
+    private void settleCollectionsIcons(){
+        if(root!=null)settleCollectionsIcon(root);
+        for(ReadyTab tab:readyTabs.values())settleCollectionsIcon(tab.page);
+    }
+    private void settleCollectionsIcon(View page){
+        CollectionsNavigationIcon icon=page.findViewWithTag(CollectionsNavigationIcon.TAG);
+        if(icon!=null)icon.settle();
     }
     private void animateHomeIcon(View page, boolean selected, boolean previous) {
         if(page==null)return;
@@ -1815,6 +1838,8 @@ public final class MainActivity extends Activity {
         }
 
         final int oldIndex = mainTabIndex();
+        // Reset only this decorative icon before detaching the cached outgoing page.
+        if(oldIndex==2 && index!=2)animateCollectionsIcon(root,false,true);
         final int direction = index > oldIndex ? 1 : -1;
 
         final Screen previousScreen = screen;
@@ -1939,6 +1964,8 @@ public final class MainActivity extends Activity {
         }
 
         // The destination can be a cached page: animate its icon without rebuilding it.
+        if(oldIndex!=index && (oldIndex==2 || index==2))
+            animateCollectionsIcon(root,index==2,oldIndex==2);
         if(oldIndex!=index)animateBibleIcon(root,index==1,oldIndex==1,bibleIconState);
         if(oldIndex!=index && (oldIndex==0 || index==0))
             animateHomeIcon(root,index==0,oldIndex==0);
@@ -6448,6 +6475,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy(){
         settleBibleIcons();
         settleHomeIcons();
+        settleCollectionsIcons();
         cancelBibleSearchWork();bibleSearchHandler.removeCallbacksAndMessages(null);bibleSearchExecutor.shutdownNow();
         homeHandler.removeCallbacks(homeTicker);super.onDestroy();if(store!=null)store.close();
     }
