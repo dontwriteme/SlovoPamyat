@@ -50,39 +50,45 @@ public final class MainActivity extends Activity {
     private static final String UNIFIED_PREFS="unified_library_ui";
     private long activeUnifiedId=-1,openUnifiedId=-1;
 
-    private long reviewCollectionGroup=-1;
-    private static final class RunLine {
-        final long entryId;final int position;final String reference,text;
-        RunLine(long entryId,int position,String reference,String text){
-            this.entryId=entryId;this.position=position;this.reference=reference;this.text=text;
-        }
-    }
-    private final List<RunLine> runLines=new ArrayList<>();
-    private long runCollectionId=-1;
-    private int runCursor=0,runCorrect=0;
-    private final List<String> runMistakes=new ArrayList<>();
-    private String runDraft="";
-    private boolean runChecked=false,runPassed=false;
+
+
+
+
+
+
+
+
 
     private LocalStore store;
+    private final StudySessionController studySession=new StudySessionController(new StudySessionController.Ports(){
+        public LocalStore store(){return store;}
+        public android.content.SharedPreferences studyPreferences(){return getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);}
+        public android.content.SharedPreferences runPreferences(){return getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);}
+        public android.content.SharedPreferences gapPreferences(){return getSharedPreferences("gap_rotation",MODE_PRIVATE);}
+        public boolean collectionQueueActive(){return executingCollectionQueue;}
+        public int lessonTileLimit(){return lessonMaxTiles();}
+        public void render(){MainActivity.this.render();}
+        public void toast(String message){MainActivity.this.toast(message);}
+    });
     private final FlashcardSessionController flashcardSession=new FlashcardSessionController(new FlashcardSessionController.Source(){
         public LocalStore store(){return store;}
         public android.content.SharedPreferences preferences(){return getSharedPreferences("card_sessions",MODE_PRIVATE);}
     });
     private final Bible bible=new Bible();
     private volatile String bibleError="";
-    private int selectedBook=40,selectedChapter=5, mask=0,stepCursor=0;
+    private int selectedBook = 40;
+    private int selectedChapter = 5;
     private int focusVerse=-1;
-    private StudyPlanLogic.Stage studyStage=StudyPlanLogic.Stage.VERSE;
-    private long selectedGroup=1,selectedEntry=0;
+
+    private long selectedGroup = 1;
     private long customTargetGroupId=-1; // A text created via a collection menu belongs to that collection.
-    private boolean checked=false,passed=false;
-    private enum TrainingMode {READ, HIDE, ORDER, TYPE}
-    private TrainingMode trainingMode=TrainingMode.READ;
-    private int orderChunk=0, orderPosition=0, orderWrongTile=-1, orderMistakes=0;
-    private int[] orderBankOrder=new int[0];
-    private final List<Integer> usedWordTiles=new ArrayList<>();
-    private boolean testAssisted=false;
+
+
+
+
+
+
+
     private ScrollView currentScroller;
     // The Home page is a single scroll surface; its expansion and scroll position survive navigation.
     private static final String HOME_UI_PREFS="home_ui";
@@ -92,10 +98,10 @@ public final class MainActivity extends Activity {
     private Screen lastRenderedScreen=null;
     private ValueAnimator collectionAnimator;
 
-    private String draft="",lastExpected="",lastTestRef="",lastTestStep="";
+
     private int homeIndex=0;
     private static final int[][] HOME_REFS={{19,118,11},{40,5,14},{43,14,6},{45,12,21},{50,4,13},{40,6,33}};
-    private int lastAccuracy=-1;
+
     private LinearLayout content,root;
     private final Handler homeHandler=new Handler(Looper.getMainLooper());
     private final Runnable homeTicker=()->{refreshHomeIndex(true);scheduleHomeRefresh();};
@@ -103,42 +109,42 @@ public final class MainActivity extends Activity {
     private TextView activePassage,activeStatus;
     private final TextView[] bottomModeButtons=new TextView[3];
     private static final String SESSION_PREFS="study_session";
-    private LocalStore.Entry activeEntry;
-    private StudyPlanLogic.Step activeStep;
-    private boolean activeMastered;
-    private boolean reviewMode=false,groupMode=false;
-    private int returnVerseCursor=0;
-    private StudyPlanLogic.Step forcedStep;
-    private LocalStore.DueItem currentReview;
-    private int blurSeed=new Random().nextInt();
-    private boolean orderCompleted=false;
+
+
+
+
+
+
+
+
+
     // Three-phase fullscreen lesson: stable footer, adaptive word-tile exercises.
-    private int lessonVariant=0,lessonChunk=0,lessonPicked=0,lessonWrongTile=-1;
-    private long lessonSeed=new Random().nextLong();
-    private final List<Integer> lessonUsedTiles=new ArrayList<>();
-    private boolean lessonPracticeAgain=false,lessonWriteHadFeedback=false;
+
+
+
+
     private Runnable revealCleanup=()->{};
-    private final List<LocalStore.DueItem> reviewQueue=new ArrayList<>();
-    private int reviewPointer=0;
+
+
     private TextView lessonBuildPrompt,lessonBuildCounter,lessonBuildError,lessonBuildAction;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
-    private int lessonBuildRequired=0;
+
     // v0.21.4: per-exercise hotbar. Only its views are updated during a lesson.
     private final List<List<TextView>> lessonHotbarCells=new ArrayList<>();
     private TextView lessonHotbarCounter;
 
-    private int weakVerse=-1,weakTransitionFrom=-1;
+
     private int readerVerseNumber=1;
     private boolean chapterFromVerseGrid=false;
     // One selection model shared by tapping verses and the chapter/verse range picker.
     private boolean selectingPassage=false; // legacy selection mode retained only for old saved preferences
     private int rangeStartChapter=-1,rangeStartVerse=-1,rangeEndChapter=-1,rangeEndVerse=-1;
-    private int lessonWriteVariant=0;
-    private boolean groupBuildDone=false;
-    private boolean groupIntroDone=false;
-    private String[] inlineDrafts=new String[0];
+
+
+
+
     private final List<EditText> inlineFields=new ArrayList<>();
-    private final List<String> inlineExpected=new ArrayList<>();
+
 
 
     private String bibleSearchQuery="";
@@ -399,11 +405,11 @@ public final class MainActivity extends Activity {
 
 
 
-    private boolean practiceWeakFragment=false;
-    private String weakFragmentText="";
+
+
     // Preserve the mask of the current unfinished GAPS exercise across renders and restarts.
-    private String rotationExerciseKey="",rotationMask="";
-    private long rotationExerciseSeed=0L;
+
+
 
 
 
@@ -493,9 +499,9 @@ public final class MainActivity extends Activity {
         settleHomeIcons();
         settleCollectionsIcons();
         revealCleanup.run();
-        if(screen==Screen.TRAIN)saveTrainingSession();
+        if(screen==Screen.TRAIN)studySession.saveTrainingSession();
         if(screen==Screen.CARD_SESSION)flashcardSession.saveCardSession();
-        if(screen==Screen.RUN)saveRunSession();
+        if(screen==Screen.RUN)studySession.saveRunSession();
         rememberHomeScroll();
         homeHandler.removeCallbacks(homeTicker);
         super.onPause();
@@ -530,7 +536,7 @@ public final class MainActivity extends Activity {
             case HOME: super.onBackPressed(); break;
             case BOOKS:case DUE:case CARDS:case COLLECTIONS:screen=Screen.HOME;render();break;
             case COLLECTION_DETAIL:screen=Screen.COLLECTIONS;render();break;
-            case RUN:saveRunSession();screen=Screen.HOME;render();break;
+            case RUN:studySession.saveRunSession();screen=Screen.HOME;render();break;
             case RUN_SUMMARY:screen=Screen.HOME;render();break;
             case CARD_DECK:screen=Screen.CARDS;render();break;
             case CARD_PICK:screen=Screen.CARD_DECK;render();break;
@@ -565,9 +571,9 @@ public final class MainActivity extends Activity {
             case TRAIN:
                 executingCollectionQueue=false;
                 flashcardSession.cardStudyQueue.clear();flashcardSession.cardStudyCursor=-1;flashcardSession.cardStudyDeckId=-1;
-                saveTrainingSession();
-                reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
-                reviewQueue.clear();reviewPointer=0;
+                studySession.saveTrainingSession();
+                studySession.reviewMode=false;studySession.groupMode=false;studySession.forcedStep=null;studySession.currentReview=null;
+                studySession.reviewQueue.clear();studySession.reviewPointer=0;
                 // The lesson is an isolated activity: every exit goes to HOME.
                 screen=Screen.HOME;render();break;
         }
@@ -1878,9 +1884,9 @@ public final class MainActivity extends Activity {
             navHeight = dp(84);
         }
 
-        reviewMode = false;
-        groupMode = false;
-        forcedStep = null;
+        studySession.reviewMode = false;
+        studySession.groupMode = false;
+        studySession.forcedStep = null;
 
         // Сохраняем текущую прокрутку.
         if (lastRenderedScreen == Screen.HOME) {
@@ -2142,7 +2148,7 @@ public final class MainActivity extends Activity {
         for(int i=0;i<entries.size();i++){
             LocalStore.Entry item=entries.get(i);
             if(store.masteryCount(store.canonicalStudyEntryId(item.id))<item.lines().size() ||
-                nextGroup(item)!=null){collectionQueueCursor=i;break;}
+                studySession.nextGroup(item)!=null){collectionQueueCursor=i;break;}
         }
         collectionQueueNewStep=true;
         persistCollectionQueue();openTraining(collectionQueue.get(collectionQueueCursor));
@@ -2975,7 +2981,7 @@ public final class MainActivity extends Activity {
                     studyInsertionTrail.add(added);
                 }
             }else{
-                boolean added=store.addFlashcard(pickerTargetId,book,sc,sv,ec,ev,ref,texts(verses));
+                boolean added=store.addFlashcard(pickerTargetId,book,sc,sv,ec,ev,ref,studySession.texts(verses));
                 if(!added){toast("Карточка уже в подборке");return false;}
                 if(insertAfterCardId>=0){
                     for(LocalStore.Flashcard fc:store.flashcards(pickerTargetId)){
@@ -3055,7 +3061,7 @@ public final class MainActivity extends Activity {
         if(!bible.isReady()){toast("Библия ещё загружается");return;}
         try{
             List<Bible.Verse> lines=bible.passage(book,sc,sv,ec,ev);
-            String text=texts(lines);
+            String text=studySession.texts(lines);
             boolean added=store.addFlashcard(deckId,book,sc,sv,ec,ev,Bible.reference(book,sc,sv,ec,ev),text);
             toast(added?"Карточка добавлена":"Карточка уже есть в подборке");
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
@@ -4068,7 +4074,7 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void editStudyEntry(LocalStore.Entry e){
-        int book=bookForEntry(e);
+        int book=studySession.bookForEntry(e);
         if(book>0 && !e.lines().isEmpty()){
             int[] first=parseBibleLocation(e.lines().get(0).ref);
             int[] last=parseBibleLocation(e.lines().get(e.lines().size()-1).ref);
@@ -4110,7 +4116,7 @@ public final class MainActivity extends Activity {
                 card.lastChapter,card.lastVerse,(a,b,c,d)->{
                     String ref=Bible.reference(card.bookId,a,b,c,d);
                     store.changeCardInDeck(flashcardSession.selectedDeck,card,card.bookId,a,b,c,d,
-                        ref,texts(bible.passage(card.bookId,a,b,c,d)));
+                        ref,studySession.texts(bible.passage(card.bookId,a,b,c,d)));
                     render();
                 });
             return;
@@ -4235,18 +4241,18 @@ public final class MainActivity extends Activity {
     }
     /** Pressing 'Повторить изученное' starts the first due exercise immediately. */
     private void startReviewSession() {
-        reviewQueue.clear();reviewPointer=0;
+        studySession.reviewQueue.clear();studySession.reviewPointer=0;
         List<ReviewQueueLogic.Item> raw=new ArrayList<>();
         Set<String> reviewSeen=new HashSet<>();
         for(LocalStore.DueItem due:store.dueItems(System.currentTimeMillis())){
             LocalStore.Entry source=store.entry(due.entryId);
-            if(source==null || (reviewCollectionGroup>0 &&
-                !store.belongsToGroupMaterial(reviewCollectionGroup,due)))continue;
+            if(source==null || (studySession.reviewCollectionGroup>0 &&
+                !store.belongsToGroupMaterial(studySession.reviewCollectionGroup,due)))continue;
             // Across collections, check each identical Bible segment only once.
             String key="entry:"+due.entryId+":"+due.stage+":"+due.start+":"+due.end;
             List<Bible.Verse> lines=source.lines();
-            if(bookForEntry(source)>0 && due.start>=0 && due.end<=lines.size() && due.start<due.end){
-                StringBuilder unique=new StringBuilder("bible:").append(bookForEntry(source))
+            if(studySession.bookForEntry(source)>0 && due.start>=0 && due.end<=lines.size() && due.start<due.end){
+                StringBuilder unique=new StringBuilder("bible:").append(studySession.bookForEntry(source))
                     .append(':').append(due.stage);
                 for(int i=due.start;i<due.end;i++)unique.append('|').append(lines.get(i).ref)
                     .append('~').append(lines.get(i).text);
@@ -4266,34 +4272,34 @@ public final class MainActivity extends Activity {
             }
         });
         for(ReviewQueueLogic.Item item:items)
-            reviewQueue.add(new LocalStore.DueItem(item.entryId,item.stage,item.start,item.end,item.due));
+            studySession.reviewQueue.add(new LocalStore.DueItem(item.entryId,item.stage,item.start,item.end,item.due));
         android.content.SharedPreferences old=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
         if(old.getBoolean("review_pending",false)){
             long id=old.getLong("review_review_entry",-1);
             LocalStore.Entry e=store.entry(id);
             int a=old.getInt("review_begin",-1),b=old.getInt("review_end",-1);
             String stage=old.getString("review_review_stage","");
-            if(e!=null && (reviewCollectionGroup<0 ||
-                store.belongsToGroupMaterial(reviewCollectionGroup,
+            if(e!=null && (studySession.reviewCollectionGroup<0 ||
+                store.belongsToGroupMaterial(studySession.reviewCollectionGroup,
                     new LocalStore.DueItem(id,stage,a,b,0))) &&
                 a>=0&&b>a&&b<=e.lines().size() &&
                 ("VERSE_RUN".equals(stage)||"VERSE".equals(stage)||"CHAIN".equals(stage)||
                  "SECTION".equals(stage)||"CHAPTER".equals(stage))){
                 final long targetId=id;final int first=a,last=b;
                 // A saved unfinished review takes precedence; avoid duplicate overlapping tasks.
-                reviewQueue.removeIf(t->t.entryId==targetId && t.start<last && first<t.end);
-                reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,0));
+                studySession.reviewQueue.removeIf(t->t.entryId==targetId && t.start<last && first<t.end);
+                studySession.reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,0));
             }else old.edit().remove("review_pending").apply();
         }
-        if(reviewQueue.isEmpty()){screen=Screen.DUE;render();return;}
-        LocalStore.DueItem first=reviewQueue.get(0);
+        if(studySession.reviewQueue.isEmpty()){screen=Screen.DUE;render();return;}
+        LocalStore.DueItem first=studySession.reviewQueue.get(0);
         boolean restore=old.getBoolean("review_pending",false) &&
             old.getLong("review_review_entry",-1)==first.entryId &&
             old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end;
         openReview(first);
         if(restore){
-            draft=old.getString("review_draft","");
-            lessonWriteHadFeedback=old.getBoolean("review_lesson_had_feedback",false);
+            studySession.draft=old.getString("review_draft","");
+            studySession.lessonWriteHadFeedback=old.getBoolean("review_lesson_had_feedback",false);
             render();
         }
     }
@@ -4306,21 +4312,21 @@ public final class MainActivity extends Activity {
     }
     private void openReview(LocalStore.DueItem item){
         LocalStore.Entry e=store.entry(item.entryId);if(e==null)return;
-        selectedEntry=item.entryId;lessonPracticeAgain=false;
+        studySession.selectedEntry=item.entryId;studySession.lessonPracticeAgain=false;
         // VERSE_RUN is a temporary coherent unit, never recorded as a mastered group.
-        studyStage="VERSE_RUN".equals(item.stage)?StudyPlanLogic.Stage.CHAIN:
+        studySession.studyStage="VERSE_RUN".equals(item.stage)?StudyPlanLogic.Stage.CHAIN:
             StudyPlanLogic.Stage.valueOf(item.stage);
-        forcedStep=new StudyPlanLogic.Step(item.start,item.end,"Повторение · "+e.lines().get(item.start).ref);
-        currentReview=item;groupMode=false;reviewMode=true;stepCursor=0;
-        weakVerse=-1;weakTransitionFrom=-1;
-        mask=0;checked=false;passed=false;draft="";testAssisted=false;lastAccuracy=-1;
-        lessonWriteHadFeedback=false;lessonPracticeAgain=false;
-        trainingMode=TrainingMode.TYPE;resetWordTiles();screen=Screen.TRAIN;render();
+        studySession.forcedStep=new StudyPlanLogic.Step(item.start,item.end,"Повторение · "+e.lines().get(item.start).ref);
+        studySession.currentReview=item;studySession.groupMode=false;studySession.reviewMode=true;studySession.stepCursor=0;
+        studySession.weakVerse=-1;studySession.weakTransitionFrom=-1;
+        studySession.mask=0;studySession.checked=false;studySession.passed=false;studySession.draft="";studySession.testAssisted=false;studySession.lastAccuracy=-1;
+        studySession.lessonWriteHadFeedback=false;studySession.lessonPracticeAgain=false;
+        studySession.trainingMode=StudySessionController.TrainingMode.TYPE;studySession.resetWordTiles();screen=Screen.TRAIN;render();
     }
     private void advanceReviewSession(){
-        reviewPointer++;
-        if(reviewPointer<reviewQueue.size()){openReview(reviewQueue.get(reviewPointer));return;}
-        reviewMode=false;forcedStep=null;currentReview=null;reviewQueue.clear();reviewPointer=0;
+        studySession.reviewPointer++;
+        if(studySession.reviewPointer<studySession.reviewQueue.size()){openReview(studySession.reviewQueue.get(studySession.reviewPointer));return;}
+        studySession.reviewMode=false;studySession.forcedStep=null;studySession.currentReview=null;studySession.reviewQueue.clear();studySession.reviewPointer=0;
         getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().remove("review_pending").apply();
         screen=Screen.HOME;render();toast("Все запланированные повторения завершены");
     }
@@ -4343,78 +4349,16 @@ public final class MainActivity extends Activity {
         }catch(JSONException ex){ /* Corrupt metadata must not block the app. */ }
         return ids;
     }
-    private void saveTrainingSession() {
-        if(selectedEntry<=0 || (reviewMode&&checked&&passed))return;
-        String key=reviewMode?"review_":(groupMode?"linked_":"entry_")+selectedEntry+"_";
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
-            .putLong("entry",selectedEntry).putString(key+"stage",studyStage.name())
-            .putInt(key+"step",stepCursor).putString(key+"mode",trainingMode.name())
-            .putInt(key+"mask",mask).putString(key+"draft",draft)
-            .putInt(key+"blur_seed",blurSeed)
-            .putInt(key+"lesson_variant",lessonVariant).putInt(key+"lesson_chunk",lessonChunk)
-            .putInt(key+"lesson_picked",lessonPicked).putLong(key+"lesson_seed",lessonSeed)
-            .putString(key+"rotation_exercise_key",rotationExerciseKey)
-            .putLong(key+"rotation_exercise_seed",rotationExerciseSeed)
-            .putString(key+"rotation_mask",rotationMask)
-            .putString(key+"lesson_tiles",lessonUsedTiles.toString())
-            .putBoolean(key+"lesson_had_feedback",lessonWriteHadFeedback)
-            .putInt(key+"write_variant",lessonWriteVariant)
-            .putBoolean(key+"group_intro_done",groupIntroDone)
-            .putBoolean(key+"group_build_done",groupBuildDone)
-            .putBoolean(key+"practice_weak",practiceWeakFragment)
-            .putString(key+"weak_fragment",weakFragmentText)
-            .putBoolean(key+"pending",reviewMode||groupMode)
-            .putLong(key+"review_entry",reviewMode?selectedEntry:0)
-            .putString(key+"review_stage",reviewMode&&currentReview!=null?currentReview.stage:"")
-            .putInt(key+"begin",activeStep==null?0:activeStep.start)
-            .putInt(key+"end",activeStep==null?0:activeStep.end)
-            .putString(key+"group_stage",studyStage.name())
-            .putInt(key+"return_cursor",returnVerseCursor).apply();
-    }
-    private boolean restoreTrainingSession(long id) {return restoreTrainingSession(id,false);}
-    private boolean restoreTrainingSession(long id,boolean linked) {
-        android.content.SharedPreferences pref=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        String key=(linked?"linked_":"entry_")+id+"_";
-        if(!pref.contains(key+"stage"))return false;
-        try {
-            studyStage=StudyPlanLogic.Stage.valueOf(pref.getString(key+"stage","VERSE"));
-            trainingMode=TrainingMode.valueOf(pref.getString(key+"mode","READ"));
-        }catch(IllegalArgumentException ex){studyStage=StudyPlanLogic.Stage.VERSE;trainingMode=TrainingMode.READ;}
-        stepCursor=Math.max(0,pref.getInt(key+"step",0));
-        mask=trainingMode==TrainingMode.HIDE?Math.max(0,Math.min(100,pref.getInt(key+"mask",0))):0;
-        blurSeed=pref.getInt(key+"blur_seed",new Random().nextInt());
-        draft=pref.getString(key+"draft","");
-        if(draft==null)draft="";
-        lessonVariant=Math.max(0,pref.getInt(key+"lesson_variant",0));
-        lessonChunk=Math.max(0,pref.getInt(key+"lesson_chunk",0));
-        lessonPicked=Math.max(0,pref.getInt(key+"lesson_picked",0));
-        lessonSeed=pref.getLong(key+"lesson_seed",new Random().nextLong());
-        rotationExerciseKey=pref.getString(key+"rotation_exercise_key","");
-        rotationExerciseSeed=pref.getLong(key+"rotation_exercise_seed",0L);
-        rotationMask=pref.getString(key+"rotation_mask","");
-        lessonUsedTiles.clear();lessonWrongTile=-1;lessonPracticeAgain=false;
-        lessonWriteHadFeedback=pref.getBoolean(key+"lesson_had_feedback",false);
-        lessonWriteVariant=Math.max(0,pref.getInt(key+"write_variant",0));
-        if(linked)groupIntroDone=pref.getBoolean(key+"group_intro_done",false);
-        if(linked)groupBuildDone=pref.getBoolean(key+"group_build_done",false);
-        practiceWeakFragment=pref.getBoolean(key+"practice_weak",false);
-        weakFragmentText=pref.getString(key+"weak_fragment","");
-        String saved=pref.getString(key+"lesson_tiles","").replace("[", "").replace("]", "");
-        for(String part:saved.split(","))try{lessonUsedTiles.add(Integer.parseInt(part.trim()));}
-            catch(NumberFormatException ignored){}
-        checked=false;passed=false;testAssisted=false;lastAccuracy=-1;resetWordTiles();
-        return true;
-    }
-    private void resetWordTiles() {
-        orderChunk=0;orderPosition=0;orderWrongTile=-1;orderMistakes=0;
-        orderBankOrder=new int[0];usedWordTiles.clear();orderCompleted=false;
-    }
+
+
+
+
     private void openTraining(long id) {
-        reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
-        if(screen==Screen.TRAIN)saveTrainingSession();
+        studySession.reviewMode=false;studySession.groupMode=false;studySession.forcedStep=null;studySession.currentReview=null;
+        if(screen==Screen.TRAIN)studySession.saveTrainingSession();
         if(screen==Screen.CARD_SESSION)flashcardSession.saveCardSession();
-        selectedEntry=store.canonicalStudyEntryId(id);
-        id=selectedEntry;
+        studySession.selectedEntry=store.canonicalStudyEntryId(id);
+        id=studySession.selectedEntry;
         LocalStore.Entry entry=store.entry(id);
         if(entry==null){toast("Отрывок не найден");screen=Screen.HOME;render();return;}
         android.content.SharedPreferences linked=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
@@ -4425,49 +4369,42 @@ public final class MainActivity extends Activity {
             if(a>=0&&b>a&&b<=entry.lines().size()&&
                 !store.isStepMastered(id,stage,a,b)){
                 GroupLearningLogic.Candidate cand=GroupLearningLogic.candidate(stage,a,b,"Продолжить связку");
-                returnVerseCursor=linked.getInt(lk+"return_cursor",0);
-                openGroup(cand);restoreTrainingSession(id,true);
-                returnVerseCursor=linked.getInt(lk+"return_cursor",0);render();return;
+                studySession.returnVerseCursor=linked.getInt(lk+"return_cursor",0);
+                openGroup(cand);studySession.restoreTrainingSession(id,true);
+                studySession.returnVerseCursor=linked.getInt(lk+"return_cursor",0);render();return;
             }
             linked.edit().remove(lk+"pending").apply();
         }
-        if(!restoreTrainingSession(id)){
-            selectRecommendation(entry);resetTrainingStep(entry);
-        } else if(trainingMode!=TrainingMode.TYPE) {
-            List<StudyPlanLogic.Step> steps=studySteps(entry);
+        if(!studySession.restoreTrainingSession(id)){
+            studySession.selectRecommendation(entry);studySession.resetTrainingStep(entry);
+        } else if(studySession.trainingMode!=StudySessionController.TrainingMode.TYPE) {
+            List<StudyPlanLogic.Step> steps=studySession.studySteps(entry);
             if(!steps.isEmpty()) {
-                StudyPlanLogic.Step current=steps.get(Math.min(stepCursor,steps.size()-1));
-                testAssisted=store.isStepMastered(entry.id,studyStage.name(),current.start,current.end);
+                StudyPlanLogic.Step current=steps.get(Math.min(studySession.stepCursor,steps.size()-1));
+                studySession.testAssisted=store.isStepMastered(entry.id,studySession.studyStage.name(),current.start,current.end);
             }
         }
         // If an old session points beyond the newly protected lesson boundary, restore safely.
-        if(studyStage==StudyPlanLogic.Stage.VERSE)
-            stepCursor=Math.min(stepCursor,store.unlockedPosition(id,entry.lines().size()));
+        if(studySession.studyStage==StudyPlanLogic.Stage.VERSE)
+            studySession.stepCursor=Math.min(studySession.stepCursor,store.unlockedPosition(id,entry.lines().size()));
         if(executingCollectionQueue && collectionQueueNewStep){
             // Revisit every record even if it was previously mastered. Do not erase progress.
-            studyStage=StudyPlanLogic.Stage.VERSE;
-            stepCursor=0;groupMode=false;forcedStep=null;
-            checked=false;passed=false;draft="";
-            lessonWriteHadFeedback=false;lessonPracticeAgain=false;
-            resetTrainingStep(entry);collectionQueueNewStep=false;
+            studySession.studyStage=StudyPlanLogic.Stage.VERSE;
+            studySession.stepCursor=0;studySession.groupMode=false;studySession.forcedStep=null;
+            studySession.checked=false;studySession.passed=false;studySession.draft="";
+            studySession.lessonWriteHadFeedback=false;studySession.lessonPracticeAgain=false;
+            studySession.resetTrainingStep(entry);collectionQueueNewStep=false;
         }
-        rememberRecent(id);saveTrainingSession();
+        rememberRecent(id);studySession.saveTrainingSession();
         screen=Screen.TRAIN;render();
     }
-    private AdaptiveLearningLogic.Recommendation selectRecommendation(LocalStore.Entry e) {
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse v:e.lines())refs.add(v.ref);
-        AdaptiveLearningLogic.Recommendation advice=AdaptiveLearningLogic.recommend(
-            refs,isSermon(e),store.progressFor(e.id),System.currentTimeMillis());
-        studyStage=advice.stage;stepCursor=advice.index;
-        return advice;
-    }
+
     private void followRecommendation(LocalStore.Entry e) {
-        selectRecommendation(e);resetTrainingStep(e);saveTrainingSession();render();
+        studySession.selectRecommendation(e);studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
     }
     private void showAnyVerse(LocalStore.Entry e) {
         int max=store.unlockedPosition(e.id,e.lines().size());
-        final EditText positionInput=numeric("Номер стиха в подборке",String.valueOf(stepCursor+1));
+        final EditText positionInput=numeric("Номер стиха в подборке",String.valueOf(studySession.stepCursor+1));
         LinearLayout wrapper=column();wrapper.setPadding(dp(20),dp(5),dp(20),dp(5));
         wrapper.addView(positionInput);
         new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Открытые стихи: 1–"+(max+1))
@@ -4476,84 +4413,37 @@ public final class MainActivity extends Activity {
                 if(!LessonFlowLogic.canOpen(n-1,max,e.lines().size())){
                     toast("Следующий стих откроется после выполнения заданий");return;
                 }
-                studyStage=StudyPlanLogic.Stage.VERSE;stepCursor=n-1;
-                resetTrainingStep(e);saveTrainingSession();render();
+                studySession.studyStage=StudyPlanLogic.Stage.VERSE;studySession.stepCursor=n-1;
+                studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
             }).setNegativeButton("Отмена",null).show();
     }
-    private boolean isSermon(LocalStore.Entry e) {
-        return e.reference!=null && (e.reference.startsWith("Матфея 5:") ||
-          e.reference.startsWith("Матфея 6:") || e.reference.startsWith("Матфея 7:"));
-    }
-    private List<StudyPlanLogic.Step> studySteps(LocalStore.Entry e) {
-        if((reviewMode||groupMode)&&forcedStep!=null)return Collections.singletonList(forcedStep);
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse v:e.lines())refs.add(v.ref);
-        return StudyPlanLogic.build(refs,studyStage,isSermon(e));
-    }
-    private void resetTrainingStep(LocalStore.Entry e) {
-        lessonVariant=0;lessonChunk=0;lessonPicked=0;lessonWrongTile=-1;lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;
-        practiceWeakFragment=false;weakFragmentText="";
-        lessonSeed=new Random().nextLong();lessonUsedTiles.clear();lessonPracticeAgain=false;
-        rotationExerciseKey="";rotationMask="";rotationExerciseSeed=0L;
-        lessonWriteHadFeedback=false;
-        mask=0;checked=false;passed=false;draft="";lastAccuracy=-1;
-        blurSeed=new Random().nextInt();testAssisted=false;resetWordTiles();
-        boolean mastered=false;
-        if(e!=null) {
-            List<StudyPlanLogic.Step> steps=studySteps(e);
-            if(!steps.isEmpty()) {
-                stepCursor=Math.max(0,Math.min(stepCursor,steps.size()-1));
-                StudyPlanLogic.Step s=steps.get(stepCursor);
-                mastered=store.isStepMastered(e.id,studyStage.name(),s.start,s.end);
-            }
+
+
+
+
+
+    private void chooseTrainingMode(StudySessionController.TrainingMode chosen,boolean mastered) {
+        if(chosen==StudySessionController.TrainingMode.HIDE) {
+            if(studySession.trainingMode!=StudySessionController.TrainingMode.HIDE)studySession.blurSeed=new Random().nextInt();
+            studySession.mask=studySession.trainingMode==StudySessionController.TrainingMode.HIDE?studySession.mask+25:25;
+            if(studySession.mask>100){studySession.mask=0;chosen=StudySessionController.TrainingMode.READ;}
         }
-        int done=e!=null && studyStage==StudyPlanLogic.Stage.VERSE?
-            store.exerciseDone(e.id,stepCursor):0;
-        trainingMode=done>=4?TrainingMode.TYPE:
-            done==3?TrainingMode.TYPE:done==2?TrainingMode.ORDER:
-            done==1?TrainingMode.HIDE:TrainingMode.READ;
-        if(done==1)mask=25;
-        // A final examination becomes assisted only if a hint is viewed DURING that exam.
-        if(reviewMode || (studyStage==StudyPlanLogic.Stage.VERSE&&done>=4))testAssisted=false;
-    }
-    private void moveStep(LocalStore.Entry e,int delta) {
-        List<StudyPlanLogic.Step> steps=studySteps(e);
-        if(steps.isEmpty())return;
-        int target=Math.max(0,Math.min(steps.size()-1,stepCursor+delta));
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE &&
-            !LessonFlowLogic.canOpen(target,store.unlockedPosition(e.id,e.lines().size()),e.lines().size())){
-            toast("Следующий стих откроется после контрольной проверки");return;
-        }
-        stepCursor=target;
-        resetTrainingStep(e);saveTrainingSession();render();
-    }
-    private String texts(List<Bible.Verse> lines) {
-        StringBuilder sb=new StringBuilder();
-        for(Bible.Verse v:lines) {if(sb.length()>0)sb.append(' ');sb.append(v.text);}
-        return sb.toString();
-    }
-    private void chooseTrainingMode(TrainingMode chosen,boolean mastered) {
-        if(chosen==TrainingMode.HIDE) {
-            if(trainingMode!=TrainingMode.HIDE)blurSeed=new Random().nextInt();
-            mask=trainingMode==TrainingMode.HIDE?mask+25:25;
-            if(mask>100){mask=0;chosen=TrainingMode.READ;}
-        }
-        if(chosen==TrainingMode.ORDER && trainingMode!=TrainingMode.ORDER)resetWordTiles();
-        if((reviewMode || groupMode || (studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(selectedEntry,stepCursor)>=4)) && chosen!=TrainingMode.TYPE)
-            testAssisted=true;
-        TrainingMode previous=trainingMode;
-        trainingMode=chosen;
-        if(previous==TrainingMode.TYPE && chosen!=TrainingMode.TYPE){
+        if(chosen==StudySessionController.TrainingMode.ORDER && studySession.trainingMode!=StudySessionController.TrainingMode.ORDER)studySession.resetWordTiles();
+        if((studySession.reviewMode || studySession.groupMode || (studySession.studyStage==StudyPlanLogic.Stage.VERSE &&
+            store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)>=4)) && chosen!=StudySessionController.TrainingMode.TYPE)
+            studySession.testAssisted=true;
+        StudySessionController.TrainingMode previous=studySession.trainingMode;
+        studySession.trainingMode=chosen;
+        if(previous==StudySessionController.TrainingMode.TYPE && chosen!=StudySessionController.TrainingMode.TYPE){
             android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
                 getSystemService(INPUT_METHOD_SERVICE);
             if(keyboard!=null && root!=null)
                 keyboard.hideSoftInputFromWindow(root.getWindowToken(),0);
             if(root!=null)root.requestFocus();
         }
-        saveTrainingSession();
+        studySession.saveTrainingSession();
         // Reuse the existing Activity and ScrollView: changing modes must not jump to the top.
-        if(previous==TrainingMode.HIDE && chosen==TrainingMode.HIDE && activePassage!=null){
+        if(previous==StudySessionController.TrainingMode.HIDE && chosen==StudySessionController.TrainingMode.HIDE && activePassage!=null){
             updateBlurText();updateModeBar();return;
         }
         updateActiveTrainingUI();
@@ -4561,11 +4451,11 @@ public final class MainActivity extends Activity {
     /** Training actions belong to the card, not the application's navigation bar. */
     private void addTrainingModeButtons(LinearLayout card) {
         LinearLayout bar=row();bar.setPadding(0,dp(12),0,dp(6));
-        TrainingMode[] modes={TrainingMode.HIDE,TrainingMode.ORDER,TrainingMode.TYPE};
+        StudySessionController.TrainingMode[] modes={StudySessionController.TrainingMode.HIDE,StudySessionController.TrainingMode.ORDER,StudySessionController.TrainingMode.TYPE};
         String[] labels={"◌  Скрыть","▦  Собрать","✎  Написать"};
         for(int i=0;i<modes.length;i++) {
-            final TrainingMode mode=modes[i];
-            TextView b=button(labels[i],trainingMode==mode,()->chooseTrainingMode(mode,activeMastered));
+            final StudySessionController.TrainingMode mode=modes[i];
+            TextView b=button(labels[i],studySession.trainingMode==mode,()->chooseTrainingMode(mode,studySession.activeMastered));
             b.setTextSize(13);b.setMinHeight(dp(52));b.setPadding(dp(2),dp(7),dp(2),dp(7));
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);
             lp.setMargins(dp(2),0,dp(2),0);bar.addView(b,lp);
@@ -4575,28 +4465,28 @@ public final class MainActivity extends Activity {
         updateModeBar();
     }
     private void updateModeBar() {
-        TrainingMode[] modes={TrainingMode.HIDE,TrainingMode.ORDER,TrainingMode.TYPE};
-        String[] labels={"◌  Скрыть"+(trainingMode==TrainingMode.HIDE?" "+mask+"%":""),
+        StudySessionController.TrainingMode[] modes={StudySessionController.TrainingMode.HIDE,StudySessionController.TrainingMode.ORDER,StudySessionController.TrainingMode.TYPE};
+        String[] labels={"◌  Скрыть"+(studySession.trainingMode==StudySessionController.TrainingMode.HIDE?" "+studySession.mask+"%":""),
             "▦  Собрать","✎  Написать"};
         for(int i=0;i<modes.length;i++){
             TextView b=bottomModeButtons[i];if(b==null)continue;
-            boolean selected=trainingMode==modes[i];b.setText(labels[i]);b.setTextColor(selected?PRIMARY_ON:WHITE);
+            boolean selected=studySession.trainingMode==modes[i];b.setText(labels[i]);b.setTextColor(selected?PRIMARY_ON:WHITE);
             if(selected){GradientDrawable gd=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                     new int[]{0xFFDB8C6C,0xFFB8583F});gd.setCornerRadius(dp(14));b.setBackground(gd);}
             else b.setBackground(outlined(CARD_ALT,14,BORDER));
         }
     }
     private void updateBlurText() {
-        if(activePassage==null || activeEntry==null || activeStep==null)return;
-        List<Bible.Verse> all=activeEntry.lines();
+        if(activePassage==null || studySession.activeEntry==null || studySession.activeStep==null)return;
+        List<Bible.Verse> all=studySession.activeEntry.lines();
         android.text.SpannableStringBuilder text=new android.text.SpannableStringBuilder();
-        int percentage=trainingMode==TrainingMode.HIDE?mask:0;
+        int percentage=studySession.trainingMode==StudySessionController.TrainingMode.HIDE?studySession.mask:0;
         try {
-            for(Bible.Verse verse:all.subList(activeStep.start,activeStep.end)) {
+            for(Bible.Verse verse:all.subList(studySession.activeStep.start,studySession.activeStep.end)) {
                 if(text.length()>0)text.append("\n\n");
                 text.append(verse.ref+"   ");int offset=text.length();
                 text.append(verse.text);
-                for(int[] range:ReviewLogic.blurRanges(verse.text,percentage,verse.ref.hashCode()^blurSeed)) {
+                for(int[] range:ReviewLogic.blurRanges(verse.text,percentage,verse.ref.hashCode()^studySession.blurSeed)) {
                     text.setSpan(new MaskFilterSpan(new BlurMaskFilter(dp(9),BlurMaskFilter.Blur.NORMAL)),
                         offset+range[0],offset+range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 }
@@ -4607,10 +4497,10 @@ public final class MainActivity extends Activity {
         } catch(RuntimeException unsupported) {
             // Unsupported device graphics must never crash the study activity.
             StringBuilder fallback=new StringBuilder();
-            for(Bible.Verse verse:all.subList(activeStep.start,activeStep.end)) {
+            for(Bible.Verse verse:all.subList(studySession.activeStep.start,studySession.activeStep.end)) {
                 if(fallback.length()>0)fallback.append("\n\n");
                 fallback.append(verse.ref).append("   ")
-                    .append(ReviewLogic.masked(verse.text,percentage,verse.ref.hashCode()^blurSeed));
+                    .append(ReviewLogic.masked(verse.text,percentage,verse.ref.hashCode()^studySession.blurSeed));
             }
             activePassage.setLayerType(View.LAYER_TYPE_NONE,null);
             activePassage.setText(fallback.toString());
@@ -4662,81 +4552,81 @@ public final class MainActivity extends Activity {
         });
     }
     private void updateActiveTrainingUI() {
-        if(activeTextArea==null || activeWorkArea==null || activeEntry==null || activeStep==null)return;
+        if(activeTextArea==null || activeWorkArea==null || studySession.activeEntry==null || studySession.activeStep==null)return;
         // Preserve scroll position; unlike render(), this does NOT replace the ScrollView.
         final int position=currentScroller==null?0:currentScroller.getScrollY();
         // Release focus from the old answer before removing its view.
         if(activeWorkArea.hasFocus())activeWorkArea.clearFocus();
         activeTextArea.removeAllViews();activeWorkArea.removeAllViews();activePassage=null;activeStatus=null;
-        if(trainingMode==TrainingMode.READ || trainingMode==TrainingMode.HIDE) {
+        if(studySession.trainingMode==StudySessionController.TrainingMode.READ || studySession.trainingMode==StudySessionController.TrainingMode.HIDE) {
             activePassage=txt("",20,WHITE,false);activePassage.setTextIsSelectable(false);
             add(activeTextArea,activePassage,8);
             activeStatus=txt("",13,MUTED,false);add(activeTextArea,activeStatus,12);
             updateBlurText();
         } else {
-            add(activeTextArea,txt(activeStep.title,19,WHITE,true),9);
+            add(activeTextArea,txt(studySession.activeStep.title,19,WHITE,true),9);
             helper(activeTextArea,"Текст закрыт. Вспоминай без подсказок.");
         }
-        if(trainingMode==TrainingMode.ORDER) {
-            showWordOrder(activeWorkArea,activeEntry.lines().subList(activeStep.start,activeStep.end));
-        } else if(trainingMode==TrainingMode.TYPE) {
+        if(studySession.trainingMode==StudySessionController.TrainingMode.ORDER) {
+            showWordOrder(activeWorkArea,studySession.activeEntry.lines().subList(studySession.activeStep.start,studySession.activeStep.end));
+        } else if(studySession.trainingMode==StudySessionController.TrainingMode.TYPE) {
             LinearLayout typing=column();typing.setPadding(dp(13),dp(16),dp(13),dp(16));
             typing.setBackground(outlined(CARD_ALT,17,VIOLET));
-            add(typing,txt(reviewMode?"↻  Контрольное повторение":
-                (!groupMode && studyStage==StudyPlanLogic.Stage.VERSE && store.exerciseDone(selectedEntry,stepCursor)>=4)?
+            add(typing,txt(studySession.reviewMode?"↻  Контрольное повторение":
+                (!studySession.groupMode && studySession.studyStage==StudyPlanLogic.Stage.VERSE && store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)>=4)?
                 "✦  Контрольная проверка":"✎  Напиши по памяти",19,WHITE,true),0);
             helper(typing,"Введи текст без номера стиха. Контрольная выполняется без подсказок.");
             EditText answer=input("Твой ответ…",true);forbidKeyboardHints(answer,true);
-            answer.setText(draft);answer.setMinLines(7);
+            answer.setText(studySession.draft);answer.setMinLines(7);
             answer.setShowSoftInputOnFocus(true);
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence s,int start,int count,int after){}
                 @Override public void onTextChanged(CharSequence s,int start,int before,int count){
-                    draft=s.toString();saveTrainingSession();
+                    studySession.draft=s.toString();studySession.saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable s){}
             });
             add(typing,answer,12);
             helper(typing,"Регистр, пунктуация и ё/е не влияют на точность. Порог — 90%.");
-            action(typing,"✓  Проверить написанное",true,()->checkAnswer(activeEntry,activeStep,activeMastered));
+            action(typing,"✓  Проверить написанное",true,()->studySession.checkAnswer(studySession.activeEntry,studySession.activeStep,studySession.activeMastered));
             add(activeWorkArea,typing,14);
-        } else if(trainingMode!=TrainingMode.ORDER){
+        } else if(studySession.trainingMode!=StudySessionController.TrainingMode.ORDER){
             helper(activeWorkArea,"Выбери «Собрать» или «Написать» для следующей тренировки.");
         }
-        if(trainingMode!=TrainingMode.READ)
-            action(activeWorkArea,"Показать исходный текст",false,()->chooseTrainingMode(TrainingMode.READ,activeMastered));
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE){
-            final int completed=store.exerciseDone(selectedEntry,stepCursor);
-            if(completed==0 && trainingMode==TrainingMode.READ)
+        if(studySession.trainingMode!=StudySessionController.TrainingMode.READ)
+            action(activeWorkArea,"Показать исходный текст",false,()->chooseTrainingMode(StudySessionController.TrainingMode.READ,studySession.activeMastered));
+        if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE){
+            final int completed=store.exerciseDone(studySession.selectedEntry,studySession.stepCursor);
+            if(completed==0 && studySession.trainingMode==StudySessionController.TrainingMode.READ)
                 action(activeWorkArea,"✓  Прочитал · перейти к пропускам",true,()->completeIntro(1));
-            if(completed==1 && trainingMode==TrainingMode.HIDE && mask==100)
+            if(completed==1 && studySession.trainingMode==StudySessionController.TrainingMode.HIDE && studySession.mask==100)
                 action(activeWorkArea,"✓  Восстановил слова · перейти к сборке",true,()->completeIntro(2));
         }
         updateModeBar();
         if(currentScroller!=null)currentScroller.post(()->currentScroller.scrollTo(0,position));
     }
     private void completeIntro(int completed){
-        if(reviewMode||groupMode||studyStage!=StudyPlanLogic.Stage.VERSE)return;
-        if(store.exerciseDone(selectedEntry,stepCursor)==completed-1 &&
-            (completed!=2 || (trainingMode==TrainingMode.HIDE && mask==100))){
-            store.finishExercise(selectedEntry,stepCursor,completed);
-            trainingMode=completed==1?TrainingMode.HIDE:TrainingMode.ORDER;
-            mask=completed==1?25:0;resetWordTiles();saveTrainingSession();render();
+        if(studySession.reviewMode||studySession.groupMode||studySession.studyStage!=StudyPlanLogic.Stage.VERSE)return;
+        if(store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)==completed-1 &&
+            (completed!=2 || (studySession.trainingMode==StudySessionController.TrainingMode.HIDE && studySession.mask==100))){
+            store.finishExercise(studySession.selectedEntry,studySession.stepCursor,completed);
+            studySession.trainingMode=completed==1?StudySessionController.TrainingMode.HIDE:StudySessionController.TrainingMode.ORDER;
+            studySession.mask=completed==1?25:0;studySession.resetWordTiles();studySession.saveTrainingSession();render();
         }
     }
     private void renderStepNavigator(LinearLayout into,LocalStore.Entry e,int stepCount) {
         LinearLayout controls=row();
-        TextView prev=button("←  Назад",false,()->moveStep(e,-1));
-        TextView next=button("Вперёд  →",false,()->moveStep(e,1));
-        prev.setEnabled(stepCursor>0);prev.setAlpha(stepCursor>0?1f:0.45f);
-        boolean nextAllowed=stepCursor+1<stepCount && (groupMode||reviewMode||studyStage!=StudyPlanLogic.Stage.VERSE||
-            LessonFlowLogic.canOpen(stepCursor+1,store.unlockedPosition(e.id,e.lines().size()),e.lines().size()));
+        TextView prev=button("←  Назад",false,()->studySession.moveStep(e,-1));
+        TextView next=button("Вперёд  →",false,()->studySession.moveStep(e,1));
+        prev.setEnabled(studySession.stepCursor>0);prev.setAlpha(studySession.stepCursor>0?1f:0.45f);
+        boolean nextAllowed=studySession.stepCursor+1<stepCount && (studySession.groupMode||studySession.reviewMode||studySession.studyStage!=StudyPlanLogic.Stage.VERSE||
+            LessonFlowLogic.canOpen(studySession.stepCursor+1,store.unlockedPosition(e.id,e.lines().size()),e.lines().size()));
         next.setEnabled(nextAllowed);next.setAlpha(nextAllowed?1f:0.45f);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(51),1);lp.rightMargin=dp(7);
         controls.addView(prev,lp);controls.addView(next,new LinearLayout.LayoutParams(0,dp(51),1));
         add(into,controls,10);
-        helper(into,groupMode?"Связное воспроизведение укрепляет переходы между стихами.":
-            reviewMode?"Повторение без подсказок.":"Назад можно всегда. Вперёд — после контрольной проверки; Библия читается свободно.");
+        helper(into,studySession.groupMode?"Связное воспроизведение укрепляет переходы между стихами.":
+            studySession.reviewMode?"Повторение без подсказок.":"Назад можно всегда. Вперёд — после контрольной проверки; Библия читается свободно.");
     }
     /** Lightweight wrapping container for word tiles; uses Android SDK only. */
     private static final class WrapLayout extends ViewGroup {
@@ -4777,68 +4667,68 @@ public final class MainActivity extends Activity {
         List<String> sources=new ArrayList<>();for(Bible.Verse v:verses)sources.add(v.text);
         List<String[]> chunks=WordOrderLogic.chunks(sources);
         if(chunks.isEmpty()){helper(card,"Нет слов для сборки.");return;}
-        orderChunk=Math.min(orderChunk,chunks.size()-1);
-        String[] words=chunks.get(orderChunk);
-        if(orderBankOrder.length!=words.length)
-            orderBankOrder=WordOrderLogic.shuffledIndices(words.length,System.nanoTime());
-        add(card,txt("Собери фрагмент "+(orderChunk+1)+" из "+chunks.size(),17,WHITE,true),13);
+        studySession.orderChunk=Math.min(studySession.orderChunk,chunks.size()-1);
+        String[] words=chunks.get(studySession.orderChunk);
+        if(studySession.orderBankOrder.length!=words.length)
+            studySession.orderBankOrder=WordOrderLogic.shuffledIndices(words.length,System.nanoTime());
+        add(card,txt("Собери фрагмент "+(studySession.orderChunk+1)+" из "+chunks.size(),17,WHITE,true),13);
         helper(card,"Нажимай на слова снизу в том порядке, как они идут в тексте.");
-        add(card,txt(orderPosition+" / "+words.length+" слов",13,GREEN,true),13);
+        add(card,txt(studySession.orderPosition+" / "+words.length+" слов",13,GREEN,true),13);
         WrapLayout assembled=new WrapLayout(this,dp(7));assembled.setPadding(0,dp(5),0,dp(10));
-        for(int i=0;i<orderPosition;i++) assembled.addView(wordTile(words[i],0xFFE1EDDF,WHITE,SUCCESS,null));
-        if(orderPosition==0)assembled.addView(txt("Здесь появятся выбранные слова…",14,MUTED,false));
+        for(int i=0;i<studySession.orderPosition;i++) assembled.addView(wordTile(words[i],0xFFE1EDDF,WHITE,SUCCESS,null));
+        if(studySession.orderPosition==0)assembled.addView(txt("Здесь появятся выбранные слова…",14,MUTED,false));
         add(card,assembled,6);
-        if(orderPosition<words.length) {
+        if(studySession.orderPosition<words.length) {
             label(card,"Выбери следующее слово");
             WrapLayout options=new WrapLayout(this,dp(8));
-            for(int tileIndex:orderBankOrder) {
-                if(usedWordTiles.contains(tileIndex))continue;
+            for(int tileIndex:studySession.orderBankOrder) {
+                if(studySession.usedWordTiles.contains(tileIndex))continue;
                 final int pressed=tileIndex;
-                boolean wrong=orderWrongTile==tileIndex;
+                boolean wrong=studySession.orderWrongTile==tileIndex;
                 TextView tile=wordTile(WordOrderLogic.comparable(words[tileIndex]).isEmpty()?words[tileIndex]:
                     words[tileIndex].replaceAll("^[^\\p{L}\\p{Nd}]+|[^\\p{L}\\p{Nd}]+$",""),
                     wrong?0xFFF8D6D2:CARD_ALT,wrong?RED:WHITE,wrong?RED:BORDER,()->{
-                        if(WordOrderLogic.accepts(words,orderPosition,pressed)) {
-                            usedWordTiles.add(pressed);orderPosition++;orderWrongTile=-1;
-                        } else {orderWrongTile=pressed;orderMistakes++;}
+                        if(WordOrderLogic.accepts(words,studySession.orderPosition,pressed)) {
+                            studySession.usedWordTiles.add(pressed);studySession.orderPosition++;studySession.orderWrongTile=-1;
+                        } else {studySession.orderWrongTile=pressed;studySession.orderMistakes++;}
                         updateActiveTrainingUI();
                     });
                 options.addView(tile);
             }
             add(card,options,8);
-            if(orderWrongTile!=-1)add(card,txt("Не то слово. Попробуй ещё раз.",13,RED,false),10);
+            if(studySession.orderWrongTile!=-1)add(card,txt("Не то слово. Попробуй ещё раз.",13,RED,false),10);
         } else {
             add(card,txt("✓  Фрагмент собран правильно",16,GREEN,true),12);
-            if(orderChunk<chunks.size()-1)
+            if(studySession.orderChunk<chunks.size()-1)
                 action(card,"→  Следующий фрагмент",true,()->{
-                    orderChunk++;orderPosition=0;orderWrongTile=-1;orderBankOrder=new int[0];usedWordTiles.clear();updateActiveTrainingUI();
+                    studySession.orderChunk++;studySession.orderPosition=0;studySession.orderWrongTile=-1;studySession.orderBankOrder=new int[0];studySession.usedWordTiles.clear();updateActiveTrainingUI();
                 });
             else {
-                if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE &&
-                    store.exerciseDone(selectedEntry,stepCursor)==2 && !orderCompleted){
-                    orderCompleted=true;store.finishExercise(selectedEntry,stepCursor,3);
+                if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE &&
+                    store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)==2 && !studySession.orderCompleted){
+                    studySession.orderCompleted=true;store.finishExercise(studySession.selectedEntry,studySession.stepCursor,3);
                 }
                 helper(card,"Ты расставил слова с подсказками. Теперь проверь, сможешь ли воспроизвести их без готовых вариантов.");
-                action(card,"✎  Написать по памяти",true,()->chooseTrainingMode(TrainingMode.TYPE,false));
+                action(card,"✎  Написать по памяти",true,()->chooseTrainingMode(StudySessionController.TrainingMode.TYPE,false));
             }
         }
-        if(orderMistakes>0)helper(card,"Ошибочных нажатий: "+orderMistakes);
-        action(card,"↺  Собрать сначала",false,()->{resetWordTiles();updateActiveTrainingUI();});
+        if(studySession.orderMistakes>0)helper(card,"Ошибочных нажатий: "+studySession.orderMistakes);
+        action(card,"↺  Собрать сначала",false,()->{studySession.resetWordTiles();updateActiveTrainingUI();});
     }
     private void renderTraining() {
-        LocalStore.Entry e=store.entry(selectedEntry);
+        LocalStore.Entry e=store.entry(studySession.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
-        activeEntry=e;
+        studySession.activeEntry=e;
         List<Bible.Verse> all=e.lines();
-        List<StudyPlanLogic.Step> steps=studySteps(e);
+        List<StudyPlanLogic.Step> steps=studySession.studySteps(e);
         if(steps.isEmpty()){helper(content,"Нет текста для тренировки.");return;}
-        stepCursor=Math.max(0,Math.min(stepCursor,steps.size()-1));
-        StudyPlanLogic.Step step=steps.get(stepCursor);activeStep=step;
+        studySession.stepCursor=Math.max(0,Math.min(studySession.stepCursor,steps.size()-1));
+        StudyPlanLogic.Step step=steps.get(studySession.stepCursor);studySession.activeStep=step;
         int learned=store.masteryCount(e.id),count=all.size();
-        boolean mastered=store.isStepMastered(e.id,studyStage.name(),step.start,step.end);
-        activeMastered=mastered;
-        title(reviewMode?"Повторение":groupMode?"Связный фрагмент":e.title,e.reference);
-        int bookId=bookForEntry(e);
+        boolean mastered=store.isStepMastered(e.id,studySession.studyStage.name(),step.start,step.end);
+        studySession.activeMastered=mastered;
+        title(studySession.reviewMode?"Повторение":studySession.groupMode?"Связный фрагмент":e.title,e.reference);
+        int bookId=studySession.bookForEntry(e);
         add(content,txt("●  "+(bookId>0?Bible.NAMES[bookId-1]:"Свой текст"),13,
             BookColorLogic.color(bookId),true),5);
         LinearLayout stat=headerCard(content);
@@ -4846,28 +4736,28 @@ public final class MainActivity extends Activity {
         progress(stat,learned,count);
         List<String> allRefs=new ArrayList<>();
         for(Bible.Verse v:all)allRefs.add(v.ref);
-        if(!reviewMode&&!groupMode){
-            GroupLearningLogic.Candidate group=nextGroup(e);
+        if(!studySession.reviewMode&&!studySession.groupMode){
+            GroupLearningLogic.Candidate group=studySession.nextGroup(e);
             if(group!=null){
                 add(stat,txt("Рекомендуется: "+group.reason,13,WHITE,false),13);
                 action(stat,"Тренировать связку",false,()->openGroup(group));
             }
-            if(studyStage==StudyPlanLogic.Stage.VERSE){
-                int completed=store.exerciseDone(e.id,stepCursor);
+            if(studySession.studyStage==StudyPlanLogic.Stage.VERSE){
+                int completed=store.exerciseDone(e.id,studySession.stepCursor);
                 add(stat,txt(completed>=5?"Пять упражнений выполнены":
                     LessonFlowLogic.label(LessonFlowLogic.Exercise.values()[completed]),14,GREEN,true),10);
             }
         }
-        if(!reviewMode&&!groupMode)renderStepNavigator(content,e,steps.size());
-        if(!reviewMode&&!groupMode)action(content,"Выбрать открытый стих",false,()->showAnyVerse(e));
-        if(groupMode)action(content,"←  Вернуться к стихам",false,()->{groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;stepCursor=returnVerseCursor;resetTrainingStep(e);render();});
+        if(!studySession.reviewMode&&!studySession.groupMode)renderStepNavigator(content,e,steps.size());
+        if(!studySession.reviewMode&&!studySession.groupMode)action(content,"Выбрать открытый стих",false,()->showAnyVerse(e));
+        if(studySession.groupMode)action(content,"←  Вернуться к стихам",false,()->{studySession.groupMode=false;studySession.forcedStep=null;studySession.studyStage=StudyPlanLogic.Stage.VERSE;studySession.stepCursor=studySession.returnVerseCursor;studySession.resetTrainingStep(e);render();});
         LinearLayout textCard=card(content);
-        add(textCard,txt("КАРТОЧКА "+(stepCursor+1)+" ИЗ "+steps.size(),12,GREEN,true),0);
+        add(textCard,txt("КАРТОЧКА "+(studySession.stepCursor+1)+" ИЗ "+steps.size(),12,GREEN,true),0);
         add(textCard,txt(step.title+(mastered?"  ✓":""),18,WHITE,true),5);
-        String status=store.consolidated(e.id,studyStage.name(),step.start,step.end)?"Закреплён":
+        String status=store.consolidated(e.id,studySession.studyStage.name(),step.start,step.end)?"Закреплён":
             mastered?"Предварительно выучен":"Изучается";
         add(textCard,txt(status,13,mastered?GREEN:MUTED,true),8);
-        if(!checked) {
+        if(!studySession.checked) {
             activeTextArea=column();activeTextArea.setMinimumHeight(dp(92));
             add(textCard,activeTextArea,7);
             addTrainingModeButtons(textCard);
@@ -4875,34 +4765,34 @@ public final class MainActivity extends Activity {
             updateActiveTrainingUI();
         } else {
             activeTextArea=null;activeWorkArea=null;activePassage=null;
-            add(textCard,txt(passed?"Воспроизведено ✓":
-                testAssisted&&lastAccuracy>=90?"Проверка с подсказкой не засчитана":"Пока есть ошибки",
-                22,passed?GREEN:RED,true),14);
-            add(textCard,txt("Точность: "+lastAccuracy+"%",21,WHITE,true),10);
-            if(trainingMode==TrainingMode.TYPE){
+            add(textCard,txt(studySession.passed?"Воспроизведено ✓":
+                studySession.testAssisted&&studySession.lastAccuracy>=90?"Проверка с подсказкой не засчитана":"Пока есть ошибки",
+                22,studySession.passed?GREEN:RED,true),14);
+            add(textCard,txt("Точность: "+studySession.lastAccuracy+"%",21,WHITE,true),10);
+            if(studySession.trainingMode==StudySessionController.TrainingMode.TYPE){
                 label(textCard,"Твои ошибки по месту ввода");
-                add(textCard,typedFeedback(lastExpected,draft),9);
+                add(textCard,typedFeedback(studySession.lastExpected,studySession.draft),9);
             }
-            helper(textCard,passed?"Результат сохранён. Поздняя повторная проверка закрепит стих.":
+            helper(textCard,studySession.passed?"Результат сохранён. Поздняя повторная проверка закрепит стих.":
                 "Попробуй ещё раз без подсказок или исправь выделенные ошибки.");
-            label(textCard,"Правильный текст");add(textCard,txt(lastExpected,16,WHITE,false),8);
+            label(textCard,"Правильный текст");add(textCard,txt(studySession.lastExpected,16,WHITE,false),8);
             action(content,"↺  Исправить ответ",true,()->{
-                checked=false;passed=false;lastAccuracy=-1;trainingMode=TrainingMode.TYPE;render();
+                studySession.checked=false;studySession.passed=false;studySession.lastAccuracy=-1;studySession.trainingMode=StudySessionController.TrainingMode.TYPE;render();
             });
-            if(reviewMode){
-                action(content,"←  К повторениям",false,()->{reviewMode=false;forcedStep=null;screen=Screen.DUE;render();});
-            }else if(groupMode){
-                action(content,"←  К стихам",false,()->{groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;
-                    stepCursor=returnVerseCursor;resetTrainingStep(e);render();});
-            }else if(studyStage==StudyPlanLogic.Stage.VERSE){
-                int done=store.exerciseDone(e.id,stepCursor);
-                if(passed&&done==4)action(content,"✦  Начать контрольную проверку",true,()->{
-                    draft="";checked=false;passed=false;testAssisted=false;trainingMode=TrainingMode.TYPE;render();
+            if(studySession.reviewMode){
+                action(content,"←  К повторениям",false,()->{studySession.reviewMode=false;studySession.forcedStep=null;screen=Screen.DUE;render();});
+            }else if(studySession.groupMode){
+                action(content,"←  К стихам",false,()->{studySession.groupMode=false;studySession.forcedStep=null;studySession.studyStage=StudyPlanLogic.Stage.VERSE;
+                    studySession.stepCursor=studySession.returnVerseCursor;studySession.resetTrainingStep(e);render();});
+            }else if(studySession.studyStage==StudyPlanLogic.Stage.VERSE){
+                int done=store.exerciseDone(e.id,studySession.stepCursor);
+                if(studySession.passed&&done==4)action(content,"✦  Начать контрольную проверку",true,()->{
+                    studySession.draft="";studySession.checked=false;studySession.passed=false;studySession.testAssisted=false;studySession.trainingMode=StudySessionController.TrainingMode.TYPE;render();
                 });
-                if(passed&&done>=5){
-                    if(stepCursor+1<e.lines().size())
-                        action(content,"→  Следующий стих",true,()->moveStep(e,1));
-                    GroupLearningLogic.Candidate group=nextGroup(e);
+                if(studySession.passed&&done>=5){
+                    if(studySession.stepCursor+1<e.lines().size())
+                        action(content,"→  Следующий стих",true,()->studySession.moveStep(e,1));
+                    GroupLearningLogic.Candidate group=studySession.nextGroup(e);
                     if(group!=null)action(content,"✦  "+group.reason,false,()->openGroup(group));
                 }
             }
@@ -4910,33 +4800,7 @@ public final class MainActivity extends Activity {
         }
 
     }
-    private void checkAnswer(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered) {
-        String expected=texts(e.lines().subList(step.start,step.end));
-        int accuracy=ReviewLogic.accuracy(expected,draft);
-        boolean finalStage=!reviewMode&&!groupMode && studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(e.id,step.start)==4;
-        boolean independent=reviewMode||groupMode||finalStage;
-        passed=LessonCurriculumLogic.exact(expected,draft) && (!independent||!testAssisted);
-        lastAccuracy=accuracy;lastExpected=expected;lastTestRef=step.title;
-        lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
-        long now=System.currentTimeMillis();
-        store.recordRecall(e.id,studyStage.name(),step.start,step.end,accuracy,
-            testAssisted||!independent,now);
-        if(independent){
-            store.scheduleReview(e.id,studyStage.name(),step.start,step.end,accuracy,testAssisted,now);
-            if(passed&&!mastered)store.markMastered(e.id,step.start,step.end,accuracy,studyStage.name());
-        }
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE){
-            int done=store.exerciseDone(e.id,step.start);
-            if(done==3&&passed)store.finishExercise(e.id,step.start,4);
-            else if(done==4&&passed)store.finishExercise(e.id,step.start,5);
-        }
-        int learned=store.masteryCount(e.id);
-        ReviewLogic.Schedule unchanged=new ReviewLogic.Schedule(e.repetitions,e.days,e.ease,e.due);
-        // Per-verse and grouped schedules are now authoritative; do not update legacy entry-wide schedule.
-        store.update(e,unchanged,learned,accuracy);
-        checked=true;saveTrainingSession();render();
-    }
+
     private TextView typedFeedback(String expected,String actual){
         android.text.SpannableStringBuilder annotated=new android.text.SpannableStringBuilder();
         for(TypingDiffLogic.Piece part:TypingDiffLogic.compare(expected,actual)){
@@ -4948,54 +4812,37 @@ public final class MainActivity extends Activity {
         }
         TextView tv=txt("",17,WHITE,false);tv.setText(annotated);return tv;
     }
-    private int bookForEntry(LocalStore.Entry e){
-        if(e==null||e.reference==null)return -1;
-        for(int n=1;n<=66;n++)if(e.reference.startsWith(Bible.NAMES[n-1]+" "))return n;
-        return -1;
-    }
-    private GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e){
-        List<String> refs=new ArrayList<>();for(Bible.Verse line:e.lines())refs.add(line.ref);
-        return GroupLearningLogic.next(refs,new GroupLearningLogic.Progress(){
-            @Override public boolean verseMastered(int i){return store.isStepMastered(e.id,"VERSE",i,i+1);}
-            @Override public boolean groupMastered(String stage,int a,int b){return store.isStepMastered(e.id,stage,a,b);}
-        },isSermon(e));
-    }
-    private GroupLearningLogic.Candidate pendingAfterCurrent(LocalStore.Entry e,int current){
-        if(current<0||current>=e.lines().size())return null;
-        List<String> refs=new ArrayList<>();for(Bible.Verse v:e.lines())refs.add(v.ref);
-        return GroupLearningLogic.afterVerse(refs,new GroupLearningLogic.Progress(){
-            @Override public boolean verseMastered(int i){return store.isStepMastered(e.id,"VERSE",i,i+1);}
-            @Override public boolean groupMastered(String stage,int a,int b){return store.isStepMastered(e.id,stage,a,b);}
-        },current,isSermon(e));
-    }
+
+
+
     private void openGroup(GroupLearningLogic.Candidate group){
-        if(!groupMode) returnVerseCursor=studyStage==StudyPlanLogic.Stage.VERSE?stepCursor:
-            store.firstUnmastered(selectedEntry,store.entry(selectedEntry).lines().size());
-        reviewMode=false;groupMode=true;currentReview=null;
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().putBoolean("linked_"+selectedEntry+"_pending",true).apply();
-        studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
-        forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
-        stepCursor=0;resetWordTiles();mask=0;draft="";checked=false;passed=false;
-        lessonVariant=0;lessonChunk=0;
-        testAssisted=false;lessonWriteHadFeedback=false;lessonPracticeAgain=false;
-        lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;practiceWeakFragment=false;weakFragmentText="";resetLessonTiles();
-        trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;render();
+        if(!studySession.groupMode) studySession.returnVerseCursor=studySession.studyStage==StudyPlanLogic.Stage.VERSE?studySession.stepCursor:
+            store.firstUnmastered(studySession.selectedEntry,store.entry(studySession.selectedEntry).lines().size());
+        studySession.reviewMode=false;studySession.groupMode=true;studySession.currentReview=null;
+        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().putBoolean("linked_"+studySession.selectedEntry+"_pending",true).apply();
+        studySession.studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
+        studySession.forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
+        studySession.stepCursor=0;studySession.resetWordTiles();studySession.mask=0;studySession.draft="";studySession.checked=false;studySession.passed=false;
+        studySession.lessonVariant=0;studySession.lessonChunk=0;
+        studySession.testAssisted=false;studySession.lessonWriteHadFeedback=false;studySession.lessonPracticeAgain=false;
+        studySession.lessonWriteVariant=0;studySession.groupBuildDone=false;studySession.groupIntroDone=false;studySession.practiceWeakFragment=false;studySession.weakFragmentText="";studySession.resetLessonTiles();
+        studySession.trainingMode=StudySessionController.TrainingMode.ORDER;screen=Screen.TRAIN;render();
     }
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderFullscreenLesson() {
-        LocalStore.Entry e=store.entry(selectedEntry);
+        LocalStore.Entry e=store.entry(studySession.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
-        List<StudyPlanLogic.Step> steps=studySteps(e);
+        List<StudyPlanLogic.Step> steps=studySession.studySteps(e);
         if(steps.isEmpty()){
             LocalStore.UnifiedCollection u=store.unifiedForGroup(e.groupId);
             screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
             if(u!=null)openUnifiedId=u.id;render();return;
         }
-        stepCursor=Math.max(0,Math.min(stepCursor,steps.size()-1));
-        activeEntry=e;activeStep=steps.get(stepCursor);
-        activeMastered=store.isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end);
-        LessonCurriculumLogic.Phase phase=checked&&passed?
-            LessonCurriculumLogic.Phase.COMPLETE:lessonPhase(e);
+        studySession.stepCursor=Math.max(0,Math.min(studySession.stepCursor,steps.size()-1));
+        studySession.activeEntry=e;studySession.activeStep=steps.get(studySession.stepCursor);
+        studySession.activeMastered=store.isStepMastered(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end);
+        LessonCurriculumLogic.Phase phase=studySession.checked&&studySession.passed?
+            LessonCurriculumLogic.Phase.COMPLETE:studySession.lessonPhase(e);
         lessonErrorArea=null;
         if(phase==LessonCurriculumLogic.Phase.COMPLETE){renderCompletion(e);return;}
         root=column();root.setBackground(pageBackground());
@@ -5007,7 +4854,7 @@ public final class MainActivity extends Activity {
         close.setOnClickListener(v->onBackPressed());
         // SV_DEVELOPER_MODE_UPDATE_1: long-press the close icon for debugging.
         close.setOnLongClickListener(v->{
-            final int bookId=bookForEntry(e);
+            final int bookId=studySession.bookForEntry(e);
             DeveloperModeController.open(this,e,
                 chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
                 store.masteryCount(e.id));
@@ -5024,7 +4871,7 @@ public final class MainActivity extends Activity {
             devButton.setGravity(Gravity.CENTER);
             devButton.setContentDescription("Открыть режим разработчика");
             devButton.setOnClickListener(v->{
-                final int bookId=bookForEntry(e);
+                final int bookId=studySession.bookForEntry(e);
                 DeveloperModeController.open(this,e,
                     chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
                     store.masteryCount(e.id));
@@ -5039,21 +4886,21 @@ public final class MainActivity extends Activity {
         content=column();content.setPadding(dp(20),dp(11),dp(20),dp(18));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView mainAction;
-        int number=stepCursor+1;
+        int number=studySession.stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
             lessonPhaseHeader("Ознакомление",e);
             renderLessonIntro();
             mainAction=button("Продолжить",true,()->{
-                if(groupMode)groupIntroDone=true;
-                else store.finishExercise(e.id,activeStep.start,1);
-                lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();mask=0;
-                saveTrainingSession();render();
+                if(studySession.groupMode)studySession.groupIntroDone=true;
+                else store.finishExercise(e.id,studySession.activeStep.start,1);
+                studySession.lessonVariant=0;studySession.lessonChunk=0;studySession.lessonWriteVariant=0;studySession.resetLessonTiles();studySession.mask=0;
+                studySession.saveTrainingSession();render();
             });
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
             lessonPhaseHeader("Сборка",e);
             boolean complete=renderLessonBuild(e);
             mainAction=button(complete?"Продолжить":"Сначала собери фразу",complete,()->{
-                if(lessonPicked>=lessonBuildRequired)advanceLessonBuild(e);
+                if(studySession.lessonPicked>=studySession.lessonBuildRequired)studySession.advanceLessonBuild(e);
             });
             mainAction.setEnabled(complete);mainAction.setAlpha(complete?1f:0.5f);
             lessonBuildAction=mainAction;
@@ -5074,10 +4921,10 @@ public final class MainActivity extends Activity {
 
     private String lessonFullReference(LocalStore.Entry e){
         if(e.lines().isEmpty())return e.reference;
-        int book=bookForEntry(e);
+        int book=studySession.bookForEntry(e);
         if(book<1)return e.reference==null?e.title:e.reference;
-        String a=e.lines().get(activeStep.start).ref;
-        String b=e.lines().get(activeStep.end-1).ref;
+        String a=e.lines().get(studySession.activeStep.start).ref;
+        String b=e.lines().get(studySession.activeStep.end-1).ref;
         try{
             String[] first=a.split(":",2),last=b.split(":",2);
             return Bible.reference(book,Integer.parseInt(first[0]),Integer.parseInt(first[1]),
@@ -5108,7 +4955,7 @@ public final class MainActivity extends Activity {
         reference.setGravity(Gravity.CENTER);reference.setPadding(dp(14),dp(6),dp(14),dp(6));
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,-2);
         rp.topMargin=dp(12);central.addView(reference,rp);
-        TextView heading=displayText(groupMode?"Связка освоена!":"Стих освоен!",38);
+        TextView heading=displayText(studySession.groupMode?"Связка освоена!":"Стих освоен!",38);
         heading.setGravity(Gravity.CENTER);heading.setTextColor(0xFF35452E);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
         hp.topMargin=dp(14);central.addView(heading,hp);
@@ -5172,25 +5019,25 @@ public final class MainActivity extends Activity {
         }
     }
     private void advanceAfterSuccess(LocalStore.Entry e){
-        final GroupLearningLogic.Candidate pending=!reviewMode&&!groupMode?
-            pendingAfterCurrent(e,activeStep.start):null;
-        if(reviewMode){advanceReviewSession();}
-        else if(groupMode){
+        final GroupLearningLogic.Candidate pending=!studySession.reviewMode&&!studySession.groupMode?
+            studySession.pendingAfterCurrent(e,studySession.activeStep.start):null;
+        if(studySession.reviewMode){advanceReviewSession();}
+        else if(studySession.groupMode){
             getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
-                .remove("linked_"+selectedEntry+"_pending").apply();
-            groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;
-            stepCursor=returnVerseCursor;resetTrainingStep(e);saveTrainingSession();
-            GroupLearningLogic.Candidate more=pendingAfterCurrent(e,stepCursor);
+                .remove("linked_"+studySession.selectedEntry+"_pending").apply();
+            studySession.groupMode=false;studySession.forcedStep=null;studySession.studyStage=StudyPlanLogic.Stage.VERSE;
+            studySession.stepCursor=studySession.returnVerseCursor;studySession.resetTrainingStep(e);studySession.saveTrainingSession();
+            GroupLearningLogic.Candidate more=studySession.pendingAfterCurrent(e,studySession.stepCursor);
             if(more!=null){openGroup(more);return;}
-            if(stepCursor+1<e.lines().size()){
-                stepCursor++;resetTrainingStep(e);saveTrainingSession();render();
+            if(studySession.stepCursor+1<e.lines().size()){
+                studySession.stepCursor++;studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
             }else if(executingCollectionQueue&&collectionQueueCursor>=0){advanceStudyCollectionAfterGroups(e);}
             else if(flashcardSession.cardStudyCursor>=0){advanceCardStudy();}
             else render();
         }else if(pending!=null)openGroup(pending);
-        else if(activeStep.end<e.lines().size()){
-            stepCursor=activeStep.end;studyStage=StudyPlanLogic.Stage.VERSE;
-            resetTrainingStep(e);saveTrainingSession();render();
+        else if(studySession.activeStep.end<e.lines().size()){
+            studySession.stepCursor=studySession.activeStep.end;studySession.studyStage=StudyPlanLogic.Stage.VERSE;
+            studySession.resetTrainingStep(e);studySession.saveTrainingSession();render();
         }else if(executingCollectionQueue&&collectionQueueCursor>=0)advanceStudyCollectionAfterGroups(e);
         else if(flashcardSession.cardStudyCursor>=0)advanceCardStudy();
         else onBackPressed();
@@ -5198,39 +5045,17 @@ public final class MainActivity extends Activity {
 
     /** Finish all internal bridges and complete-passage checks before advancing to the next independent entry. */
     private void advanceStudyCollectionAfterGroups(LocalStore.Entry e){
-        GroupLearningLogic.Candidate unfinished=nextGroup(e);
+        GroupLearningLogic.Candidate unfinished=studySession.nextGroup(e);
         if(unfinished!=null){openGroup(unfinished);return;}
         advanceStudyCollection();
     }
     /** The hotbar is an observer only. It never advances or changes lesson exercises. */
-    private LessonHotbarLogic.Model lessonHotbarModel(LessonCurriculumLogic.Phase phase,
-                                                      LocalStore.Entry e){
-        List<Bible.Verse> passage=e.lines().subList(activeStep.start,activeStep.end);
-        List<String> source=new ArrayList<>();
-        for(Bible.Verse line:passage)source.add(line.text);
-        int chunks=Math.max(1,lessonChunks(source).size());
-        int variants=Math.max(1,LessonCurriculumLogic.variants(
-            ReviewLogic.words(texts(passage)).size()).size());
-        int buildTotal=chunks*variants;
-        int currentBuild=Math.max(0,lessonVariant*chunks+lessonChunk);
-        int buildDone=currentBuild;
-        if(phase==LessonCurriculumLogic.Phase.BUILD && lessonBuildRequired>0 &&
-            lessonPicked>=lessonBuildRequired)buildDone++;
-        int writingTotal=Math.max(1,writingVariants(e).size());
-        // In a scheduled review the lesson legitimately starts at writing.
-        boolean previouslyLearned=executingCollectionQueue &&
-            studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(e.id,activeStep.start)>=5;
-        boolean writingOnly=!groupMode && (reviewMode || lessonPracticeAgain ||
-            studyStage!=StudyPlanLogic.Stage.VERSE || previouslyLearned);
-        return LessonHotbarLogic.calculate(phase.ordinal(),4,buildTotal,writingTotal,
-            mask/25,buildDone,lessonWriteVariant,writingOnly);
-    }
+
     /** Compact three-part task trail matching the approved visual reference. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
                                     LocalStore.Entry e){
         lessonHotbarCells.clear();
-        final LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
+        final LessonHotbarLogic.Model model=studySession.lessonHotbarModel(phase,e);
         LinearLayout bar=row();bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(9),dp(7),dp(8),dp(7));
         bar.setBackground(shape(0xFFFFF8EE,17));
@@ -5395,7 +5220,7 @@ public final class MainActivity extends Activity {
     /** Live updates only the hotbar; typing, tiles and text are not recreated. */
     private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
         if(lessonHotbarCells.size()!=3||lessonHotbarCounter==null)return;
-        LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
+        LessonHotbarLogic.Model model=studySession.lessonHotbarModel(phase,e);
         lessonHotbarCounter.setText(model.currentNumber+" / "+model.total);
         for(int g=0;g<3;g++){
             List<TextView> cells=lessonHotbarCells.get(g);
@@ -5404,15 +5229,7 @@ public final class MainActivity extends Activity {
                 paintLessonHotbarCell(cells.get(i),model.visual(g,i),model.ordinal(g,i),true);
         }
     }
-    private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
-        if(groupMode)return !groupIntroDone?LessonCurriculumLogic.Phase.INTRO:
-            (groupBuildDone?LessonCurriculumLogic.Phase.WRITE:LessonCurriculumLogic.Phase.BUILD);
-        boolean learnedBefore=executingCollectionQueue&&
-            studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(e.id,activeStep.start)>=5;
-        return LessonCurriculumLogic.phase(store.exerciseDone(e.id,activeStep.start),
-            reviewMode||lessonPracticeAgain||studyStage!=StudyPlanLogic.Stage.VERSE||learnedBefore);
-    }
+
     private void lessonPhaseHeader(String stage,LocalStore.Entry e){
         TextView pill=txt(stage,15,0xFFAA563F,true);
         pill.setGravity(Gravity.CENTER);
@@ -5425,7 +5242,7 @@ public final class MainActivity extends Activity {
     }
     private void addLessonReference(LocalStore.Entry e){
         String ref=lessonFullReference(e);
-        int book=bookForEntry(e);
+        int book=studySession.bookForEntry(e);
         int ink=book<1?GREEN:bookInk(book);
         TextView cite=displayText(ref,20);
         cite.setTextColor(ink);cite.setGravity(Gravity.CENTER);
@@ -5440,24 +5257,22 @@ public final class MainActivity extends Activity {
         add(content,activePassage,19);
         activeStatus=txt("",14,MUTED,false);
         add(content,activeStatus,15);
-        trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
+        studySession.trainingMode=studySession.mask>0?StudySessionController.TrainingMode.HIDE:StudySessionController.TrainingMode.READ;
         updateBlurText();
-        TextView hide=button(mask==100?"Показать все слова":
-            "Скрыть "+(mask+25)+"% слов",false,()->{});
+        TextView hide=button(studySession.mask==100?"Показать все слова":
+            "Скрыть "+(studySession.mask+25)+"% слов",false,()->{});
         hide.setOnClickListener(v->{
-            mask=mask>=100?0:mask+25;
-            trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
+            studySession.mask=studySession.mask>=100?0:studySession.mask+25;
+            studySession.trainingMode=studySession.mask>0?StudySessionController.TrainingMode.HIDE:StudySessionController.TrainingMode.READ;
             updateBlurText();
-            refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry);
-            hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
-            saveTrainingSession();
+            refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,studySession.activeEntry);
+            hide.setText(studySession.mask==100?"Показать все слова":"Скрыть "+(studySession.mask+25)+"% слов");
+            studySession.saveTrainingSession();
         });
         add(content,hide,27);
         // No extra instructional caption: gesture behavior remains unchanged.
     }
-    private void resetLessonTiles(){
-        lessonPicked=0;lessonWrongTile=-1;lessonUsedTiles.clear();lessonSeed=new Random().nextLong();
-    }
+
     /** Replacing hidden tokens keeps the original measured line widths. No reflow on tap. */
     private static final class HiddenWordSpan extends ReplacementSpan {
         @Override public int getSize(Paint paint,CharSequence text,int start,int end,
@@ -5490,89 +5305,66 @@ public final class MainActivity extends Activity {
         // Fixed for the current screen, based on available width rather than a global verse cutoff.
         return Math.max(10,Math.min(28,Math.round(available/20f)));
     }
-    private List<String[]> lessonChunks(List<String> lines){
-        return WordOrderLogic.chunksForBudget(lines,lessonMaxTiles());
-    }
+
     private void updateLessonBuildView(String[] words,int[] missing){
-        if(lessonBuildPrompt!=null)lessonBuildPrompt.setText(buildPromptText(words,missing,lessonPicked));
-        if(lessonBuildCounter!=null)lessonBuildCounter.setText(lessonPicked+" / "+missing.length+" слов");
-        if(lessonBuildError!=null)lessonBuildError.setText(lessonWrongTile>=0?
+        if(lessonBuildPrompt!=null)lessonBuildPrompt.setText(buildPromptText(words,missing,studySession.lessonPicked));
+        if(lessonBuildCounter!=null)lessonBuildCounter.setText(studySession.lessonPicked+" / "+missing.length+" слов");
+        if(lessonBuildError!=null)lessonBuildError.setText(studySession.lessonWrongTile>=0?
             "Неверное слово. Попробуй другое.":"");
         for(int i=0;i<lessonBuildTiles.size();i++){
             TextView tile=lessonBuildTiles.get(i);
             int idx=(Integer)tile.getTag();
-            tile.setVisibility(lessonUsedTiles.contains(idx)?View.INVISIBLE:View.VISIBLE);
-            boolean wrong=idx==lessonWrongTile;
+            tile.setVisibility(studySession.lessonUsedTiles.contains(idx)?View.INVISIBLE:View.VISIBLE);
+            boolean wrong=idx==studySession.lessonWrongTile;
             tile.setTextColor(wrong?RED:WHITE);
             tile.setBackground(outlined(wrong?0xFFF8D6D2:CARD_ALT,12,wrong?RED:BORDER));
         }
         if(lessonBuildAction!=null){
-            boolean done=lessonPicked==missing.length;
+            boolean done=studySession.lessonPicked==missing.length;
             lessonBuildAction.setText(done?"Продолжить":"Сначала собери фразу");
             lessonBuildAction.setEnabled(done);lessonBuildAction.setAlpha(done?1f:0.5f);
         }
     }
     /** Choose a balanced random mask once per exercise, never once per screen redraw. */
-    private int[] lessonMissingPositions(String[] tokens,LessonCurriculumLogic.Variant kind){
-        if(kind!=LessonCurriculumLogic.Variant.GAPS)
-            return LessonCurriculumLogic.missingPositions(tokens.length,kind,(int)lessonSeed);
-        // Use the original fragment text as a stable identity. If that text changes,
-        // its history changes too; do not combine positions from different verses.
-        String historyKey=GapRotationLogic.identity(tokens);
-        String exerciseKey=historyKey+":"+(groupMode?"group": "verse")+
-            ":"+(trainingMode==TrainingMode.TYPE?"write":"build");
-        if(exerciseKey.equals(rotationExerciseKey)&&rotationExerciseSeed==lessonSeed){
-            int[] cached=GapRotationLogic.decodeMask(rotationMask,tokens.length);
-            if(cached!=null)return cached;
-        }
-        android.content.SharedPreferences prefs=getSharedPreferences("gap_rotation",MODE_PRIVATE);
-        int[] counts=GapRotationLogic.decodeCounts(prefs.getString(historyKey,""),tokens.length);
-        int amount=GapRotationLogic.amount(tokens.length);
-        int[] positions=GapRotationLogic.balancedPositions(counts,amount,lessonSeed);
-        prefs.edit().putString(historyKey,GapRotationLogic.encodeCounts(counts)).apply();
-        rotationExerciseKey=exerciseKey;rotationExerciseSeed=lessonSeed;
-        rotationMask=GapRotationLogic.encodeMask(positions);
-        saveTrainingSession();
-        return positions;
-    }
+
     private boolean renderLessonBuild(LocalStore.Entry e){
         lessonBuildAction=null;lessonBuildTiles.clear();
         List<String> src=new ArrayList<>();
-        for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))src.add(v.text);
-        List<String[]> chunks=lessonChunks(src);
+        for(Bible.Verse v:e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))src.add(v.text);
+        List<String[]> chunks=studySession.lessonChunks(src);
         if(chunks.isEmpty())return true;
-        lessonChunk=Math.min(lessonChunk,chunks.size()-1);
-        String[] tokens=chunks.get(lessonChunk);
+        studySession.lessonChunk=Math.min(studySession.lessonChunk,chunks.size()-1);
+        String[] tokens=chunks.get(studySession.lessonChunk);
         List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
-            ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
-        lessonVariant=Math.min(lessonVariant,variants.size()-1);
-        LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
+            ReviewLogic.words(studySession.texts(e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))).size());
+        studySession.lessonVariant=Math.min(studySession.lessonVariant,variants.size()-1);
+        LessonCurriculumLogic.Variant kind=variants.get(studySession.lessonVariant);
         // The exercise itself illustrates the task. Omit redundant task/fragment captions.
-        int[] missing=lessonMissingPositions(tokens,kind);
-        lessonBuildRequired=missing.length;
-        if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
-            lessonPicked=0;lessonUsedTiles.clear();
+        int[] missing=studySession.lessonMissingPositions(tokens,kind);
+        studySession.lessonBuildRequired=missing.length;
+        if(studySession.lessonPicked>missing.length || studySession.lessonUsedTiles.size()!=studySession.lessonPicked){
+            studySession.lessonPicked=0;studySession.lessonUsedTiles.clear();
         }
         lessonBuildPrompt=txt("",22,WHITE,false);
         lessonBuildPrompt.setLineSpacing(dp(8),1.13f);
         add(content,lessonBuildPrompt,22);
         lessonBuildCounter=txt("",13,GREEN,true);add(content,lessonBuildCounter,17);
         WrapLayout choices=new WrapLayout(this,dp(9));
-        int[] shuffled=WordOrderLogic.shuffledIndices(missing.length,lessonSeed);
+        int[] shuffled=WordOrderLogic.shuffledIndices(missing.length,studySession.lessonSeed);
         for(int index:shuffled){
             final int pressed=index;
             final int targetPos=missing[index];
             String caption=tokens[targetPos].replaceAll("^[^\\p{L}\\p{Nd}]+|[^\\p{L}\\p{Nd}]+$", "");
             TextView tile=wordTile(caption,CARD_ALT,WHITE,BORDER,()->{
                 // The target and bank occupy fixed views. Never call render() on a tile tap.
-                if(lessonUsedTiles.contains(pressed)||lessonPicked>=missing.length)return;
-                int wanted=missing[lessonPicked];
+                if(studySession.lessonUsedTiles.contains(pressed)||studySession.lessonPicked>=missing.length)return;
+                int wanted=missing[studySession.lessonPicked];
                 if(WordOrderLogic.comparable(tokens[wanted]).equals(WordOrderLogic.comparable(tokens[targetPos]))){
-                    lessonPicked++;lessonUsedTiles.add(pressed);lessonWrongTile=-1;
-                }else lessonWrongTile=pressed;
+                    studySession.lessonPicked++;studySession.lessonUsedTiles.add(pressed);studySession.lessonWrongTile=-1;
+                }else studySession.lessonWrongTile=pressed;
                 updateLessonBuildView(tokens,missing);
                 refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
-                saveTrainingSession();
+                studySession.saveTrainingSession();
             });
             tile.setTag(index);lessonBuildTiles.add(tile);choices.addView(tile);
         }
@@ -5580,52 +5372,21 @@ public final class MainActivity extends Activity {
         lessonBuildError=txt("",14,RED,false);add(content,lessonBuildError,12);
         updateLessonBuildView(tokens,missing);
         refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
-        return lessonPicked==missing.length;
+        return studySession.lessonPicked==missing.length;
     }
-    private void advanceLessonBuild(LocalStore.Entry e){
-        List<String> source=new ArrayList<>();
-        for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))source.add(v.text);
-        int chunkCount=lessonChunks(source).size();
-        int variants=LessonCurriculumLogic.variants(ReviewLogic.words(texts(
-            e.lines().subList(activeStep.start,activeStep.end))).size()).size();
-        if(lessonChunk+1<chunkCount){lessonChunk++;resetLessonTiles();}
-        else if(lessonVariant+1<variants){
-            if(!groupMode)store.finishExercise(e.id,activeStep.start,2);
-            lessonVariant++;lessonChunk=0;resetLessonTiles();
-        } else {
-            if(groupMode)groupBuildDone=true;
-            else store.finishExercise(e.id,activeStep.start,3);
-            lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();draft="";lastAccuracy=-1;
-            lessonWriteHadFeedback=false;
-        }
-        saveTrainingSession();render();
-    }
+
     private LinearLayout lessonErrorArea;
-    private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
-        int n=ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size();
-        if(reviewMode||lessonPracticeAgain||practiceWeakFragment)
-            return Collections.singletonList(LessonCurriculumLogic.Variant.FULL);
-        return LessonCurriculumLogic.variants(n);
-    }
-    private String writingExpected(LocalStore.Entry e,LessonCurriculumLogic.Variant variant){
-        String original=texts(e.lines().subList(activeStep.start,activeStep.end));
-        if(practiceWeakFragment)return weakFragmentText;
-        if(variant==LessonCurriculumLogic.Variant.FULL)return original;
-        String[] tokens=original.trim().split("\\s+");
-        int[] gaps=lessonMissingPositions(tokens,variant);
-        StringBuilder response=new StringBuilder();
-        for(int position:gaps){if(response.length()>0)response.append(' ');response.append(tokens[position]);}
-        return response.toString();
-    }
+
+
     /** Partial writing is edited directly in the sentence, not in a separate answer field. */
     private void renderLessonWriting(){
-        List<LessonCurriculumLogic.Variant> variants=writingVariants(activeEntry);
-        lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
-        LessonCurriculumLogic.Variant variant=variants.get(lessonWriteVariant);
+        List<LessonCurriculumLogic.Variant> variants=studySession.writingVariants(studySession.activeEntry);
+        studySession.lessonWriteVariant=Math.min(studySession.lessonWriteVariant,variants.size()-1);
+        LessonCurriculumLogic.Variant variant=variants.get(studySession.lessonWriteVariant);
         boolean full=variant==LessonCurriculumLogic.Variant.FULL;
 
         // The writing step does not need a separate task-number label.
-        if(practiceWeakFragment){
+        if(studySession.practiceWeakFragment){
             // Weak-fragment practice remains separate from the final independent check.
         }else if(full){
             // The verse reference remains visible while the full text is hidden.
@@ -5633,15 +5394,15 @@ public final class MainActivity extends Activity {
             renderInlineGapInputs(variant);
         }
         if(full){
-            EditText answer=input(practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
+            EditText answer=input(studySession.practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
             forbidKeyboardHints(answer,true);
-            answer.setMinLines(6);answer.setText(draft);
+            answer.setMinLines(6);answer.setText(studySession.draft);
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
                 @Override public void onTextChanged(CharSequence x,int a,int before,int count){
-                    draft=x.toString();lastAccuracy=-1;
+                    studySession.draft=x.toString();studySession.lastAccuracy=-1;
                     if(lessonErrorArea!=null)lessonErrorArea.removeAllViews();
-                    saveTrainingSession();
+                    studySession.saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable x){}
             });
@@ -5651,15 +5412,15 @@ public final class MainActivity extends Activity {
         // Verification is always explicitly triggered by the existing footer button.
     }
     private void renderInlineGapInputs(LessonCurriculumLogic.Variant variant){
-        String source=texts(activeEntry.lines().subList(activeStep.start,activeStep.end));
+        String source=studySession.texts(studySession.activeEntry.lines().subList(studySession.activeStep.start,studySession.activeStep.end));
         String[] tokens=source.trim().split("\\s+");
-        int[] missing=lessonMissingPositions(tokens,variant);
+        int[] missing=studySession.lessonMissingPositions(tokens,variant);
         // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
-        inlineDrafts=InlineGapLogic.restore(draft,missing.length);
+        studySession.inlineDrafts=InlineGapLogic.restore(studySession.draft,missing.length);
         WrapLayout inline=new WrapLayout(this,dp(6));
         inline.setPadding(0,dp(12),0,dp(12));
         int maxWidth=getResources().getDisplayMetrics().widthPixels-dp(58);
-        inlineFields.clear();inlineExpected.clear();
+        inlineFields.clear();studySession.inlineExpected.clear();
         List<EditText> fields=inlineFields;
         for(int i=0;i<tokens.length;i++){
             String token=tokens[i];
@@ -5671,7 +5432,7 @@ public final class MainActivity extends Activity {
             }
             final int gapIndex=match;
             final String expected=InlineGapLogic.core(token);
-            inlineExpected.add(expected);
+            studySession.inlineExpected.add(expected);
             EditText field=new EditText(this);
             field.setTextColor(WHITE);field.setHintTextColor(MUTED);field.setTextSize(19);
             field.setSingleLine(true);forbidKeyboardHints(field,false);
@@ -5681,7 +5442,7 @@ public final class MainActivity extends Activity {
             // but the input itself has no maximum length.
             field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
             field.setHint(" ");
-            field.setText(inlineDrafts[gapIndex]);
+            field.setText(studySession.inlineDrafts[gapIndex]);
             field.setSelectAllOnFocus(false);
             int initial=Math.max(dp(32),dp(12)*Math.max(1,InlineGapLogic.letters(expected))+dp(8));
             final int baseline=Math.min(initial,maxWidth);
@@ -5696,9 +5457,9 @@ public final class MainActivity extends Activity {
             }
         }
         List<String> refsForBlanks=new ArrayList<>();
-        for(Bible.Verse line:activeEntry.lines().subList(activeStep.start,activeStep.end))
+        for(Bible.Verse line:studySession.activeEntry.lines().subList(studySession.activeStep.start,studySession.activeStep.end))
             refsForBlanks.add(line.ref);
-        final boolean special=AcceptedTextLogic.matthew513(activeEntry.reference,refsForBlanks);
+        final boolean special=AcceptedTextLogic.matthew513(studySession.activeEntry.reference,refsForBlanks);
         for(int k=0;k<fields.size();k++){
             final int gapIndex=k;
             EditText field=fields.get(k);
@@ -5718,7 +5479,7 @@ public final class MainActivity extends Activity {
                         field.setText(trimmed);field.setSelection(field.length());
                         changing=false;value=trimmed;
                         int next=gapIndex+1;
-                        while(next<fields.size() && !inlineDrafts[next].trim().isEmpty())next++;
+                        while(next<fields.size() && !studySession.inlineDrafts[next].trim().isEmpty())next++;
                         if(next<fields.size())fields.get(next).requestFocus();
                         else {
                             field.clearFocus();
@@ -5728,37 +5489,25 @@ public final class MainActivity extends Activity {
                         }
                         // The last space NEVER starts validation; only the footer button does.
                     }
-                    inlineDrafts[gapIndex]=value;
+                    studySession.inlineDrafts[gapIndex]=value;
                     field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
-                    draft=InlineGapLogic.serialize(inlineDrafts);
+                    studySession.draft=InlineGapLogic.serialize(studySession.inlineDrafts);
                     float textPx=field.getPaint().measureText(value)+dp(25);
                     int baselineWidth = Math.min(maxWidth,
                         Math.max(dp(32), dp(12) * Math.max(1,
-                            InlineGapLogic.letters(inlineExpected.get(gapIndex))) + dp(8)));
+                            InlineGapLogic.letters(studySession.inlineExpected.get(gapIndex))) + dp(8)));
                     int width=Math.min(maxWidth,Math.max(baselineWidth,(int)Math.ceil(textPx)));
                     ViewGroup.LayoutParams lp=field.getLayoutParams();
                     if(lp.width!=width){lp.width=width;field.setLayoutParams(lp);}
                     if(lessonErrorArea!=null)lessonErrorArea.removeAllViews();
-                    lastAccuracy=-1;saveTrainingSession();
+                    studySession.lastAccuracy=-1;studySession.saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable x){}
             });
         }
         add(content,inline,18);
     }
-    private static String weakPhrase(String expected,String actual){
-        List<TypingDiffLogic.Issue> errors=TypingDiffLogic.issues(expected,actual);
-        if(errors.isEmpty())return "";
-        List<String> words=ReviewLogic.words(expected);
-        if(words.isEmpty())return "";
-        int where=0;
-        String target=errors.get(0).expected;
-        if(!target.isEmpty())for(int i=0;i<words.size();i++)if(words.get(i).equals(target)){
-            where=i;break;
-        }
-        int a=Math.max(0,where-2),b=Math.min(words.size(),where+3);
-        return String.join(" ",words.subList(a,b));
-    }
+
     /** Third mockup: inline colored error markers followed by actionable corrections. */
     private void showModernErrors(LinearLayout target,String expected,String actual){
         LinearLayout panel=column();panel.setPadding(dp(16),dp(16),dp(16),dp(16));
@@ -5782,40 +5531,40 @@ public final class MainActivity extends Activity {
         add(target,panel,0);
     }
     private void validateLessonWriting(LocalStore.Entry e){
-        List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
-        lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
-        LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
+        List<LessonCurriculumLogic.Variant> variants=studySession.writingVariants(e);
+        studySession.lessonWriteVariant=Math.min(studySession.lessonWriteVariant,variants.size()-1);
+        LessonCurriculumLogic.Variant kind=variants.get(studySession.lessonWriteVariant);
         boolean full=kind==LessonCurriculumLogic.Variant.FULL;
-        String original=writingExpected(e,kind);
-        String entered=full?draft:InlineGapLogic.response(inlineDrafts);
+        String original=studySession.writingExpected(e,kind);
+        String entered=full?studySession.draft:InlineGapLogic.response(studySession.inlineDrafts);
         if(entered.trim().isEmpty()){toast("Напиши текст, затем нажми «Проверить»");return;}
         List<String> refs=new ArrayList<>();
-        for(Bible.Verse line:e.lines().subList(activeStep.start,activeStep.end))refs.add(line.ref);
+        for(Bible.Verse line:e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))refs.add(line.ref);
         boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
         boolean exact=AcceptedTextLogic.exact(original,entered,special);
         original=AcceptedTextLogic.bestExpected(original,entered,special);
         int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
-        if(practiceWeakFragment){
+        if(studySession.practiceWeakFragment){
             if(!exact){
                 if(lessonErrorArea!=null){lessonErrorArea.removeAllViews();showModernErrors(lessonErrorArea,original,entered);}
                 return;
             }
-            practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
-            lessonWriteVariant=LessonCurriculumLogic.variants(
-                ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
-            if(reviewMode)lessonWriteVariant=0;
-            saveTrainingSession();render();
+            studySession.practiceWeakFragment=false;studySession.weakFragmentText="";studySession.inlineDrafts=new String[0];studySession.draft="";studySession.lessonWriteHadFeedback=false;
+            studySession.lessonWriteVariant=LessonCurriculumLogic.variants(
+                ReviewLogic.words(studySession.texts(e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))).size()).size()-1;
+            if(studySession.reviewMode)studySession.lessonWriteVariant=0;
+            studySession.saveTrainingSession();render();
             toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");
             return;
         }
         if(exact && !full){
-            lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
-            lessonSeed=new Random().nextLong();saveTrainingSession();render();return;
+            studySession.lessonWriteVariant++;studySession.inlineDrafts=new String[0];studySession.draft="";studySession.lastAccuracy=-1;studySession.lessonWriteHadFeedback=false;
+            studySession.lessonSeed=new Random().nextLong();studySession.saveTrainingSession();render();return;
         }
         long now=System.currentTimeMillis();
         if(!exact && !full){
-            for(int i=0;i<inlineFields.size()&&i<inlineExpected.size()&&i<inlineDrafts.length;i++){
-                boolean ok=LessonCurriculumLogic.exact(inlineExpected.get(i),inlineDrafts[i]);
+            for(int i=0;i<inlineFields.size()&&i<studySession.inlineExpected.size()&&i<studySession.inlineDrafts.length;i++){
+                boolean ok=LessonCurriculumLogic.exact(studySession.inlineExpected.get(i),studySession.inlineDrafts[i]);
                 inlineFields.get(i).setBackgroundTintList(android.content.res.ColorStateList.valueOf(ok?GREEN:RED));
             }
             if(lessonErrorArea!=null){lessonErrorArea.removeAllViews();
@@ -5824,74 +5573,74 @@ public final class MainActivity extends Activity {
             return;
         }
         if(!exact){
-            weakVerse=-1;weakTransitionFrom=-1;
-            if(!(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)))
-                store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
-            lessonWriteHadFeedback=true;
-            saveTrainingSession();
-            lastAccuracy=accuracy;lastExpected=original;
-            if(activeStep.end-activeStep.start>1){
+            studySession.weakVerse=-1;studySession.weakTransitionFrom=-1;
+            if(!(studySession.reviewMode && studySession.currentReview!=null && "VERSE_RUN".equals(studySession.currentReview.stage)))
+                store.recordRecall(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,accuracy,false,now);
+            studySession.lessonWriteHadFeedback=true;
+            studySession.saveTrainingSession();
+            studySession.lastAccuracy=accuracy;studySession.lastExpected=original;
+            if(studySession.activeStep.end-studySession.activeStep.start>1){
                 List<String> sources=new ArrayList<>();
-                for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))sources.add(v.text);
+                for(Bible.Verse v:e.lines().subList(studySession.activeStep.start,studySession.activeStep.end))sources.add(v.text);
                 WeakTransitionLogic.WeakSpot weak=WeakTransitionLogic.locate(sources,entered);
-                weakVerse=activeStep.start+weak.verseIndex;
-                weakTransitionFrom=weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
-                if(weakVerse>=activeStep.start && weak.errors>0){
-                    store.rescheduleWeakVerse(e.id,weakVerse,now);
-                    if(weakTransitionFrom>=0)
-                        store.recordWeakTransition(e.id,weakTransitionFrom,weakVerse,now);
+                studySession.weakVerse=studySession.activeStep.start+weak.verseIndex;
+                studySession.weakTransitionFrom=weak.transitionFrom<0?-1:studySession.activeStep.start+weak.transitionFrom;
+                if(studySession.weakVerse>=studySession.activeStep.start && weak.errors>0){
+                    store.rescheduleWeakVerse(e.id,studySession.weakVerse,now);
+                    if(studySession.weakTransitionFrom>=0)
+                        store.recordWeakTransition(e.id,studySession.weakTransitionFrom,studySession.weakVerse,now);
                 }
             }
             if(lessonErrorArea!=null){
                 lessonErrorArea.removeAllViews();
                 showModernErrors(lessonErrorArea,original,entered);
-                final String weakPart=weakPhrase(original,entered);
+                final String weakPart=StudySessionController.weakPhrase(original,entered);
                 if(!weakPart.isEmpty())action(lessonErrorArea,"Потренировать ошибочный фрагмент",false,()->{
-                    weakFragmentText=weakPart;practiceWeakFragment=true;draft="";
-                    saveTrainingSession();render();
+                    studySession.weakFragmentText=weakPart;studySession.practiceWeakFragment=true;studySession.draft="";
+                    studySession.saveTrainingSession();render();
                 });
-                if(weakVerse>=0){
-                    add(lessonErrorArea,txt("Слабый участок: "+e.lines().get(weakVerse).ref+
-                        (weakTransitionFrom>=0?" (переход "+e.lines().get(weakTransitionFrom).ref+
-                        " → "+e.lines().get(weakVerse).ref+")":""),14,MUTED,false),10);
+                if(studySession.weakVerse>=0){
+                    add(lessonErrorArea,txt("Слабый участок: "+e.lines().get(studySession.weakVerse).ref+
+                        (studySession.weakTransitionFrom>=0?" (переход "+e.lines().get(studySession.weakTransitionFrom).ref+
+                        " → "+e.lines().get(studySession.weakVerse).ref+")":""),14,MUTED,false),10);
                 }
             }
-            if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
+            if(studySession.reviewMode && studySession.currentReview!=null && "VERSE_RUN".equals(studySession.currentReview.stage)){
                 // A failed combined attempt is attributed only to the weak verse.
                 // Other due verses remain due; none is falsely marked as successfully recalled.
-                if(weakVerse>=activeStep.start && weakVerse<activeStep.end){
-                    store.recordRecall(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
-                    store.scheduleReview(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
+                if(studySession.weakVerse>=studySession.activeStep.start && studySession.weakVerse<studySession.activeStep.end){
+                    store.recordRecall(e.id,"VERSE",studySession.weakVerse,studySession.weakVerse+1,0,false,now);
+                    store.scheduleReview(e.id,"VERSE",studySession.weakVerse,studySession.weakVerse+1,0,false,now);
                 }
-            } else if(reviewMode || groupMode || studyStage!=StudyPlanLogic.Stage.VERSE)
-                store.scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
+            } else if(studySession.reviewMode || studySession.groupMode || studySession.studyStage!=StudyPlanLogic.Stage.VERSE)
+                store.scheduleReview(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,accuracy,false,now);
             return;
         }
-        if(lessonWriteHadFeedback){
+        if(studySession.lessonWriteHadFeedback){
             // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
-            store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,true,now);
-            lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
+            store.recordRecall(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,100,true,now);
+            studySession.lessonWriteHadFeedback=false;studySession.draft="";studySession.lastAccuracy=-1;studySession.saveTrainingSession();
             render();
             toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
             return;
         }
-        if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
-            for(int i=activeStep.start;i<activeStep.end;i++){
+        if(studySession.reviewMode && studySession.currentReview!=null && "VERSE_RUN".equals(studySession.currentReview.stage)){
+            for(int i=studySession.activeStep.start;i<studySession.activeStep.end;i++){
                 store.recordRecall(e.id,"VERSE",i,i+1,100,false,now);
                 store.scheduleReview(e.id,"VERSE",i,i+1,100,false,now);
             }
         }else{
-            store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
-            store.scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
-            if(!store.isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end))
-                store.markMastered(e.id,activeStep.start,activeStep.end,100,studyStage.name());
+            store.recordRecall(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,100,false,now);
+            store.scheduleReview(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end,100,false,now);
+            if(!store.isStepMastered(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end))
+                store.markMastered(e.id,studySession.activeStep.start,studySession.activeStep.end,100,studySession.studyStage.name());
         }
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE)
-            store.finishExercise(e.id,activeStep.start,5);
-        lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
-        if(reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
+        if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE)
+            store.finishExercise(e.id,studySession.activeStep.start,5);
+        studySession.lessonPracticeAgain=false;studySession.draft="";studySession.lastAccuracy=100;studySession.passed=true;studySession.checked=true;
+        if(studySession.reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
             .remove("review_pending").apply();
-        if(!reviewMode&&!groupMode)saveTrainingSession();
+        if(!studySession.reviewMode&&!studySession.groupMode)studySession.saveTrainingSession();
         render();
     }
 
@@ -5972,7 +5721,7 @@ public final class MainActivity extends Activity {
         for(LocalStore.Entry e:store.entries(active.groupId)){
             List<Bible.Verse> lines=e.lines();
             for(int i=0;i<lines.size();i++){
-                String identity=runVerseKey(e,lines.get(i));
+                String identity=StudySessionController.runVerseKey(e,lines.get(i));
                 if(!seenVerses.add(identity))continue;
                 verses++;
                 if(store.isStepMastered(e.id,"VERSE",i,i+1) ||
@@ -6023,7 +5772,7 @@ public final class MainActivity extends Activity {
     private void startActiveReview(boolean all){
         LocalStore.UnifiedCollection u=activeUnified();
         if(u==null&&!all){toast("Выбери коллекцию");return;}
-        reviewCollectionGroup=all?-1:u.groupId;
+        studySession.reviewCollectionGroup=all?-1:u.groupId;
         startReviewSession();
     }
     private void renderUnifiedCollections(){
@@ -6128,13 +5877,13 @@ public final class MainActivity extends Activity {
                 "Отменить очистку нельзя.")
             .setPositiveButton("Очистить",(d,w)->{
                 store.clearUnifiedCollection(u.id);
-                String run=runKey(u.id);
+                String run=studySession.runKey(u.id);
                 getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
                     .remove("run_history_"+u.id).remove(run+"active")
                     .remove(run+"cursor").remove(run+"correct")
                     .remove(run+"draft").remove(run+"checked")
                     .remove(run+"passed").remove(run+"missed").apply();
-                if(runCollectionId==u.id){runLines.clear();runCollectionId=-1;}
+                if(studySession.runCollectionId==u.id){studySession.runLines.clear();studySession.runCollectionId=-1;}
                 render();toast("Коллекция очищена");
             }).setNegativeButton("Отмена",null).create());
     }
@@ -6204,111 +5953,46 @@ public final class MainActivity extends Activity {
     }
 
     // ===== Independent writing run: diagnostic only, never modifies lesson/review tables. =====
-    private String runKey(long collection){return "writing_run_"+collection+"_";}
-    private static String runVerseKey(LocalStore.Entry e,Bible.Verse v){
-        boolean canonical=false;
-        for(String book:Bible.NAMES)if(e.reference.startsWith(book+" ")){canonical=true;break;}
-        String bookName="";
-        if(canonical)for(String book:Bible.NAMES)if(e.reference.startsWith(book+" ")){
-            bookName=book;break;
-        }
-        return canonical?bookName+"|"+v.ref+"|"+v.text:
-            "custom:"+e.id+":"+v.ref;
-    }
-    private void buildRunLines(LocalStore.UnifiedCollection u){
-        runLines.clear();
-        Map<String,Boolean> confirmed=new HashMap<>();
-        for(LocalStore.Entry e:store.allEntries()){
-            List<Bible.Verse> lines=e.lines();
-            for(int i=0;i<lines.size();i++)if(store.consolidated(e.id,"VERSE",i,i+1))
-                confirmed.put(runVerseKey(e,lines.get(i)),true);
-        }
-        Set<String> seen=new HashSet<>();
-        for(LocalStore.Entry e:store.entries(u.groupId)){
-            int book=bookForEntry(e);
-            List<Bible.Verse> lines=e.lines();
-            for(int i=0;i<lines.size();i++){
-                Bible.Verse line=lines.get(i);String key=runVerseKey(e,line);
-                if(!seen.add(key) || !confirmed.containsKey(key))continue;
-                String reference=book>0?Bible.NAMES[book-1]+" "+line.ref:
-                    e.reference+(lines.size()>1?" · "+(i+1):"");
-                runLines.add(new RunLine(e.id,i,reference,line.text));
-            }
-        }
-    }
+
+
+
     private void startActiveRun(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null)return;
-        buildRunLines(u);
-        if(runLines.isEmpty()){
+        studySession.buildRunLines(u);
+        if(studySession.runLines.isEmpty()){
             toast("В коллекции пока нет стихов, закреплённых отложенным повторением");return;
         }
-        runCollectionId=u.id;
+        studySession.runCollectionId=u.id;
         android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-        if(p.getBoolean(runKey(u.id)+"active",false)){
+        if(p.getBoolean(studySession.runKey(u.id)+"active",false)){
             styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Незавершённая проверка памяти")
                 .setMessage("Продолжить с сохранённого стиха или начать проверку заново?")
-                .setPositiveButton("Продолжить",(d,w)->{restoreRunSession();screen=Screen.RUN;render();})
-                .setNegativeButton("Сначала",(d,w)->{resetRun();screen=Screen.RUN;render();}).create());
-        }else{resetRun();screen=Screen.RUN;render();}
+                .setPositiveButton("Продолжить",(d,w)->{studySession.restoreRunSession();screen=Screen.RUN;render();})
+                .setNegativeButton("Сначала",(d,w)->{studySession.resetRun();screen=Screen.RUN;render();}).create());
+        }else{studySession.resetRun();screen=Screen.RUN;render();}
     }
-    private void resetRun(){
-        runCursor=0;runCorrect=0;runMistakes.clear();runChecked=false;runPassed=false;runDraft="";
-        saveRunSession();
-    }
-    private void restoreRunSession(){
-        String key=runKey(runCollectionId);
-        android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-        runCursor=Math.min(Math.max(0,p.getInt(key+"cursor",0)),Math.max(0,runLines.size()-1));
-        runCorrect=p.getInt(key+"correct",0);
-        runDraft=p.getString(key+"draft","");
-        runChecked=p.getBoolean(key+"checked",false);
-        runPassed=p.getBoolean(key+"passed",false);
-        runMistakes.clear();
-        try{JSONArray arr=new JSONArray(p.getString(key+"missed","[]"));
-            for(int i=0;i<arr.length();i++)runMistakes.add(arr.getString(i));
-        }catch(Exception ignored){}
-    }
-    private void saveRunSession(){
-        if(runCollectionId<0||runLines.isEmpty())return;
-        String key=runKey(runCollectionId);
-        getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-            .putBoolean(key+"active",true).putInt(key+"cursor",runCursor)
-            .putInt(key+"correct",runCorrect).putString(key+"draft",runDraft)
-            .putBoolean(key+"checked",runChecked).putBoolean(key+"passed",runPassed)
-            .putString(key+"missed",new JSONArray(runMistakes).toString()).apply();
-    }
+
+
+
     private void finishRunLine(){
-        if(runLines.isEmpty())return;
-        RunLine line=runLines.get(runCursor);
-        if(runChecked&&runPassed)runCorrect++;
-        else runMistakes.add(line.reference);
-        runCursor++;runDraft="";runChecked=false;runPassed=false;
-        if(runCursor>=runLines.size()){
-            saveCompletedRun();
+        if(studySession.runLines.isEmpty())return;
+        StudySessionController.RunLine line=studySession.runLines.get(studySession.runCursor);
+        if(studySession.runChecked&&studySession.runPassed)studySession.runCorrect++;
+        else studySession.runMistakes.add(line.reference);
+        studySession.runCursor++;studySession.runDraft="";studySession.runChecked=false;studySession.runPassed=false;
+        if(studySession.runCursor>=studySession.runLines.size()){
+            studySession.saveCompletedRun();
             getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-                .remove(runKey(runCollectionId)+"active").apply();
+                .remove(studySession.runKey(studySession.runCollectionId)+"active").apply();
             screen=Screen.RUN_SUMMARY;render();
-        }else{saveRunSession();render();}
+        }else{studySession.saveRunSession();render();}
     }
-    private void saveCompletedRun(){
-        try{
-            android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-            String historyKey="run_history_"+runCollectionId;
-            JSONArray history=new JSONArray(p.getString(historyKey,"[]"));
-            JSONObject result=new JSONObject();
-            result.put("timestamp",System.currentTimeMillis());
-            result.put("total",runLines.size());result.put("correct",runCorrect);
-            result.put("mistakes",new JSONArray(runMistakes));
-            JSONArray updated=new JSONArray();updated.put(result);
-            for(int i=0;i<Math.min(history.length(),19);i++)updated.put(history.getJSONObject(i));
-            p.edit().putString(historyKey,updated.toString()).apply();
-        }catch(JSONException ignored){}
-    }
+
     private void renderWritingRun(){
-        if(runLines.isEmpty()){screen=Screen.HOME;render();return;}
-        runCursor=Math.min(runCursor,runLines.size()-1);
-        RunLine line=runLines.get(runCursor);
+        if(studySession.runLines.isEmpty()){screen=Screen.HOME;render();return;}
+        studySession.runCursor=Math.min(studySession.runCursor,studySession.runLines.size()-1);
+        StudySessionController.RunLine line=studySession.runLines.get(studySession.runCursor);
         root=column();root.setBackground(pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=row();top.setPadding(dp(17),dp(12),dp(17),dp(7));
@@ -6316,48 +6000,48 @@ public final class MainActivity extends Activity {
         exit.setContentDescription("Сохранить проверку памяти и выйти");
         exit.setOnClickListener(v->onBackPressed());
         top.addView(exit,new LinearLayout.LayoutParams(dp(43),dp(46)));
-        TextView count=txt((runCursor+1)+" из "+runLines.size(),15,MUTED,true);
+        TextView count=txt((studySession.runCursor+1)+" из "+studySession.runLines.size(),15,MUTED,true);
         count.setGravity(Gravity.CENTER);
         top.addView(count,new LinearLayout.LayoutParams(0,dp(45),1));
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         content=column();content.setPadding(dp(21),dp(18),dp(21),dp(24));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        progress(content,runCursor,runLines.size());
+        progress(content,studySession.runCursor,studySession.runLines.size());
         TextView heading=displayText(line.reference,24);heading.setGravity(Gravity.CENTER);
         add(content,heading,20);
         TextView instruction=txt("Напиши весь стих по памяти",16,MUTED,false);
         instruction.setGravity(Gravity.CENTER);add(content,instruction,12);
         EditText write=input("Начни писать стих…",true);
         forbidKeyboardHints(write,true);write.setMinLines(5);
-        write.setText(runDraft);write.setSelection(write.length());
-        write.setEnabled(!runChecked);
+        write.setText(studySession.runDraft);write.setSelection(write.length());
+        write.setEnabled(!studySession.runChecked);
         write.addTextChangedListener(new TextWatcher(){
             public void beforeTextChanged(CharSequence s,int a,int b,int c){}
             public void onTextChanged(CharSequence s,int a,int b,int c){
-                runDraft=s.toString();saveRunSession();
+                studySession.runDraft=s.toString();studySession.saveRunSession();
             }
             public void afterTextChanged(Editable e){}
         });
         add(content,write,22);
-        if(runChecked){
-            add(content,txt(runPassed?"✓ Без ошибок":"Обнаружены ошибки",20,
-                runPassed?SUCCESS:RED,true),16);
-            if(!runPassed){
-                add(content,typedFeedback(line.text,runDraft),9);
+        if(studySession.runChecked){
+            add(content,txt(studySession.runPassed?"✓ Без ошибок":"Обнаружены ошибки",20,
+                studySession.runPassed?SUCCESS:RED,true),16);
+            if(!studySession.runPassed){
+                add(content,typedFeedback(line.text,studySession.runDraft),9);
                 label(content,"Правильный текст");add(content,prose(line.text,17),8);
             }
         }
         LinearLayout footer=column();footer.setPadding(dp(20),dp(10),dp(20),dp(20));
         footer.setBackgroundColor(CARD);
-        TextView go=button(runChecked?"Следующий стих": "Проверить",true,()->{
-            if(runChecked){finishRunLine();return;}
-            if(runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}
-            runPassed=AcceptedTextLogic.exact(line.text,runDraft,false);
-            runChecked=true;saveRunSession();render();
+        TextView go=button(studySession.runChecked?"Следующий стих": "Проверить",true,()->{
+            if(studySession.runChecked){finishRunLine();return;}
+            if(studySession.runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}
+            studySession.runPassed=AcceptedTextLogic.exact(line.text,studySession.runDraft,false);
+            studySession.runChecked=true;studySession.saveRunSession();render();
         });
         footer.addView(go,new LinearLayout.LayoutParams(-1,dp(55)));
-        if(!runChecked){
+        if(!studySession.runChecked){
             TextView skip=button("Пропустить стих",false,this::finishRunLine);
             footer.addView(skip,new LinearLayout.LayoutParams(-1,dp(47)));
         }
@@ -6367,11 +6051,11 @@ public final class MainActivity extends Activity {
     private void renderRunSummary(){
         title("Проверка памяти завершена",null);
         LinearLayout report=headerCard(content);
-        add(report,txt(runCorrect+" из "+runLines.size()+" стихов без ошибок",22,WHITE,true),0);
-        progress(report,runCorrect,runLines.size());
-        if(!runMistakes.isEmpty()){
+        add(report,txt(studySession.runCorrect+" из "+studySession.runLines.size()+" стихов без ошибок",22,WHITE,true),0);
+        progress(report,studySession.runCorrect,studySession.runLines.size());
+        if(!studySession.runMistakes.isEmpty()){
             label(content,"Требуют внимания");
-            for(String ref:runMistakes)add(content,txt("• "+ref,16,RED,false),7);
+            for(String ref:studySession.runMistakes)add(content,txt("• "+ref,16,RED,false),7);
         }else helper(content,"Все стихи воспроизведены без ошибок!");
         helper(content,"Результат проверки памяти не меняет статусы изучения и расписание повторений.");
         action(content,"На главную",true,()->{screen=Screen.HOME;render();});

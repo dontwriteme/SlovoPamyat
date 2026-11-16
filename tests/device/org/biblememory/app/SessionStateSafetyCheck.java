@@ -82,7 +82,7 @@ public class SessionStateSafetyCheck extends Instrumentation {
         equal(0,get(restored,"stepCursor"));equal(0,get(restored,"mask"));equal(Arrays.asList(1,2),list(restored,"lessonUsedTiles"));
     }
     private void runLines(MainActivity actor)throws Exception{
-        Class<?> type=Class.forName("org.biblememory.app.MainActivity$RunLine");
+        Class<?> type=Class.forName("org.biblememory.app.StudySessionController$RunLine");
         Constructor<?> ctor=type.getDeclaredConstructor(long.class,int.class,String.class,String.class);ctor.setAccessible(true);
         for(int i=0;i<3;i++)list(actor,"runLines").add(ctor.newInstance(41L,i,"5:"+(i+3),"Текст "+i));
     }
