@@ -21,6 +21,9 @@ public class ControllerIntegrationTest {
     private FlashcardSessionController.Source source;
     private int renders;
     private String message;
+    private Screen readerScreen=Screen.BOOKS;
+    private int searchViewUpdates;
+    private final List<BibleReaderController> readers=new ArrayList<>();
     @Before public void setup(){
         store=new LocalStore(RuntimeEnvironment.getApplication());
         preferences=RuntimeEnvironment.getApplication().getSharedPreferences("card_sessions",0);
@@ -28,7 +31,7 @@ public class ControllerIntegrationTest {
         deck=store.newCardDeck("Controller fixture");ids=new ArrayList<>();
         for(int i=0;i<3;i++)ids.add(store.addCustomFlashcard(deck,"Card "+i,"Saved text "+i));
     }
-    @After public void close(){store.close();}
+    @After public void close(){for(BibleReaderController reader:readers)reader.close();store.close();}
     private FlashcardSessionController controller(){FlashcardSessionController result=new FlashcardSessionController(source);result.selectedDeck=deck;return result;}
     private StudySessionController study(){return new StudySessionController(new StudySessionController.Ports(){
         public LocalStore store(){return store;}
@@ -44,6 +47,31 @@ public class ControllerIntegrationTest {
         long id=store.add(store.newGroup("Study"),"Text","Пользовательский текст",Arrays.asList(
             new Bible.Verse("1:1","Слово истины"),new Bible.Verse("1:2","Слово живо")));
         return store.entry(id);
+    }
+    private static final class SearchQueue extends java.util.concurrent.AbstractExecutorService {
+        final List<Runnable> tasks=new ArrayList<>();boolean stopped;
+        public void execute(Runnable task){tasks.add(task);}
+        public void shutdown(){stopped=true;}
+        public List<Runnable> shutdownNow(){stopped=true;return tasks;}
+        public boolean isShutdown(){return stopped;}
+        public boolean isTerminated(){return stopped;}
+        public boolean awaitTermination(long timeout,java.util.concurrent.TimeUnit unit){return stopped;}
+    }
+    private BibleReaderController reader(SearchQueue queue){
+        BibleReaderController result=new BibleReaderController(new BibleReaderController.Ports(){
+            public Screen screen(){return readerScreen;}
+            public boolean destroyed(){return false;}
+            public android.content.Context applicationContext(){return RuntimeEnvironment.getApplication();}
+            public void postToUi(Runnable callback){new android.os.Handler(android.os.Looper.getMainLooper()).post(callback);}
+            public boolean replaceVisibleSearch(List<BibleSearchLogic.Hit> hits,String query,String text){searchViewUpdates++;return false;}
+            public void renderSearchKeepingInput(){searchViewUpdates++;}
+            public void navigate(Screen destination){readerScreen=destination;}
+            public void clearSavedScroll(Screen destination){}
+            public int currentScroll(){return 321;}
+            public SharedPreferences chapterPreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("bible_last_chapter",0);}
+            public void synchronizeCollections(Bible bible){}
+            public void contentReady(){}
+        },queue);readers.add(result);return result;
     }
     @Test public void cardCheckpointRestoresExactOrderCursorAndDirection(){
         FlashcardSessionController first=controller();first.cardSequence.addAll(Arrays.asList(ids.get(2),ids.get(0),ids.get(1)));
@@ -119,5 +147,27 @@ public class ControllerIntegrationTest {
         session.testAssisted=false;session.checkAnswer(entry,step,false);
         assertTrue(session.passed);assertTrue(store.isStepMastered(entry.id,"VERSE",0,1));assertEquals(2,renders);
         assertEquals(0,store.entry(entry.id).days);assertEquals(0,store.entry(entry.id).repetitions);
+    }
+    @Test public void readerAndCollectionBoundarySelectionRemainIndependent(){
+        BibleReaderController reader=reader(new SearchQueue());reader.selectedBook=19;reader.selectedChapter=118;reader.readerVerseNumber=99;
+        reader.passageSelection.openBook(19);reader.passageSelection.active=true;reader.selectVerse(false,1);
+        assertEquals(Screen.BIBLE_PICKER,readerScreen);assertEquals(99,reader.readerVerseNumber);
+        int[] bounds=reader.passageSelection.bounds();reader.selectVerse(true,176);
+        assertEquals(Screen.CHAPTER,readerScreen);assertEquals(176,reader.readerVerseNumber);assertEquals(176,reader.focusVerse);
+        assertArrayEquals(bounds,reader.passageSelection.bounds());
+    }
+    @Test public void closingReaderCancelsDebouncedWorkAndRejectsLateQueries(){
+        SearchQueue queue=new SearchQueue();BibleReaderController reader=reader(queue);reader.onQueryChanged("бог");
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(299));assertTrue(queue.tasks.isEmpty());
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1));assertEquals(1,queue.tasks.size());
+        java.util.concurrent.Future<?> pending=reader.bibleSearchTask;int updates=searchViewUpdates;reader.close();
+        assertTrue(pending.isCancelled());assertTrue(queue.stopped);for(Runnable task:queue.tasks)task.run();
+        reader.onQueryChanged("запоздалый запрос");assertEquals("бог",reader.bibleSearchQuery);assertEquals(updates,searchViewUpdates);
+    }
+    @Test public void pendingSearchDoesNotStartOnAnotherScreen(){
+        SearchQueue queue=new SearchQueue();BibleReaderController reader=reader(queue);reader.bibleSearchQuery="бог";reader.bibleSearchNeedsRefresh=true;
+        reader.resumeBibleSearchIfNeeded();readerScreen=Screen.HOME;Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();assertTrue(queue.tasks.isEmpty());
+        readerScreen=Screen.BOOKS;reader.bibleSearchNeedsRefresh=true;reader.resumeBibleSearchIfNeeded();Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+        assertEquals(1,queue.tasks.size());assertEquals("бог",reader.bibleSearchQuery);
     }
 }
