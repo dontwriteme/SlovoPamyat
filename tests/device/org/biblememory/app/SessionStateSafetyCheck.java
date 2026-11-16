@@ -16,13 +16,13 @@ public class SessionStateSafetyCheck extends Instrumentation {
     private int passed,failed;
     interface Scenario{void run(SafetySandbox context)throws Exception;}
     @Override public void onCreate(Bundle args){super.onCreate(args);start();}
-    static Object get(MainActivity actor,String name)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(actor);}
-    static void set(MainActivity actor,String name,Object value)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(actor,value);}
+    static Object get(MainActivity actor,String name)throws Exception{return ActivityTestAccess.get(actor,name);}
+    static void set(MainActivity actor,String name,Object value)throws Exception{ActivityTestAccess.set(actor,name,value);}
     static Object call(MainActivity actor,String name,Class<?>[] types,Object... values)throws Exception{
-        Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(actor,values);
+        return ActivityTestAccess.call(actor,name,types,values);
     }
     @SuppressWarnings({"rawtypes","unchecked"}) static void option(MainActivity actor,String field,String value)throws Exception{
-        Field f=MainActivity.class.getDeclaredField(field);f.setAccessible(true);f.set(actor,Enum.valueOf((Class)f.getType(),value));
+        Field f=ActivityTestAccess.field(actor,field);ActivityTestAccess.set(actor,field,Enum.valueOf((Class)f.getType(),value));
     }
     static void equal(Object expected,Object actual){StorageSafetyCheck.require(Objects.equals(expected,actual),"Expected "+expected+", actual "+actual);}
     MainActivity actor(SafetySandbox context)throws Exception{

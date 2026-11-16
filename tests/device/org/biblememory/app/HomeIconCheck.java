@@ -14,6 +14,7 @@ public class HomeIconCheck extends Instrumentation {
     ValueAnimator motion;
     @Override public void onCreate(Bundle b){super.onCreate(b);start();}
     Object field(Object obj,String name)throws Exception {
+        if(obj instanceof MainActivity)return ActivityTestAccess.get((MainActivity)obj,name);
         Field f=obj.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(obj);
     }
     View root()throws Exception {return (View)field(activity,"root");}

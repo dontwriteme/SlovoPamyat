@@ -92,7 +92,7 @@ public class HomeNavigationIconTest {
         assertNull(field("animator"));assertFalse((Boolean)field("smoking"));
     }
     private Object activityField(MainActivity activity,String name)throws Exception {
-        Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);
+        return ActivityTestAccess.get(activity,name);
     }
     private void navigate(MainActivity activity,int index)throws Exception {
         Method m=MainActivity.class.getDeclaredMethod("goToMainTab",int.class);

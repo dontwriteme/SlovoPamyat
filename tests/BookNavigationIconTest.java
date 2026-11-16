@@ -87,7 +87,7 @@ public class BookNavigationIconTest {
         assertEquals(1f,(Float)field("bookmark"),0f);
     }
     private Object activityField(MainActivity activity,String name)throws Exception {
-        Field field=MainActivity.class.getDeclaredField(name);field.setAccessible(true);return field.get(activity);
+        return ActivityTestAccess.get(activity,name);
     }
     private void navigate(MainActivity activity,int index)throws Exception {
         Method method=MainActivity.class.getDeclaredMethod("goToMainTab",int.class);

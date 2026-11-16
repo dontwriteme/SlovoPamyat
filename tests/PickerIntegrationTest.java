@@ -23,14 +23,14 @@ public class PickerIntegrationTest {
     LocalStore store;
     Bible bible;
     long group;
-    Object field(String name)throws Exception {Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
-    void set(String name,Object value)throws Exception {Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
+    Object field(String name)throws Exception {return ActivityTestAccess.get(activity,name);}
+    void set(String name,Object value)throws Exception {ActivityTestAccess.set(activity,name,value);}
     Object call(String name,Class<?>[] types,Object... args)throws Exception {
-        Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);
+        return ActivityTestAccess.call(activity,name,types,args);
     }
     Object invoke(String name)throws Exception{return call(name,new Class<?>[0]);}
     @SuppressWarnings({"rawtypes","unchecked"}) Object option(String type,String value)throws Exception {
-        return Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$"+type),value);
+        return ActivityTestAccess.option(activity,type,value);
     }
     void chapter(int c)throws Exception {set("selectedChapter",c);set("screen",option("Screen","PICKER_TEXT"));invoke("render");}
     PassageSelection selection()throws Exception{return (PassageSelection)field("passageSelection");}

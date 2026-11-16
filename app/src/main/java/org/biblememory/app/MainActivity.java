@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
     private Screen screen=Screen.HOME;
     private static final String UNIFIED_PREFS="unified_library_ui";
     private long activeUnifiedId=-1,openUnifiedId=-1;
-    private boolean cardFromUnified=false;
+
     private long reviewCollectionGroup=-1;
     private static final class RunLine {
         final long entryId;final int position;final String reference,text;
@@ -65,6 +65,10 @@ public final class MainActivity extends Activity {
     private boolean runChecked=false,runPassed=false;
 
     private LocalStore store;
+    private final FlashcardSessionController flashcardSession=new FlashcardSessionController(new FlashcardSessionController.Source(){
+        public LocalStore store(){return store;}
+        public android.content.SharedPreferences preferences(){return getSharedPreferences("card_sessions",MODE_PRIVATE);}
+    });
     private final Bible bible=new Bible();
     private volatile String bibleError="";
     private int selectedBook=40,selectedChapter=5, mask=0,stepCursor=0;
@@ -372,11 +376,11 @@ public final class MainActivity extends Activity {
     private float swipeStartX,swipeStartY;
     private boolean swipeIntercepted=false;
     private int lastNavIndex=0;
-    private long selectedDeck=-1;
-    private final List<Long> cardSequence=new ArrayList<>();
-    private int cardIndex=0;
-    private boolean cardShowReference=true,cardRevealed=false;
-    private final Random cardRandom=new Random();
+
+
+
+
+
     private enum BibleTarget { STUDY_GROUP, FLASHCARD_DECK }
     private BibleTarget pickerTarget=BibleTarget.FLASHCARD_DECK;
     private long pickerTargetId=-1;
@@ -392,9 +396,9 @@ public final class MainActivity extends Activity {
     private int readerBookBeforePicker=1,readerChapterBeforePicker=1;
 
     // A card collection is studied as separate saved passages, never as one concatenated text.
-    private final List<Long> cardStudyQueue=new ArrayList<>();
-    private int cardStudyCursor=-1;
-    private long cardStudyDeckId=-1;
+
+
+
     private boolean practiceWeakFragment=false;
     private String weakFragmentText="";
     // Preserve the mask of the current unfinished GAPS exercise across renders and restarts.
@@ -443,7 +447,7 @@ public final class MainActivity extends Activity {
         out.putString("picker_screen",screen.name());out.putString("picker_target",pickerTarget.name());
         out.putString("picker_back",pickerBackScreen.name());out.putLong("picker_id",pickerTargetId);
         out.putLong("picker_unified",openUnifiedId);out.putLong("picker_group",selectedGroup);
-        out.putLong("picker_deck",selectedDeck);
+        out.putLong("picker_deck",flashcardSession.selectedDeck);
         out.putInt("picker_book",selectedBook);out.putInt("picker_chapter",selectedChapter);
         out.putInt("reader_book",readerBookBeforePicker);out.putInt("reader_chapter",readerChapterBeforePicker);
         out.putInt("picker_scroll",currentScroller==null?0:currentScroller.getScrollY());
@@ -461,7 +465,7 @@ public final class MainActivity extends Activity {
             pickerTarget=BibleTarget.valueOf(state.getString("picker_target"));
             pickerBackScreen=Screen.valueOf(state.getString("picker_back"));
             pickerTargetId=state.getLong("picker_id");openUnifiedId=state.getLong("picker_unified");
-            selectedGroup=state.getLong("picker_group");selectedDeck=state.getLong("picker_deck");
+            selectedGroup=state.getLong("picker_group");flashcardSession.selectedDeck=state.getLong("picker_deck");
             selectedBook=state.getInt("picker_book");selectedChapter=state.getInt("picker_chapter");
             readerBookBeforePicker=state.getInt("reader_book",1);readerChapterBeforePicker=state.getInt("reader_chapter",1);
             passageSelection.collectionId=pickerTargetId;passageSelection.chapter=selectedChapter;
@@ -490,7 +494,7 @@ public final class MainActivity extends Activity {
         settleCollectionsIcons();
         revealCleanup.run();
         if(screen==Screen.TRAIN)saveTrainingSession();
-        if(screen==Screen.CARD_SESSION)saveCardSession();
+        if(screen==Screen.CARD_SESSION)flashcardSession.saveCardSession();
         if(screen==Screen.RUN)saveRunSession();
         rememberHomeScroll();
         homeHandler.removeCallbacks(homeTicker);
@@ -544,7 +548,7 @@ public final class MainActivity extends Activity {
                 screen=passageSelection.active?Screen.BIBLE_PICKER:Screen.PICKER_BOOKS;render();break;
             case PICKER_VERSES:screen=Screen.PICKER_CHAPTERS;render();break;
             case PICKER_TEXT:screen=Screen.PICKER_VERSES;render();break;
-            case CARD_SESSION:saveCardSession();screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();break;
+            case CARD_SESSION:flashcardSession.saveCardSession();screen=flashcardSession.cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();break;
             case CHAPTERS:screen=Screen.BOOKS;render();break;
             case VERSES:screen=Screen.CHAPTERS;render();break;
             case CHAPTER:screen=chapterFromVerseGrid?Screen.VERSES:Screen.CHAPTERS;render();break;
@@ -560,7 +564,7 @@ public final class MainActivity extends Activity {
                 if(u!=null)openUnifiedId=u.id;render();break;}
             case TRAIN:
                 executingCollectionQueue=false;
-                cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
+                flashcardSession.cardStudyQueue.clear();flashcardSession.cardStudyCursor=-1;flashcardSession.cardStudyDeckId=-1;
                 saveTrainingSession();
                 reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
                 reviewQueue.clear();reviewPointer=0;
@@ -2125,7 +2129,7 @@ public final class MainActivity extends Activity {
     private void startStudyCollection(long groupId){
         List<LocalStore.Entry> entries=store.entries(groupId);
         if(entries.isEmpty()){toast("Коллекция пока пустая");return;}
-        cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
+        flashcardSession.cardStudyQueue.clear();flashcardSession.cardStudyCursor=-1;flashcardSession.cardStudyDeckId=-1;
         executingCollectionQueue=true;
         if(collectionQueueGroup==groupId&&collectionQueueCursor>=0&&
             collectionQueueCursor<collectionQueue.size()){
@@ -2210,7 +2214,7 @@ public final class MainActivity extends Activity {
         play.setBackgroundColor(Color.TRANSPARENT);
         play.setClickable(true);play.setFocusable(true);
         play.setContentDescription("Начать тренировку: "+deck.title);
-        play.setOnClickListener(v->{selectedDeck=deck.id;startCardSession();});
+        play.setOnClickListener(v->{flashcardSession.selectedDeck=deck.id;startCardSession();});
         return play;
     }
     private void renderCardDecks(){
@@ -2232,7 +2236,7 @@ public final class MainActivity extends Activity {
                     "карточки":"карточек")),13,MUTED,false),4);
             line.addView(details,new LinearLayout.LayoutParams(0,-2,1));
             panel.addView(line);
-            panel.setOnClickListener(v->{selectedDeck=deck.id;screen=Screen.CARD_DECK;render();});
+            panel.setOnClickListener(v->{flashcardSession.selectedDeck=deck.id;screen=Screen.CARD_DECK;render();});
         }
     }
 
@@ -2241,7 +2245,7 @@ public final class MainActivity extends Activity {
         String[] actions={"Изучить","Добавить свой текст","Переименовать","Удалить"};
         String[] icons={"study","file","pencil","trash"};
         showActionsMenu(anchor,actions,icons,which->{
-            selectedDeck=deck.id;
+            flashcardSession.selectedDeck=deck.id;
             switch(which){
                 case 0:studyCardDeck();break;
                 case 1:showNewCustomFlashcard(deck.id);break;
@@ -2399,7 +2403,7 @@ public final class MainActivity extends Activity {
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить подборку?")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteCardDeck(deck.id);clearSavedCardSession(deck.id);
+                store.deleteCardDeck(deck.id);flashcardSession.clearSavedCardSession(deck.id);
                 screen=Screen.CARDS;render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -2419,10 +2423,10 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void renderCardDeck(){
-        LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
+        LocalStore.CardDeck deck=store.cardDeck(flashcardSession.selectedDeck);
         if(deck==null){screen=Screen.CARDS;render();return;}
         title(deck.title,null);
-        List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> cards=store.flashcards(flashcardSession.selectedDeck);
         if(cards.isEmpty())helper(content,"Здесь пока нет карточек.");
         for(LocalStore.Flashcard card:cards){
             LinearLayout c=card(content);c.setBackground(homeSurface());
@@ -2460,7 +2464,7 @@ public final class MainActivity extends Activity {
                 "▶  Начать",
                 true,
                 () -> {
-                    selectedDeck = deck.id;
+                    flashcardSession.selectedDeck = deck.id;
                     startCardSession();
                 }
         );
@@ -3020,33 +3024,14 @@ public final class MainActivity extends Activity {
     }
     /** Study each card as its own entry; a range retains its internal contiguous links. */
     private void studyCardDeck(){
-        List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
-        if(cards.isEmpty()){toast("Подборка пуста");return;}
-        if(!bible.isReady())for(LocalStore.Flashcard f:cards)
-            if(f.bookId>0){toast("Библия ещё загружается");return;}
-        cardStudyQueue.clear();cardStudyCursor=0;cardStudyDeckId=selectedDeck;
-        for(LocalStore.Flashcard card:cards){
-            try{
-                List<Bible.Verse> verses=card.bookId==0?
-                    Collections.singletonList(new Bible.Verse("1:1",card.content)):
-                    bible.passage(card.bookId,card.firstChapter,card.firstVerse,card.lastChapter,card.lastVerse);
-                long id=store.findOrCreateCardStudyEntry(card,verses);
-                if(!cardStudyQueue.contains(id))cardStudyQueue.add(id);
-            }catch(Exception ex){
-                executingCollectionQueue=false;
-                cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
-                toast("Не удалось открыть стих: "+card.reference);return;
-            }
-        }
-        if(!cardStudyQueue.isEmpty())openTraining(cardStudyQueue.get(0));
+        FlashcardSessionController.StudyStart result=flashcardSession.studyCardDeck(bible);
+        if(result.message!=null){if(result.failed)executingCollectionQueue=false;toast(result.message);return;}
+        if(result.firstEntry>0)openTraining(result.firstEntry);
     }
     private void advanceCardStudy(){
-        if(cardStudyCursor<0){onBackPressed();return;}
-        if(++cardStudyCursor<cardStudyQueue.size()){
-            openTraining(cardStudyQueue.get(cardStudyCursor));return;
-        }
-        cardStudyQueue.clear();cardStudyCursor=-1;
-        selectedDeck=cardStudyDeckId;cardStudyDeckId=-1;
+        long next=flashcardSession.advanceCardStudy();
+        if(next<0){onBackPressed();return;}
+        if(next>0){openTraining(next);return;}
         screen=Screen.CARD_DECK;render();
     }
 
@@ -3076,60 +3061,19 @@ public final class MainActivity extends Activity {
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
         }catch(Exception ex){toast(ex.getMessage()==null?"Не удалось добавить карточку":ex.getMessage());}
     }
-    private void clearSavedCardSession(long deckId){
-        getSharedPreferences("card_sessions",MODE_PRIVATE).edit().remove("deck_"+deckId).apply();
-    }
-    private List<Long> cardIds(List<LocalStore.Flashcard> cards){
-        List<Long> ids=new ArrayList<>();for(LocalStore.Flashcard f:cards)ids.add(f.id);return ids;
-    }
-    private List<LocalStore.Flashcard> eligibleSessionCards(){
-        List<LocalStore.Flashcard> items=store.flashcards(selectedDeck);
-        if(!cardFromUnified)return items;
-        List<LocalStore.Flashcard> singles=new ArrayList<>();
-        for(LocalStore.Flashcard card:items)if(card.bookId==0 ||
-            (card.firstChapter==card.lastChapter && card.firstVerse==card.lastVerse))
-            singles.add(card);
-        return singles;
-    }
+
+
+
     private void startCardSession(){
-        List<LocalStore.Flashcard> all=eligibleSessionCards();
-        if(all.isEmpty()){toast("Подборка пуста");return;}
-        List<Long> available=cardIds(all);
-        cardSequence.clear();cardIndex=0;
-        String saved=getSharedPreferences("card_sessions",MODE_PRIVATE).getString("deck_"+selectedDeck,"");
-        if(!saved.isEmpty())try{
-            JSONObject json=new JSONObject(saved);JSONArray a=json.getJSONArray("order");
-            for(int i=0;i<a.length();i++)cardSequence.add(a.getLong(i));
-            cardIndex=Math.max(0,Math.min(cardSequence.size()-1,json.optInt("cursor",0)));
-            cardShowReference=json.optBoolean("reference_first",true);
-        }catch(Exception ignored){cardSequence.clear();}
-        if(cardSequence.size()!=available.size()||
-            !new HashSet<>(cardSequence).equals(new HashSet<>(available))){
-            cardSequence.clear();cardSequence.addAll(FlashcardDeckLogic.shuffled(available,-1,cardRandom));
-            cardIndex=0;cardShowReference=cardRandom.nextBoolean();
-        }
-        cardRevealed=false;screen=Screen.CARD_SESSION;saveCardSession();render();
+        if(!flashcardSession.startCardSession()){toast("Подборка пуста");return;}
+        screen=Screen.CARD_SESSION;render();
     }
-    private void saveCardSession(){
-        if(selectedDeck<1||cardSequence.isEmpty())return;
-        try{
-            JSONObject json=new JSONObject();json.put("order",new JSONArray(cardSequence));
-            json.put("cursor",cardIndex);json.put("reference_first",cardShowReference);
-            getSharedPreferences("card_sessions",MODE_PRIVATE).edit()
-                .putString("deck_"+selectedDeck,json.toString()).apply();
-        }catch(JSONException ignored){}
-    }
+
     private void nextFlashcard(){
-        if(cardSequence.isEmpty()){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
-        if(cardIndex+1<cardSequence.size())cardIndex++;
-        else{
-            long previous=cardSequence.get(cardSequence.size()-1);
-            List<Long> all=cardIds(eligibleSessionCards());
-            cardSequence.clear();cardSequence.addAll(FlashcardDeckLogic.shuffled(all,previous,cardRandom));
-            cardIndex=0;
+        if(!flashcardSession.nextFlashcard()){
+            screen=flashcardSession.cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;
         }
-        cardRevealed=false;cardShowReference=cardRandom.nextBoolean();
-        saveCardSession();renderCardSession();
+        renderCardSession();
     }
     private final class SwipeCardLayout extends FrameLayout {
         private float x0,y0;private boolean handling=false;
@@ -3215,14 +3159,14 @@ public final class MainActivity extends Activity {
         }
     }
     private void renderCardSession(){
-        List<LocalStore.Flashcard> items=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> items=store.flashcards(flashcardSession.selectedDeck);
         LocalStore.Flashcard current=null;
-        if(!cardSequence.isEmpty())for(LocalStore.Flashcard f:items)
-            if(f.id==cardSequence.get(Math.min(cardIndex,cardSequence.size()-1))){current=f;break;}
-        if(current==null){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
+        if(!flashcardSession.cardSequence.isEmpty())for(LocalStore.Flashcard f:items)
+            if(f.id==flashcardSession.cardSequence.get(Math.min(flashcardSession.cardIndex,flashcardSession.cardSequence.size()-1))){current=f;break;}
+        if(current==null){screen=flashcardSession.cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
         root=column();root.setBackground(pageBackground());
         LinearLayout header=column();header.setPadding(dp(16),dp(16),dp(16),dp(7));
-        LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
+        LocalStore.CardDeck deck=store.cardDeck(flashcardSession.selectedDeck);
         TextView deckHeading=displayText(deck==null?"Карточки":deck.title,22);
         deckHeading.setGravity(Gravity.CENTER);
         header.addView(deckHeading,new LinearLayout.LayoutParams(-1,dp(45)));
@@ -3231,7 +3175,7 @@ public final class MainActivity extends Activity {
         swipe.setBackground(outlined(CARD,26,BORDER));
         swipe.setClipToOutline(true);
         ImageView scenicCard=new ImageView(this);
-        scenicCard.setImageResource(landscapeFor(selectedDeck));
+        scenicCard.setImageResource(landscapeFor(flashcardSession.selectedDeck));
         scenicCard.setScaleType(ImageView.ScaleType.CENTER_CROP);
         scenicCard.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         FrameLayout.LayoutParams sceneryP=new FrameLayout.LayoutParams(-1,dp(158),Gravity.BOTTOM);
@@ -3246,17 +3190,17 @@ public final class MainActivity extends Activity {
         swipe.addView(scrolling,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout vertical=column();vertical.setGravity(Gravity.CENTER);
         vertical.setPadding(dp(22),dp(22),dp(22),dp(22));scrolling.addView(vertical);
-        TextView initial=txt(cardShowReference?current.reference:current.content,
-            cardShowReference?27:20,0xFF3C422E,cardShowReference);
-        initial.setTypeface(Typeface.create("serif",cardShowReference?Typeface.BOLD:Typeface.NORMAL));
+        TextView initial=txt(flashcardSession.cardShowReference?current.reference:current.content,
+            flashcardSession.cardShowReference?27:20,0xFF3C422E,flashcardSession.cardShowReference);
+        initial.setTypeface(Typeface.create("serif",flashcardSession.cardShowReference?Typeface.BOLD:Typeface.NORMAL));
         initial.setGravity(Gravity.CENTER);add(vertical,initial,0);
-        TextView answer=txt(cardShowReference?current.content:current.reference,
-            cardShowReference?20:25,0xFF694F3F,!cardShowReference);
-        answer.setTypeface(Typeface.create("serif",cardShowReference?Typeface.NORMAL:Typeface.BOLD));
+        TextView answer=txt(flashcardSession.cardShowReference?current.content:current.reference,
+            flashcardSession.cardShowReference?20:25,0xFF694F3F,!flashcardSession.cardShowReference);
+        answer.setTypeface(Typeface.create("serif",flashcardSession.cardShowReference?Typeface.NORMAL:Typeface.BOLD));
         // Reserve an answer area so opening the eye never shifts the original citation/text.
         answer.setGravity(Gravity.CENTER);
-        answer.setAlpha(cardRevealed?1f:0f);
-        answer.setImportantForAccessibility(cardRevealed?
+        answer.setAlpha(flashcardSession.cardRevealed?1f:0f);
+        answer.setImportantForAccessibility(flashcardSession.cardRevealed?
             View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         ScrollView answerScroll=new ScrollView(this);
         answerScroll.setFillViewport(true);
@@ -3267,21 +3211,21 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams answerArea=new LinearLayout.LayoutParams(-1,answerHeight);
         answerArea.topMargin=dp(10);vertical.addView(answerScroll,answerArea);
         EyeButton eye=new EyeButton();
-        eye.setOpen(cardRevealed,false);
-        eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
+        eye.setOpen(flashcardSession.cardRevealed,false);
+        eye.setContentDescription(flashcardSession.cardRevealed?"Скрыть ответ":"Показать ответ");
         eye.setBackground(outlined(0xFFF0F2E7,14,0xFFC9D5C4));
         LinearLayout.LayoutParams eyeParams=new LinearLayout.LayoutParams(dp(60),dp(60));
         eyeParams.gravity=Gravity.CENTER_HORIZONTAL;eyeParams.topMargin=dp(24);
         vertical.addView(eye,eyeParams);
         eye.setOnClickListener(v->{
-            cardRevealed=!cardRevealed;
-            eye.setOpen(cardRevealed,true);
+            flashcardSession.cardRevealed=!flashcardSession.cardRevealed;
+            eye.setOpen(flashcardSession.cardRevealed,true);
             answer.animate().cancel();
-            answer.animate().alpha(cardRevealed?1f:0f)
+            answer.animate().alpha(flashcardSession.cardRevealed?1f:0f)
                 .setDuration(ValueAnimator.areAnimatorsEnabled()?250L:0L).start();
-            answer.setImportantForAccessibility(cardRevealed?
+            answer.setImportantForAccessibility(flashcardSession.cardRevealed?
                 View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-            eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
+            eye.setContentDescription(flashcardSession.cardRevealed?"Скрыть ответ":"Показать ответ");
         });
         setContentView(root);
     }
@@ -3848,7 +3792,7 @@ public final class MainActivity extends Activity {
                     clearInsertionContext();screen=pickerBackScreen;render();
                 }
             }
-            else if(cardPicker)addCardFromSelection(selectedDeck);
+            else if(cardPicker)addCardFromSelection(flashcardSession.selectedDeck);
             else previewPassage();
         });
         if(!cardPicker&&screen!=Screen.BIBLE_PICKER)action(builder,"Добавить в карточки",false,()->{
@@ -4040,7 +3984,7 @@ public final class MainActivity extends Activity {
     }
     private void renderCardReorder(){
         title("Изменить порядок", "Удерживай строку и перетащи её на новое место");
-        List<LocalStore.Flashcard> list=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> list=store.flashcards(flashcardSession.selectedDeck);
         List<Long> ids=new ArrayList<>();for(LocalStore.Flashcard f:list)ids.add(f.id);
         for(LocalStore.Flashcard f:list)renderReorderRow(f.id,f.reference,ids,true);
         action(content,"Готово",true,()->{screen=Screen.CARD_DECK;render();});
@@ -4064,7 +4008,7 @@ public final class MainActivity extends Activity {
                 int a=ids.indexOf(moving),b=ids.indexOf(id);
                 if(a<0||b<0)return false;
                 ids.remove(a);ids.add(b,moving);
-                if(cards)store.reorderCards(selectedDeck,ids);
+                if(cards)store.reorderCards(flashcardSession.selectedDeck,ids);
                 else store.reorderStudy(selectedGroup,ids);
                 render();return true;
             }
@@ -4165,7 +4109,7 @@ public final class MainActivity extends Activity {
             editBibleRange("Изменить карточку",card.bookId,card.firstChapter,card.firstVerse,
                 card.lastChapter,card.lastVerse,(a,b,c,d)->{
                     String ref=Bible.reference(card.bookId,a,b,c,d);
-                    store.changeCardInDeck(selectedDeck,card,card.bookId,a,b,c,d,
+                    store.changeCardInDeck(flashcardSession.selectedDeck,card,card.bookId,a,b,c,d,
                         ref,texts(bible.passage(card.bookId,a,b,c,d)));
                     render();
                 });
@@ -4179,7 +4123,7 @@ public final class MainActivity extends Activity {
             .setTitle("Изменить карточку").setView(fields)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(source).isEmpty()||value(words).isEmpty()){toast("Заполни поля");return;}
-                store.changeCardInDeck(selectedDeck,card,0,0,0,0,0,value(source),value(words));
+                store.changeCardInDeck(flashcardSession.selectedDeck,card,0,0,0,0,0,value(source),value(words));
                 render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -4212,12 +4156,12 @@ public final class MainActivity extends Activity {
                 case 1:
                     clearInsertionContext();
                     insertAfterCardId=card.id;cardInsertionTrail.add(card.id);
-                    openBiblePicker(BibleTarget.FLASHCARD_DECK,selectedDeck,Screen.CARD_DECK);break;
+                    openBiblePicker(BibleTarget.FLASHCARD_DECK,flashcardSession.selectedDeck,Screen.CARD_DECK);break;
                 case 2:
                     styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать карточку из подборки?")
                         .setPositiveButton("Убрать",(d,w)->{
-                            store.removeFlashcard(selectedDeck,card.id);render();
+                            store.removeFlashcard(flashcardSession.selectedDeck,card.id);render();
                         }).setNegativeButton("Отмена",null).create());break;
             }
         });
@@ -4468,7 +4412,7 @@ public final class MainActivity extends Activity {
     private void openTraining(long id) {
         reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
         if(screen==Screen.TRAIN)saveTrainingSession();
-        if(screen==Screen.CARD_SESSION)saveCardSession();
+        if(screen==Screen.CARD_SESSION)flashcardSession.saveCardSession();
         selectedEntry=store.canonicalStudyEntryId(id);
         id=selectedEntry;
         LocalStore.Entry entry=store.entry(id);
@@ -5241,14 +5185,14 @@ public final class MainActivity extends Activity {
             if(stepCursor+1<e.lines().size()){
                 stepCursor++;resetTrainingStep(e);saveTrainingSession();render();
             }else if(executingCollectionQueue&&collectionQueueCursor>=0){advanceStudyCollectionAfterGroups(e);}
-            else if(cardStudyCursor>=0){advanceCardStudy();}
+            else if(flashcardSession.cardStudyCursor>=0){advanceCardStudy();}
             else render();
         }else if(pending!=null)openGroup(pending);
         else if(activeStep.end<e.lines().size()){
             stepCursor=activeStep.end;studyStage=StudyPlanLogic.Stage.VERSE;
             resetTrainingStep(e);saveTrainingSession();render();
         }else if(executingCollectionQueue&&collectionQueueCursor>=0)advanceStudyCollectionAfterGroups(e);
-        else if(cardStudyCursor>=0)advanceCardStudy();
+        else if(flashcardSession.cardStudyCursor>=0)advanceCardStudy();
         else onBackPressed();
     }
 
@@ -6070,8 +6014,8 @@ public final class MainActivity extends Activity {
     private void startActiveCards(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null)return;
         if(bible.isReady())store.syncUnifiedCollection(u.id,bible);
-        selectedDeck=u.deckId;cardFromUnified=true;
-        if(eligibleSessionCards().isEmpty()){
+        flashcardSession.selectedDeck=u.deckId;flashcardSession.cardFromUnified=true;
+        if(flashcardSession.eligibleSessionCards().isEmpty()){
             toast(!bible.isReady()?"Библия ещё загружается":"Сначала добавь стихи в коллекцию");return;
         }
         startCardSession();
@@ -6216,7 +6160,7 @@ public final class MainActivity extends Activity {
     private void renderUnifiedCollectionDetail(){
         LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
         if(u==null){screen=Screen.COLLECTIONS;render();return;}
-        selectedGroup=u.groupId;selectedDeck=u.deckId;
+        selectedGroup=u.groupId;flashcardSession.selectedDeck=u.deckId;
         TextView heading=displayText(u.title,25);
         heading.setGravity(Gravity.CENTER);heading.setMaxLines(2);
         add(content,heading,5);
