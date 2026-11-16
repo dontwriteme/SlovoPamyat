@@ -219,9 +219,14 @@ final class StudySessionController {
     }
 
     String texts(List<Bible.Verse> lines) {
-        StringBuilder sb=new StringBuilder();
-        for(Bible.Verse v:lines) {if(sb.length()>0)sb.append(' ');sb.append(v.text);}
-        return sb.toString();
+        return PassageText.join(lines);
+    }
+    void clearRunHistory(long collection){
+        String key=runKey(collection);
+        ports.runPreferences().edit().remove("run_history_"+collection).remove(key+"active")
+            .remove(key+"cursor").remove(key+"correct").remove(key+"draft")
+            .remove(key+"checked").remove(key+"passed").remove(key+"missed").apply();
+        if(runCollectionId==collection){runLines.clear();runCollectionId=-1;}
     }
 
     void checkAnswer(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered) {

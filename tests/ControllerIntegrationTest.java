@@ -170,4 +170,56 @@ public class ControllerIntegrationTest {
         readerScreen=Screen.BOOKS;reader.bibleSearchNeedsRefresh=true;reader.resumeBibleSearchIfNeeded();Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
         assertEquals(1,queue.tasks.size());assertEquals("бог",reader.bibleSearchQuery);
     }
+    private long collectionPicker=-1,openedEntry=-1,clearedRun=-1;
+    private CollectionController collections(){return new CollectionController(new CollectionController.Ports(){
+        public LocalStore store(){return store;}
+        public SharedPreferences activePreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("unified_library_ui",0);}
+        public SharedPreferences queuePreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("collection_queue",0);}
+        public Bible bible(){return new Bible();}
+        public boolean studyPicker(){return true;}
+        public long pickerTargetId(){return collectionPicker;}
+        public int readerBook(){return 1;}
+        public void stopCardStudy(){}
+        public boolean hasPendingGroup(LocalStore.Entry entry){return false;}
+        public void openTraining(long entry){openedEntry=entry;}
+        public void navigate(Screen destination){readerScreen=destination;}
+        public void toast(String text){message=text;}
+        public void clearRunHistory(long collection){clearedRun=collection;}
+        public boolean stopped(){return false;}
+    });}
+    @Test public void onlyFirstCollectionIsSelectedImplicitlyAndRenameKeepsIdentity(){
+        CollectionController actions=collections();LocalStore.UnifiedCollection first=actions.createUnifiedCollection("First");
+        LocalStore.UnifiedCollection second=actions.createUnifiedCollection("Second");assertEquals(first.id,actions.activeUnifiedId);
+        actions.renameUnifiedCollection(second.id,"Renamed");assertEquals("Renamed",store.unifiedCollection(second.id).title);
+        actions.activateUnified(second.id);actions.deleteUnifiedCollection(second.id);
+        assertEquals(first.id,actions.activeUnifiedId);assertNotNull(store.unifiedCollection(first.id));
+    }
+    @Test public void clearingCollectionPreservesStudyProgressAndDelegatesOnlyItsRunCleanup(){
+        CollectionController actions=collections();LocalStore.UnifiedCollection collection=actions.createUnifiedCollection("Saved");
+        long entry=store.add(collection.groupId,"Saved","Пользовательский текст",Collections.singletonList(new Bible.Verse("1:1","Слово живо")));
+        store.finishExercise(entry,0,5);actions.clearUnifiedCollection(collection.id);
+        assertEquals(collection.id,clearedRun);assertNotNull(store.entry(entry));assertEquals(5,store.exerciseDone(entry,0));
+        assertTrue(store.entries(collection.groupId).isEmpty());assertNotNull(store.unifiedCollection(collection.id));
+    }
+    @Test public void insertionReorderAndRemovalKeepLastSurvivingAnchor(){
+        CollectionController actions=collections();LocalStore.Entry entry=studyEntry();long group=entry.groupId;
+        long second=store.add(group,"Second","Пользовательский текст",Collections.singletonList(new Bible.Verse("1:1","Два")));
+        long third=store.add(group,"Third","Пользовательский текст",Collections.singletonList(new Bible.Verse("1:1","Три")));
+        store.reorderStudy(group,Arrays.asList(entry.id,second,third));
+        actions.repositionStudyAfter(group,third,entry.id);assertEquals(third,store.entries(group).get(1).id);
+        actions.studyInsertionTrail.addAll(Arrays.asList(entry.id,third));actions.insertAfterEntryId=third;
+        actions.removedInsertionCandidate(third,false);assertEquals(entry.id,actions.insertAfterEntryId);
+        actions.clearInsertionContext();assertEquals(-1,actions.insertAfterEntryId);assertTrue(actions.studyInsertionTrail.isEmpty());
+        assertEquals(second,store.entries(group).get(2).id);
+    }
+    @Test public void collectionQueueRestoresIndependentEntriesAndContinuesInOrder(){
+        CollectionController actions=collections();LocalStore.Entry entry=studyEntry();
+        long second=store.add(entry.groupId,"Second","Пользовательский текст",Collections.singletonList(new Bible.Verse("1:1","Два")));
+        store.reorderStudy(entry.groupId,Arrays.asList(entry.id,second));
+        actions.startStudyCollection(entry.groupId);assertEquals(entry.id,openedEntry);assertTrue(actions.executingCollectionQueue);
+        CollectionController restored=collections();restored.restoreCollectionQueue();assertEquals(Arrays.asList(entry.id,second),restored.collectionQueue);
+        assertTrue(restored.resumeCollectionTraining());assertEquals(entry.id,openedEntry);restored.advanceStudyCollection();assertEquals(second,openedEntry);
+        restored.advanceStudyCollection();assertEquals(Screen.HOME,readerScreen);assertTrue(restored.collectionQueue.isEmpty());
+    }
+
 }

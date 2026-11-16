@@ -18,6 +18,7 @@ final class FlashcardSessionController {
     final List<Long> cardStudyQueue = new ArrayList<>();
     int cardStudyCursor = -1;
     long cardStudyDeckId = -1;
+    void stopCardStudy(){cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;}
 
     static final class StudyStart {
         final long firstEntry;
