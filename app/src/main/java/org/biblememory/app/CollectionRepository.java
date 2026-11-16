@@ -310,4 +310,27 @@ public final class CollectionRepository {
     }
 
     public void deleteGroup(long id) {scope.write().delete("groups_","id=?",new String[]{String.valueOf(id)});}
+    /** Invalidate generated relations within the same material revision transaction. */
+    void invalidateEntryCards(SQLiteDatabase db,long id){
+        // The edited text/range invalidates its previously generated cards.
+        // Remap them on next sync, preserving other passages' shared cards.
+        List<long[]> linked=new ArrayList<>();
+        try(Cursor c=db.rawQuery("SELECT x.collection_id,u.deck_id,x.card_id FROM unified_entry_cards x "+
+            "JOIN unified_collections u ON u.id=x.collection_id WHERE x.entry_id=?",
+            new String[]{String.valueOf(id)})){
+            while(c.moveToNext())linked.add(new long[]{c.getLong(0),c.getLong(1),c.getLong(2)});
+        }
+        db.delete("unified_entry_cards","entry_id=?",new String[]{String.valueOf(id)});
+        for(long[] row:linked){
+            try(Cursor c=db.rawQuery("SELECT 1 FROM unified_entry_cards WHERE collection_id=? AND card_id=? LIMIT 1",
+                new String[]{String.valueOf(row[0]),String.valueOf(row[2])})){
+                if(!c.moveToFirst()){
+                    db.delete("card_deck_members","deck_id=? AND card_id=?",
+                        new String[]{String.valueOf(row[1]),String.valueOf(row[2])});
+                    db.delete("unified_card_entries","collection_id=? AND card_id=?",
+                        new String[]{String.valueOf(row[0]),String.valueOf(row[2])});
+                }
+            }
+        }
+    }
 }

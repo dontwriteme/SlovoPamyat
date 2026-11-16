@@ -129,7 +129,7 @@
 - sync: обе mapping-таблицы, entries, flashcards и membership. Stage 2 уже добавил общий rollback/retry; сохранить вложенные транзакции того же helper.
 - scheduleReview: INSERT review_attempts + UPDATE review_schedule атомарны. recordRecall — отдельная существующая граница; полный outcome упражнения относится к следующему этапу.
 - addPickedPassage: восстановление записи + sync + проверка полноты + порядок — один transaction owner.
-- change/remove card и removeUnifiedPassage сейчас имеют окна между записями: добавить fault-injection и внешний rollback после механического извлечения.
+- change/remove card, deleteCardDeck, findOrCreateCardStudyEntry и removeUnifiedPassage сейчас имеют окна между записями: добавить fault-injection и внешний rollback после механического извлечения.
 - reviseStudyPassage переносит позиции семи таблиц истории; сохраняем прежнее сопоставление текстов/границ, не меняем алгоритм.
 - importJson проверяет полный документ до append и записывает материалы/историю одной транзакцией; формат v1–v5 не меняется. Карточки и unified metadata в старый формат не добавляются.
 

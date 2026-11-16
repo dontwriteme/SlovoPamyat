@@ -378,4 +378,51 @@ public final class ProgressRepository {
         }
         return out;
     }
+    /** Remap history under the material revision transaction owned by StudyRepository. */
+    void remapForRevision(SQLiteDatabase db,long id,Map<Integer,Integer> remap){
+        String[] tables={"verse_progress","lesson_progress","stage_progress","recall_activity",
+            "review_schedule","review_attempts","transition_issues"};
+        for(String table:tables){
+            List<ContentValues> saved=new ArrayList<>();
+            try(Cursor c=db.query(table,null,"entry_id=?",new String[]{String.valueOf(id)},null,null,null)){
+                while(c.moveToNext()){
+                    ContentValues cv=new ContentValues();
+                    for(int col=0;col<c.getColumnCount();col++){
+                        String key=c.getColumnName(col);
+                        if(key.equals("id"))continue;
+                        switch(c.getType(col)){
+                            case Cursor.FIELD_TYPE_INTEGER:cv.put(key,c.getLong(col));break;
+                            case Cursor.FIELD_TYPE_FLOAT:cv.put(key,c.getDouble(col));break;
+                            case Cursor.FIELD_TYPE_STRING:cv.put(key,c.getString(col));break;
+                            case Cursor.FIELD_TYPE_BLOB:cv.put(key,c.getBlob(col));break;
+                            default:cv.putNull(key);break;
+                        }
+                    }
+                    if(table.equals("verse_progress")||table.equals("lesson_progress")){
+                        Integer to=remap.get(cv.getAsInteger("position"));
+                        if(to==null)continue;
+                        cv.put("position",to);
+                    }else if(table.equals("transition_issues")){
+                        Integer first=remap.get(cv.getAsInteger("from_position"));
+                        Integer next=remap.get(cv.getAsInteger("to_position"));
+                        if(first==null||next==null||next!=first+1)continue;
+                        cv.put("from_position",first);cv.put("to_position",next);
+                    }else{
+                        int first=cv.getAsInteger("first_line"),last=cv.getAsInteger("last_line");
+                        Integer mapped=remap.get(first);
+                        if(mapped==null)continue;
+                        boolean whole=true;
+                        for(int i=first;i<last;i++){
+                            if(!remap.containsKey(i)||remap.get(i)!=mapped+i-first){whole=false;break;}
+                        }
+                        if(!whole)continue;
+                        cv.put("first_line",mapped);cv.put("last_line",mapped+last-first);
+                    }
+                    saved.add(cv);
+                }
+            }
+            db.delete(table,"entry_id=?",new String[]{String.valueOf(id)});
+            for(ContentValues cv:saved)db.insertWithOnConflict(table,null,cv,SQLiteDatabase.CONFLICT_REPLACE);
+        }
+    }
 }

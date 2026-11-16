@@ -37,6 +37,16 @@ public final class RepositorySafetyCheck extends Instrumentation {
         store.getWritableDatabase().execSQL("CREATE TRIGGER reject_old BEFORE DELETE ON flashcards BEGIN SELECT RAISE(ABORT,'injected-old'); END");
         rejected(()->store.flashcards().changeCardInDeck(deck,card,0,0,0,0,0,"Replacement","New text"));require(before.equals(rows(store)),"Replacement committed before failed removal");
     }
+    void deckRemoval(SafetySandbox context){
+        LocalStore store=context.store();long deck=store.flashcards().newCardDeck("Deck rollback");store.flashcards().addCustomFlashcard(deck,"Saved","Text");Map<String,String> before=rows(store);
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_orphan BEFORE DELETE ON flashcards BEGIN SELECT RAISE(ABORT,'injected-orphan'); END");
+        rejected(()->store.flashcards().deleteCardDeck(deck));require(before.equals(rows(store)),"Deck/membership committed before failed orphan cleanup");
+    }
+    void independentStudyCreation(SafetySandbox context){
+        LocalStore store=context.store();long deck=store.flashcards().newCardDeck("Study rollback");store.flashcards().addCustomFlashcard(deck,"Saved","Text");LocalStore.Flashcard card=store.flashcards().flashcards(deck).get(0);Map<String,String> before=rows(store);
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_study BEFORE INSERT ON entries BEGIN SELECT RAISE(ABORT,'injected-study'); END");
+        rejected(()->store.study().findOrCreateCardStudyEntry(card,Collections.singletonList(new Bible.Verse("1:1","Text"))));require(before.equals(rows(store)),"Hidden library committed before failed material creation");
+    }
     void weakTransition(SafetySandbox context){
         LocalStore store=context.store();long entry=StorageSafetyCheck.entry(store,store.collections().newGroup("Progress"));Map<String,String> before=rows(store);
         store.getWritableDatabase().execSQL("CREATE TRIGGER reject_weak BEFORE UPDATE ON transition_issues BEGIN SELECT RAISE(ABORT,'injected-weak'); END");
@@ -81,7 +91,7 @@ public final class RepositorySafetyCheck extends Instrumentation {
         }
     }
     @Override public void onStart(){
-        run("cross-repository-rollback",this::sharedTransaction);run("collection-detach-and-membership-rollback",this::collectionRemoval);run("card-delete-rollback",this::cardRemoval);run("card-replacement-rollback",this::cardChange);run("weak-transition-rollback",this::weakTransition);run("rename-all-titles-rollback",this::rename);run("revision-history-rollback",this::revise);run("clear-all-links-rollback",this::clear);run("sync-query-count-and-idempotence",this::syncQueries);
+        run("cross-repository-rollback",this::sharedTransaction);run("collection-detach-and-membership-rollback",this::collectionRemoval);run("card-delete-rollback",this::cardRemoval);run("card-replacement-rollback",this::cardChange);run("deck-delete-rollback",this::deckRemoval);run("independent-study-create-rollback",this::independentStudyCreation);run("weak-transition-rollback",this::weakTransition);run("rename-all-titles-rollback",this::rename);run("revision-history-rollback",this::revise);run("clear-all-links-rollback",this::clear);run("sync-query-count-and-idempotence",this::syncQueries);
         Bundle result=new Bundle();result.putString("stream","REPOSITORY_GUARDS_PASSED="+passed+" UNEXPECTED_FAILURES="+failed+"\n");finish(failed==0?Activity.RESULT_OK:Activity.RESULT_CANCELED,result);
     }
 }

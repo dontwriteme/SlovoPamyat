@@ -84,4 +84,17 @@ public class RepositoryIntegrationTest {
         assertEquals(before,savedRows());
     }
 
+    @Test public void deckDeleteFailurePreservesDeckAndMemberships(){
+        long deck=store.flashcards().newCardDeck("Deck");store.flashcards().addCustomFlashcard(deck,"Saved","Text");Map<String,String> before=savedRows();
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_orphan BEFORE DELETE ON flashcards BEGIN SELECT RAISE(ABORT,'injected-orphan'); END");
+        try{store.flashcards().deleteCardDeck(deck);fail();}catch(android.database.sqlite.SQLiteException expected){}
+        assertEquals(before,savedRows());
+    }
+    @Test public void independentCardStudyCreationFailurePreservesLibrary(){
+        long deck=store.flashcards().newCardDeck("Deck");store.flashcards().addCustomFlashcard(deck,"Saved","Text");LocalStore.Flashcard card=store.flashcards().flashcards(deck).get(0);Map<String,String> before=savedRows();
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_study BEFORE INSERT ON entries BEGIN SELECT RAISE(ABORT,'injected-study'); END");
+        try{store.study().findOrCreateCardStudyEntry(card,Collections.singletonList(new Bible.Verse("1:1","Text")));fail();}catch(android.database.sqlite.SQLiteException expected){}
+        assertEquals(before,savedRows());
+    }
+
 }

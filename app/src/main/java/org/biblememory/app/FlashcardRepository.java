@@ -35,9 +35,11 @@ public final class FlashcardRepository {
     }
 
     public void deleteCardDeck(long id){
-        SQLiteDatabase db=scope.write();
-        db.delete("card_decks","id=?",new String[]{String.valueOf(id)});
-        db.execSQL("DELETE FROM flashcards WHERE NOT EXISTS (SELECT 1 FROM card_deck_members m WHERE m.card_id=flashcards.id)");
+        scope.transaction(db->{
+            db.delete("card_decks","id=?",new String[]{String.valueOf(id)});
+            db.execSQL("DELETE FROM flashcards WHERE NOT EXISTS (SELECT 1 FROM card_deck_members m WHERE m.card_id=flashcards.id)");
+            return null;
+        });
     }
 
     public boolean addFlashcard(long deckId,int bookId,int sc,int sv,int ec,int ev,String reference,String content){
