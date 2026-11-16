@@ -29,7 +29,7 @@ REPOSITORY_GUARD_PASS rename-all-titles-rollback
 REPOSITORY_GUARD_PASS revision-history-rollback
 REPOSITORY_GUARD_PASS clear-all-links-rollback
 SYNC_FULL_CARD_SCANS_FOR_12_VERSES=1
-SYNC_POINT_LOOKUP_PLAN=1:0|1:0|1:0|165:SEARCH TABLE flashcards AS f USING COVERING INDEX sqlite_autoindex_flashcards_1 (book_id=? AND first_chapter=? AND first_verse=? AND last_chapter=? AND last_verse=?)| 1:0|1:1|1:1|119:SEARCH TABLE card_deck_members AS m USING COVERING INDEX sqlite_autoindex_card_deck_members_1 (deck_id=? AND card_id=?)| 
+SYNC_POINT_LOOKUP_PLAN=1:0|1:0|1:0|165:SEARCH TABLE flashcards AS f USING COVERING INDEX sqlite_autoindex_flashcards_1 (book_id=? AND first_chapter=? AND first_verse=? AND last_chapter=? AND last_verse=?)| 1:0|1:1|1:1|119:SEARCH TABLE card_deck_members AS m USING COVERING INDEX sqlite_autoindex_card_deck_members_1 (deck_id=? AND card_id=?)|
 REPOSITORY_GUARD_PASS sync-query-count-and-idempotence
 REPOSITORY_GUARDS_PASSED=11 UNEXPECTED_FAILURES=0
 
