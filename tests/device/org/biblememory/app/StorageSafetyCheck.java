@@ -183,7 +183,18 @@ public class StorageSafetyCheck extends Instrumentation {
     }
     private void defaultTitleLoss(SafetySandbox context){
         LegacyDatabaseFixture.create(context,5,"Мои стихи");
-        riskRequire(context.store().entry(41)!=null,"v5→v8 deleted a populated collection named Мои стихи and its entry/history");
+        LocalStore store=context.store();
+        require(store.entry(41)!=null,"v5→v8 deleted a populated collection named Мои стихи and its entry/history");
+        require(store.exerciseDone(41,0)==5&&store.consolidated(41,"VERSE",0,1),"Default-title migration lost progress");
+        require(number(store.getReadableDatabase(),"SELECT id FROM review_attempts WHERE entry_id=41")==72,"Review attempt identity lost");
+        require(store.unifiedForGroup(7)!=null,"Populated collection not migrated");
+    }
+    private void emptyDefaultRemoved(SafetySandbox context){
+        LegacyDatabaseFixture.create(context,5,"Мои стихи");
+        try(SQLiteDatabase old=SQLiteDatabase.openDatabase(context.getDatabasePath("slovo_pamyat.db").getPath(),null,0)){
+            old.execSQL("PRAGMA foreign_keys=ON");old.delete("entries",null,null);
+        }
+        require(context.store().group(7)==null,"Empty starter collection was not removed");
     }
     private void syncAtomicity(SafetySandbox context){
         LocalStore s=context.store();LocalStore.UnifiedCollection u=s.unifiedCollection(s.createUnifiedCollection("Fault"));entry(s,u.groupId);mappingFailure(s);
@@ -227,7 +238,8 @@ public class StorageSafetyCheck extends Instrumentation {
             run("backup-study-history-and-invalid-import",false,this::backupStudyHistory);
             run("review-rejected-schedule-rolls-back",false,this::rejectedSchedule);
             // Desired safety properties: expected failures are REPORTED, not counted as passed guards.
-            run("P0-populated-default-title-migration",true,this::defaultTitleLoss);
+            run("populated-default-title-preserves-history",false,this::defaultTitleLoss);
+            run("empty-default-title-is-removed",false,this::emptyDefaultRemoved);
             run("P1-sync-rejected-mapping",true,this::syncAtomicity);
             run("P1-sync-retry-duplicates",true,this::syncRetry);
             require(installed.equals(installedDatabaseHash()),"Installed app database changed during isolated tests");
