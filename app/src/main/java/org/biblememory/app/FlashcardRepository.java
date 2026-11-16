@@ -61,6 +61,16 @@ public final class FlashcardRepository {
         }finally{db.endTransaction();}
     }
 
+    /** Bounded lookup through the existing unique passage and membership keys. */
+    long cardIdInDeck(long deckId,int book,int sc,int sv,int ec,int ev){
+        try(Cursor cursor=scope.read().rawQuery(
+            "SELECT f.id FROM flashcards f JOIN card_deck_members m ON m.card_id=f.id "+
+            "WHERE m.deck_id=? AND f.book_id=? AND f.first_chapter=? AND f.first_verse=? AND f.last_chapter=? AND f.last_verse=?",
+            new String[]{String.valueOf(deckId),String.valueOf(book),String.valueOf(sc),String.valueOf(sv),String.valueOf(ec),String.valueOf(ev)})){
+            return cursor.moveToFirst()?cursor.getLong(0):-1;
+        }
+    }
+
     public long addCustomFlashcard(long deckId,String reference,String content){
         if(reference==null||reference.trim().isEmpty()||content==null||content.trim().isEmpty())
             throw new IllegalArgumentException("Укажи название и текст");
@@ -96,9 +106,12 @@ public final class FlashcardRepository {
     }
 
     public void removeFlashcard(long deckId,long cardId){
-        SQLiteDatabase db=scope.write();
-        db.delete("card_deck_members","deck_id=? AND card_id=?",new String[]{String.valueOf(deckId),String.valueOf(cardId)});
-        db.execSQL("DELETE FROM flashcards WHERE id=? AND NOT EXISTS (SELECT 1 FROM card_deck_members WHERE card_id=?)",new Object[]{cardId,cardId});
+        scope.transaction(transactionDb->{
+            SQLiteDatabase db=scope.write();
+            db.delete("card_deck_members","deck_id=? AND card_id=?",new String[]{String.valueOf(deckId),String.valueOf(cardId)});
+            db.execSQL("DELETE FROM flashcards WHERE id=? AND NOT EXISTS (SELECT 1 FROM card_deck_members WHERE card_id=?)",new Object[]{cardId,cardId});
+            return null;
+        });
     }
 
     public void reorderCards(long deckId,List<Long> ids){
@@ -117,15 +130,18 @@ public final class FlashcardRepository {
 
     public void changeCardInDeck(long deckId,Flashcard old,int book,int sc,int sv,int ec,int ev,
             String reference,String content){
-        if(old.bookId==0){
-            long fresh=addCustomFlashcard(deckId,reference,content);
-            removeFlashcard(deckId,old.id);
-        }else{
-            if(old.bookId==book&&old.firstChapter==sc&&old.firstVerse==sv&&
-                old.lastChapter==ec&&old.lastVerse==ev)return;
-            if(!addFlashcard(deckId,book,sc,sv,ec,ev,reference,content))
-                throw new IllegalArgumentException("Такая карточка уже есть в подборке");
-            removeFlashcard(deckId,old.id);
-        }
+        scope.transaction(transactionDb->{
+            if(old.bookId==0){
+                long fresh=addCustomFlashcard(deckId,reference,content);
+                removeFlashcard(deckId,old.id);
+            }else{
+                if(old.bookId==book&&old.firstChapter==sc&&old.firstVerse==sv&&
+                    old.lastChapter==ec&&old.lastVerse==ev)return null;
+                if(!addFlashcard(deckId,book,sc,sv,ec,ev,reference,content))
+                    throw new IllegalArgumentException("Такая карточка уже есть в подборке");
+                removeFlashcard(deckId,old.id);
+            }
+            return null;
+        });
     }
 }

@@ -36,7 +36,8 @@ public final class LocalStore extends SQLiteOpenHelper {
             return out;
         }
     }
-    public LocalStore(Context context) { super(context,"slovo_pamyat.db",null,8); }
+    public LocalStore(Context context) { this(context,null); }
+    LocalStore(Context context,SQLiteDatabase.CursorFactory cursorFactory) { super(context,"slovo_pamyat.db",cursorFactory,8); }
     @Override public void onConfigure(SQLiteDatabase db){ db.setForeignKeyConstraintsEnabled(true); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE groups_ (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)");

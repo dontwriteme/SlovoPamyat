@@ -131,9 +131,9 @@ public final class CollectionRepository {
         try{
             syncUnifiedCollectionInTransaction(collectionId,bible);
             db.setTransactionSuccessful();
-        }catch(SQLiteException failure){
+        }catch(RuntimeException failure){
             // Never log the saved text or SQL argument values.
-            android.util.Log.w("LocalStore","Collection sync rolled back; collection="+collectionId+
+            android.util.Log.w("CollectionRepository","Collection sync rolled back; collection="+collectionId+
                 "; error="+failure.getClass().getSimpleName());
             throw failure;
         }finally{db.endTransaction();}
@@ -165,7 +165,11 @@ public final class CollectionRepository {
                 // Do not manufacture a duplicate when syncing study entries below.
                 if(verses.size()==1)mapEntryCard(collectionId,entryId,0,card.id);
             }catch(SQLiteException failure){throw failure;}
-            catch(Exception ignored){ /* Do not destroy inaccessible legacy data. */ }
+            catch(Exception failure){
+                // Retain inaccessible legacy material, but make the controlled skip observable.
+                android.util.Log.w("CollectionRepository","Skipped legacy card; collection="+collectionId+
+                    "; card="+card.id+"; error="+failure.getClass().getSimpleName());
+            }
         }
         // Study passages automatically supply one flashcard per canonical verse.
         for(Entry entry:scope.study.entries(u.groupId)){
@@ -179,9 +183,7 @@ public final class CollectionRepository {
                 if(book>0&&ref!=null){
                     scope.flashcards.addFlashcard(u.deckId,book,ref[0],ref[1],ref[0],ref[1],
                         Bible.reference(book,ref[0],ref[1],ref[0],ref[1]),line.text);
-                    for(Flashcard fc:scope.flashcards.flashcards(u.deckId))if(fc.bookId==book&&
-                        fc.firstChapter==ref[0]&&fc.firstVerse==ref[1]&&
-                        fc.lastChapter==ref[0]&&fc.lastVerse==ref[1]){cardId=fc.id;break;}
+                    cardId=scope.flashcards.cardIdInDeck(u.deckId,book,ref[0],ref[1],ref[0],ref[1]);
                 }else{
                     cardId=scope.flashcards.addCustomFlashcard(u.deckId,entry.reference,line.text);
                 }
@@ -236,29 +238,31 @@ public final class CollectionRepository {
     }
 
     public boolean removeUnifiedPassage(long groupId,String reference){
-        UnifiedCollection u=unifiedForGroup(groupId);
-        if(u==null)return detachStudyReference(groupId,reference);
-        SQLiteDatabase db=scope.write();
-        // Keep unrelated cards that are also supplied by other passages of this collection.
-        List<Long> toHide=new ArrayList<>();
-        try(Cursor c=db.rawQuery(
-            "SELECT DISTINCT x.card_id FROM unified_entry_cards x JOIN entries e ON e.id=x.entry_id "+
-            "WHERE x.collection_id=? AND e.group_id=? AND e.reference=?",
-            new String[]{String.valueOf(u.id),String.valueOf(groupId),reference})){
-            while(c.moveToNext())toHide.add(c.getLong(0));
-        }
-        boolean changed=detachStudyReference(groupId,reference);
-        if(changed){
-            for(long cardId:toHide){
-                try(Cursor c=db.rawQuery("SELECT 1 FROM unified_entry_cards x JOIN entries e ON e.id=x.entry_id "+
-                    "WHERE x.collection_id=? AND x.card_id=? AND e.group_id=? LIMIT 1",
-                    new String[]{String.valueOf(u.id),String.valueOf(cardId),String.valueOf(groupId)})){
-                    if(!c.moveToFirst())db.delete("card_deck_members","deck_id=? AND card_id=?",
-                        new String[]{String.valueOf(u.deckId),String.valueOf(cardId)});
+        return scope.transaction(transactionDb->{
+            UnifiedCollection u=unifiedForGroup(groupId);
+            if(u==null)return detachStudyReference(groupId,reference);
+            SQLiteDatabase db=scope.write();
+            // Keep unrelated cards that are also supplied by other passages of this collection.
+            List<Long> toHide=new ArrayList<>();
+            try(Cursor c=db.rawQuery(
+                "SELECT DISTINCT x.card_id FROM unified_entry_cards x JOIN entries e ON e.id=x.entry_id "+
+                "WHERE x.collection_id=? AND e.group_id=? AND e.reference=?",
+                new String[]{String.valueOf(u.id),String.valueOf(groupId),reference})){
+                while(c.moveToNext())toHide.add(c.getLong(0));
+            }
+            boolean changed=detachStudyReference(groupId,reference);
+            if(changed){
+                for(long cardId:toHide){
+                    try(Cursor c=db.rawQuery("SELECT 1 FROM unified_entry_cards x JOIN entries e ON e.id=x.entry_id "+
+                        "WHERE x.collection_id=? AND x.card_id=? AND e.group_id=? LIMIT 1",
+                        new String[]{String.valueOf(u.id),String.valueOf(cardId),String.valueOf(groupId)})){
+                        if(!c.moveToFirst())db.delete("card_deck_members","deck_id=? AND card_id=?",
+                            new String[]{String.valueOf(u.deckId),String.valueOf(cardId)});
+                    }
                 }
             }
-        }
-        return changed;
+            return changed;
+        });
     }
 
     public boolean detachStudyReference(long groupId,String reference){

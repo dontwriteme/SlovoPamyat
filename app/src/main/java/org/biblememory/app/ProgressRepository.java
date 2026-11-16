@@ -14,11 +14,14 @@ public final class ProgressRepository {
 
     public void recordWeakTransition(long entryId,int from,int to,long now){
         if(from<0||to!=from+1)return;
-        SQLiteDatabase db=scope.write();
-        db.execSQL("INSERT OR IGNORE INTO transition_issues(entry_id,from_position,to_position) VALUES(?,?,?)",
-            new Object[]{entryId,from,to});
-        db.execSQL("UPDATE transition_issues SET failures=failures+1,last_failed=? WHERE entry_id=? AND from_position=? AND to_position=?",
-            new Object[]{now,entryId,from,to});
+        scope.transaction(transactionDb->{
+            SQLiteDatabase db=scope.write();
+            db.execSQL("INSERT OR IGNORE INTO transition_issues(entry_id,from_position,to_position) VALUES(?,?,?)",
+                new Object[]{entryId,from,to});
+            db.execSQL("UPDATE transition_issues SET failures=failures+1,last_failed=? WHERE entry_id=? AND from_position=? AND to_position=?",
+                new Object[]{now,entryId,from,to});
+            return null;
+        });
     }
 
     public void rescheduleWeakVerse(long id,int position,long now){
