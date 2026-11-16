@@ -5,7 +5,11 @@ import android.database.sqlite.SQLiteDatabase;
 /** One helper/connection and transaction boundary shared by all repositories. */
 final class RepositoryScope {
     final LocalStore legacy;
-    RepositoryScope(LocalStore helper){legacy=helper;}
+    final StudyRepository study;
+    RepositoryScope(LocalStore helper){
+        legacy=helper;
+        study=new StudyRepository(this);
+    }
     SQLiteDatabase read(){return legacy.getReadableDatabase();}
     SQLiteDatabase write(){return legacy.getWritableDatabase();}
 

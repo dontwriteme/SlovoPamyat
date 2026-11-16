@@ -10,7 +10,8 @@ import java.util.*;
 public final class LocalStore extends SQLiteOpenHelper {
     private final RepositoryScope scope=new RepositoryScope(this);
     RepositoryScope repositoryScope(){return scope;}
-    private static final String CARD_STUDY_GROUP="__slovo_cards_study_library__";
+    public StudyRepository study(){return scope.study;}
+    static final String CARD_STUDY_GROUP="__slovo_cards_study_library__";
     public static final class Group {
         public long id; public String title; public int count;
     }
@@ -183,10 +184,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
-    public boolean containsEntry(long groupId,long entryId){
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM entries WHERE group_id=? AND id=? LIMIT 1",
-            new String[]{String.valueOf(groupId),String.valueOf(entryId)})){return c.moveToFirst();}
-    }
+    public boolean containsEntry(long groupId,long entryId){return scope.study.containsEntry(groupId,entryId);}
     /** A due verse can belong to this collection through an identical Bible passage
      * even when its recall history lives on a different old study-entry row. */
     public boolean belongsToGroupMaterial(long groupId,DueItem due){
@@ -211,12 +209,12 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
         return false;
     }
-    private static int bibleBookFromReference(String reference){
+    static int bibleBookFromReference(String reference){
         if(reference==null)return 0;
         for(int i=0;i<Bible.NAMES.length;i++)if(reference.startsWith(Bible.NAMES[i]+" "))return i+1;
         return 0;
     }
-    private static int[] verseNumbers(String ref){
+    static int[] verseNumbers(String ref){
         try{String[] parts=ref.split(":",2);return new int[]{Integer.parseInt(parts[0]),Integer.parseInt(parts[1])};}
         catch(Exception ignored){return null;}
     }
@@ -233,7 +231,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             throw failure;
         }finally{db.endTransaction();}
     }
-    private void syncUnifiedCollectionInTransaction(long collectionId,Bible bible){
+    void syncUnifiedCollectionInTransaction(long collectionId,Bible bible){
         UnifiedCollection u=unifiedCollection(collectionId);
         if(u==null)return;
         // Legacy decks previously had no study entries. Preserve their original card records.
@@ -286,22 +284,22 @@ public final class LocalStore extends SQLiteOpenHelper {
             }
         }
     }
-    private boolean mappedCardEntry(long collection,long card){
+    boolean mappedCardEntry(long collection,long card){
         try(Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM unified_card_entries WHERE collection_id=? AND card_id=? LIMIT 1",
             new String[]{String.valueOf(collection),String.valueOf(card)})){return c.moveToFirst();}
     }
-    private boolean mappedEntryCard(long collection,long entry,int pos){
+    boolean mappedEntryCard(long collection,long entry,int pos){
         try(Cursor c=getReadableDatabase().rawQuery(
             "SELECT 1 FROM unified_entry_cards x JOIN unified_collections u ON u.id=x.collection_id "+
             "JOIN card_deck_members m ON m.deck_id=u.deck_id AND m.card_id=x.card_id "+
             "WHERE x.collection_id=? AND x.entry_id=? AND x.verse_position=? LIMIT 1",
             new String[]{String.valueOf(collection),String.valueOf(entry),String.valueOf(pos)})){return c.moveToFirst();}
     }
-    private void mapCardEntry(long collection,long card,long entry){
+    void mapCardEntry(long collection,long card,long entry){
         ContentValues v=new ContentValues();v.put("collection_id",collection);v.put("card_id",card);v.put("entry_id",entry);
         getWritableDatabase().insertWithOnConflict("unified_card_entries",null,v,SQLiteDatabase.CONFLICT_IGNORE);
     }
-    private void mapEntryCard(long collection,long entry,int pos,long card){
+    void mapEntryCard(long collection,long entry,int pos,long card){
         ContentValues v=new ContentValues();v.put("collection_id",collection);v.put("entry_id",entry);
         v.put("verse_position",pos);v.put("card_id",card);
         getWritableDatabase().insertWithOnConflict("unified_entry_cards",null,v,SQLiteDatabase.CONFLICT_REPLACE);
@@ -427,7 +425,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             this.entryId=id;this.stage=stage;this.start=start;this.end=end;this.due=due;
         }
     }
-    private List<long[]> matchingVerseLocations(long id,int position){
+    List<long[]> matchingVerseLocations(long id,int position){
         List<long[]> matches=new ArrayList<>();
         Entry original=entry(id);
         if(original==null)return matches;
@@ -456,7 +454,7 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
         return matches;
     }
-    private int sharedVerseCompletion(long entryId,int position){
+    int sharedVerseCompletion(long entryId,int position){
         int completed=0;
         for(long[] match:matchingVerseLocations(entryId,position)){
             try(Cursor c=getReadableDatabase().rawQuery(
@@ -669,7 +667,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             return c.moveToFirst()?c.getInt(0):0;
         }
     }
-    private boolean consolidatedLocal(long id,String stage,int start,int end) {
+    boolean consolidatedLocal(long id,String stage,int start,int end) {
         try(Cursor c=getReadableDatabase().rawQuery(
             "SELECT first_success,last_success,success_count,fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
             new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})) {
@@ -722,42 +720,12 @@ public final class LocalStore extends SQLiteOpenHelper {
         for(Group g:groups()) if(g.id==id) return g;
         return null;
     }
-    public long add(long groupId,String title,String ref,List<Bible.Verse> verses) {
-        if(verses.isEmpty()) throw new IllegalArgumentException("Пустой текст");
-        JSONArray array=new JSONArray();
-        for(Bible.Verse v:verses) {
-            JSONObject row=new JSONObject();
-            try { row.put("ref",v.ref);row.put("text",v.text); } catch(JSONException ex) {throw new IllegalStateException(ex);}
-            array.put(row);
-        }
-        ContentValues cv=new ContentValues();cv.put("group_id",groupId);
-        cv.put("title",title);cv.put("reference",ref);cv.put("lines",array.toString());
-        return getWritableDatabase().insertOrThrow("entries",null,cv);
-    }
+    public long add(long groupId,String title,String ref,List<Bible.Verse> verses){return scope.study.add(groupId,title,ref,verses);}
     /** Return a previously saved copy of this same Scripture passage when possible.
      * Shared progress must never be inferred from an unrelated passage or text variant.
      */
-    public long canonicalStudyEntryId(long entryId){
-        Entry selected=entry(entryId);if(selected==null)return entryId;
-        // Only canonical Bible references share study history, not user-authored titles.
-        boolean bibleReference=false;
-        for(String book:Bible.NAMES){
-            if(selected.reference.startsWith(book+" ")){bibleReference=true;break;}
-        }
-        if(!bibleReference)return entryId;
-        long best=entryId;int score=-1;
-        try(Cursor c=getReadableDatabase().rawQuery(
-            "SELECT id FROM entries WHERE reference=? AND lines=? ORDER BY id",
-            new String[]{selected.reference,selected.linesJson})){
-            while(c.moveToNext()){
-                long id=c.getLong(0);
-                int current=masteryCount(id)*10+completedExerciseCount(id);
-                if(current>score){score=current;best=id;}
-            }
-        }
-        return best;
-    }
-    private int completedExerciseCount(long id){
+    public long canonicalStudyEntryId(long entryId){return scope.study.canonicalStudyEntryId(entryId);}
+    int completedExerciseCount(long id){
         try(Cursor c=getReadableDatabase().rawQuery(
             "SELECT COALESCE(SUM(completed),0) FROM lesson_progress WHERE entry_id=?",
             new String[]{String.valueOf(id)})){
@@ -765,45 +733,10 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
     }
     /** Each card is an independent saved passage. Its own adjacent verses may link. */
-    public long findOrCreateCardStudyEntry(Flashcard card,List<Bible.Verse> verses){
-        if(card==null||verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустая карточка");
-        for(Entry old:allEntries()){
-            if(!card.reference.equals(old.reference))continue;
-            List<Bible.Verse> lines=old.lines();
-            if(lines.size()!=verses.size())continue;
-            boolean identical=true;
-            for(int i=0;i<lines.size();i++){
-                if(!lines.get(i).ref.equals(verses.get(i).ref) ||
-                    !lines.get(i).text.equals(verses.get(i).text)){
-                    identical=false;break;
-                }
-            }
-            if(identical)return canonicalStudyEntryId(old.id);
-        }
-        SQLiteDatabase db=getWritableDatabase();long group=-1;
-        try(Cursor c=db.rawQuery("SELECT id FROM groups_ WHERE title=? LIMIT 1",new String[]{CARD_STUDY_GROUP})){
-            if(c.moveToFirst())group=c.getLong(0);
-        }
-        if(group<0)group=newGroup(CARD_STUDY_GROUP);
-        return add(group,card.reference,card.reference,verses);
-    }
+    public long findOrCreateCardStudyEntry(Flashcard card,List<Bible.Verse> verses){return scope.study.findOrCreateCardStudyEntry(card,verses);}
 
     /** Move within the current collection only; original records and progress stay unchanged. */
-    public void reorderStudy(long groupId,List<Long> ids){
-        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
-        try{
-            db.delete("study_order","group_id=?",new String[]{String.valueOf(groupId)});
-            int pos=0;
-            for(long id:ids){
-                Entry entry=entry(id);
-                if(entry==null||entry.groupId!=groupId)continue;
-                ContentValues values=new ContentValues();values.put("group_id",groupId);
-                values.put("entry_id",id);values.put("position",pos++);
-                db.insertOrThrow("study_order",null,values);
-            }
-            db.setTransactionSuccessful();
-        }finally{db.endTransaction();}
-    }
+    public void reorderStudy(long groupId,List<Long> ids){scope.study.reorderStudy(groupId,ids);}
     public void reorderCards(long deckId,List<Long> ids){
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
         try{
@@ -817,13 +750,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
-    private long libraryId(SQLiteDatabase db){
-        try(Cursor c=db.rawQuery("SELECT id FROM groups_ WHERE title=? LIMIT 1",new String[]{CARD_STUDY_GROUP})){
-            if(c.moveToFirst())return c.getLong(0);
-        }
-        ContentValues values=new ContentValues();values.put("title",CARD_STUDY_GROUP);
-        return db.insertOrThrow("groups_",null,values);
-    }
+    private long libraryId(SQLiteDatabase db){return scope.study.libraryId(db);}
     /** Remove collection membership on both sides, preserving the study row in the hidden library. */
     public boolean removeUnifiedPassage(long groupId,String reference){
         UnifiedCollection u=unifiedForGroup(groupId);
@@ -888,119 +815,9 @@ public final class LocalStore extends SQLiteOpenHelper {
         }finally{db.endTransaction();}
     }
     /** Moving the original row back retains all FK-linked lesson/recall history. */
-    public long restoreOrAddStudyPassage(long groupId,String reference,List<Bible.Verse> verses){
-        if(verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустой отрывок");
-        for(Entry old:allEntries()){
-            if(!old.reference.equals(reference))continue;
-            if(old.groupId==groupId)return old.id;
-            Group existing=group(old.groupId);
-            if(existing!=null && !CARD_STUDY_GROUP.equals(existing.title))continue;
-            // Reattach a previously archived entry with its original progress.
-            List<Bible.Verse> saved=old.lines();
-            if(saved.size()!=verses.size())continue;
-            boolean equal=true;
-            for(int i=0;i<verses.size();i++){
-                if(!saved.get(i).ref.equals(verses.get(i).ref) ||
-                   !saved.get(i).text.equals(verses.get(i).text)){equal=false;break;}
-            }
-            if(equal){
-                ContentValues values=new ContentValues();values.put("group_id",groupId);
-                getWritableDatabase().update("entries",values,"id=?",new String[]{String.valueOf(old.id)});
-                return old.id;
-            }
-        }
-        return add(groupId,reference,reference,verses);
-    }
+    public long restoreOrAddStudyPassage(long groupId,String reference,List<Bible.Verse> verses){return scope.study.restoreOrAddStudyPassage(groupId,reference,verses);}
     /** Preserve unchanged verses and ranges, remapping their indices on any edit. */
-    public void reviseStudyPassage(long id,String reference,List<Bible.Verse> verses){
-        Entry old=entry(id);
-        if(old==null||verses.isEmpty())throw new IllegalArgumentException("Отрывок не найден");
-        List<Bible.Verse> before=old.lines();
-        Map<Integer,Integer> remap=new HashMap<>();
-        for(int i=0;i<before.size();i++)for(int j=0;j<verses.size();j++){
-            if(before.get(i).ref.equals(verses.get(j).ref)&&
-               before.get(i).text.equals(verses.get(j).text)){
-                remap.put(i,j);break;
-            }
-        }
-        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
-        try{
-            String[] tables={"verse_progress","lesson_progress","stage_progress","recall_activity",
-                "review_schedule","review_attempts","transition_issues"};
-            for(String table:tables){
-                List<ContentValues> saved=new ArrayList<>();
-                try(Cursor c=db.query(table,null,"entry_id=?",new String[]{String.valueOf(id)},null,null,null)){
-                    while(c.moveToNext()){
-                        ContentValues cv=new ContentValues();
-                        for(int col=0;col<c.getColumnCount();col++){
-                            String key=c.getColumnName(col);
-                            if(key.equals("id"))continue;
-                            switch(c.getType(col)){
-                                case Cursor.FIELD_TYPE_INTEGER:cv.put(key,c.getLong(col));break;
-                                case Cursor.FIELD_TYPE_FLOAT:cv.put(key,c.getDouble(col));break;
-                                case Cursor.FIELD_TYPE_STRING:cv.put(key,c.getString(col));break;
-                                case Cursor.FIELD_TYPE_BLOB:cv.put(key,c.getBlob(col));break;
-                                default:cv.putNull(key);break;
-                            }
-                        }
-                        if(table.equals("verse_progress")||table.equals("lesson_progress")){
-                            Integer to=remap.get(cv.getAsInteger("position"));
-                            if(to==null)continue;
-                            cv.put("position",to);
-                        }else if(table.equals("transition_issues")){
-                            Integer first=remap.get(cv.getAsInteger("from_position"));
-                            Integer next=remap.get(cv.getAsInteger("to_position"));
-                            if(first==null||next==null||next!=first+1)continue;
-                            cv.put("from_position",first);cv.put("to_position",next);
-                        }else{
-                            int first=cv.getAsInteger("first_line"),last=cv.getAsInteger("last_line");
-                            Integer mapped=remap.get(first);
-                            if(mapped==null)continue;
-                            boolean whole=true;
-                            for(int i=first;i<last;i++){
-                                if(!remap.containsKey(i)||remap.get(i)!=mapped+i-first){whole=false;break;}
-                            }
-                            if(!whole)continue;
-                            cv.put("first_line",mapped);cv.put("last_line",mapped+last-first);
-                        }
-                        saved.add(cv);
-                    }
-                }
-                db.delete(table,"entry_id=?",new String[]{String.valueOf(id)});
-                for(ContentValues cv:saved)db.insertWithOnConflict(table,null,cv,SQLiteDatabase.CONFLICT_REPLACE);
-            }
-            JSONArray arr=new JSONArray();
-            for(Bible.Verse v:verses){
-                JSONObject j=new JSONObject();
-                try{j.put("ref",v.ref);j.put("text",v.text);}catch(JSONException err){throw new IllegalStateException(err);}
-                arr.put(j);
-            }
-            ContentValues values=new ContentValues();values.put("reference",reference);
-            values.put("title",reference);values.put("lines",arr.toString());
-            db.update("entries",values,"id=?",new String[]{String.valueOf(id)});
-            // The edited text/range invalidates its previously generated cards.
-            // Remap them on next sync, preserving other passages' shared cards.
-            List<long[]> linked=new ArrayList<>();
-            try(Cursor c=db.rawQuery("SELECT x.collection_id,u.deck_id,x.card_id FROM unified_entry_cards x "+
-                "JOIN unified_collections u ON u.id=x.collection_id WHERE x.entry_id=?",
-                new String[]{String.valueOf(id)})){
-                while(c.moveToNext())linked.add(new long[]{c.getLong(0),c.getLong(1),c.getLong(2)});
-            }
-            db.delete("unified_entry_cards","entry_id=?",new String[]{String.valueOf(id)});
-            for(long[] row:linked){
-                try(Cursor c=db.rawQuery("SELECT 1 FROM unified_entry_cards WHERE collection_id=? AND card_id=? LIMIT 1",
-                    new String[]{String.valueOf(row[0]),String.valueOf(row[2])})){
-                    if(!c.moveToFirst()){
-                        db.delete("card_deck_members","deck_id=? AND card_id=?",
-                            new String[]{String.valueOf(row[1]),String.valueOf(row[2])});
-                        db.delete("unified_card_entries","collection_id=? AND card_id=?",
-                            new String[]{String.valueOf(row[0]),String.valueOf(row[2])});
-                    }
-                }
-            }
-            db.setTransactionSuccessful();
-        }finally{db.endTransaction();}
-    }
+    public void reviseStudyPassage(long id,String reference,List<Bible.Verse> verses){scope.study.reviseStudyPassage(id,reference,verses);}
     public void changeCardInDeck(long deckId,Flashcard old,int book,int sc,int sv,int ec,int ev,
             String reference,String content){
         if(old.bookId==0){
@@ -1015,33 +832,9 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
     }
 
-    private Entry readEntry(Cursor c) {
-        Entry e=new Entry();e.id=c.getLong(0);e.groupId=c.getLong(1);
-        e.title=c.getString(2);e.reference=c.getString(3);e.linesJson=c.getString(4);
-        e.learned=c.getInt(5);e.repetitions=c.getInt(6);e.days=c.getInt(7);
-        e.ease=c.getDouble(8);e.due=c.getLong(9);e.lastScore=c.getInt(10);
-        return e;
-    }
-    private static final String FIELDS="id,group_id,title,reference,lines,learned,repetitions,days,ease,due,last_score";
-    public Entry entry(long id) {
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT "+FIELDS+" FROM entries WHERE id=?",new String[]{String.valueOf(id)})) {
-            return c.moveToFirst()?readEntry(c):null;
-        }
-    }
-    public List<Entry> entries(long groupId) {
-        List<Entry> out=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT entries.id,entries.group_id,entries.title,entries.reference,entries.lines,entries.learned,entries.repetitions,entries.days,entries.ease,entries.due,entries.last_score FROM entries LEFT JOIN study_order o ON o.entry_id=entries.id WHERE entries.group_id=? ORDER BY COALESCE(o.position,1000000),entries.id DESC",new String[]{String.valueOf(groupId)})) {
-            while(c.moveToNext()) out.add(readEntry(c));
-        }
-        return out;
-    }
-    public List<Entry> allEntries() {
-        List<Entry> out=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT "+FIELDS+" FROM entries ORDER BY id DESC",null)) {
-            while(c.moveToNext()) out.add(readEntry(c));
-        }
-        return out;
-    }
+    public Entry entry(long id){return scope.study.entry(id);}
+    public List<Entry> entries(long groupId){return scope.study.entries(groupId);}
+    public List<Entry> allEntries(){return scope.study.allEntries();}
     /** Independent schedule, not the continuation of a lesson. */
     public List<Entry> due() {
         List<Entry> result=new ArrayList<>();Set<Long> seen=new HashSet<>();
@@ -1125,14 +918,11 @@ public final class LocalStore extends SQLiteOpenHelper {
         ContentValues v=new ContentValues();v.put("title",name.trim());
         getWritableDatabase().update("groups_",v,"id=?",new String[]{String.valueOf(id)});
     }
-    public void renameEntry(long id,String name) {
-        ContentValues v=new ContentValues();v.put("title",name.trim());
-        getWritableDatabase().update("entries",v,"id=?",new String[]{String.valueOf(id)});
-    }
-    public void deleteEntry(long id) {getWritableDatabase().delete("entries","id=?",new String[]{String.valueOf(id)});}
+    public void renameEntry(long id,String name){scope.study.renameEntry(id,name);}
+    public void deleteEntry(long id){scope.study.deleteEntry(id);}
     public void deleteGroup(long id) {getWritableDatabase().delete("groups_","id=?",new String[]{String.valueOf(id)});}
 
-    private List<Group> groupsForBackup(){
+    List<Group> groupsForBackup(){
         List<Group> list=new ArrayList<>();
         try(Cursor c=getReadableDatabase().rawQuery(
             "SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id GROUP BY g.id ORDER BY g.id",null)){
