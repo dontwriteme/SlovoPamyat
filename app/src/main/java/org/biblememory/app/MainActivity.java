@@ -47,6 +47,9 @@ public final class MainActivity extends Activity {
     private static final int EXPORT=10,IMPORT=11;
 
     private Screen screen=Screen.HOME;
+    private Screen pendingRestoredScreen;
+    private int pendingRestoredY,pendingSearchPosition,pendingSearchTop;
+    private boolean pendingSearchScroll;
     private static final String UNIFIED_PREFS="unified_library_ui";
 
 
@@ -83,7 +86,7 @@ public final class MainActivity extends Activity {
         public android.content.Context applicationContext(){return getApplicationContext();}
         public void postToUi(Runnable callback){runOnUiThread(callback);}
         public boolean replaceVisibleSearch(List<BibleSearchLogic.Hit> hits,String query,String message){
-            SearchListState state=visibleSearchResults();if(state==null)return false;state.replace(hits,query,message);return true;
+            SearchListState state=visibleSearchResults();if(state==null)return false;state.replace(hits,query,message);restoreVisibleScroll();return true;
         }
         public void renderSearchKeepingInput(){MainActivity.this.renderBibleSearchKeepingInput();}
         public void navigate(Screen destination){screen=destination;MainActivity.this.render();}
@@ -468,18 +471,73 @@ public final class MainActivity extends Activity {
         homeCollectionsExpanded=homeUi.getBoolean("collections_expanded",false);
         homeScrollY=Math.max(0,homeUi.getInt("scroll_y",0));
         refreshHomeIndex(false);
-        restorePickerState(savedInstanceState);
+        if(savedInstanceState!=null&&savedInstanceState.containsKey("navigation_v1"))restoreActivityState(savedInstanceState);
+        else restorePickerState(savedInstanceState);
         render();
         bibleReader.startLoading();
     }
 
     @Override protected void onSaveInstanceState(Bundle out){
         super.onSaveInstanceState(out);
+        if(screen==Screen.TRAIN)studySession.saveTrainingSession();
+        if(screen==Screen.CARD_SESSION)flashcardSession.saveCardSession();
+        if(screen==Screen.RUN)studySession.saveRunSession();
+        out.putString("navigation_v1",screen.name());
+        out.putBundle("study_v1",studySession.saveState());
+        out.putBundle("cards_v1",flashcardSession.saveState());
+        out.putBundle("reader_v1",bibleReader.saveState());
+        out.putBundle("collections_v1",collectionActions.saveState());
+        Bundle scrolls=new Bundle();for(Map.Entry<Screen,Integer> item:savedScrollY.entrySet())scrolls.putInt(item.getKey().name(),item.getValue());
+        ScrollView visible=findScroll(root);
+        boolean pending=pendingRestoredScreen==screen;
+        out.putBoolean("scroll_available",pending||(visible!=null&&visible.getHeight()>0));
+        out.putInt("scroll_y",pending?pendingRestoredY:visible==null?0:visible.getScrollY());
+        out.putBundle("scrolls",scrolls);
+        ListView search=visibleSearchResults()==null?null:(ListView)root.getChildAt(0);
+        if(search!=null){
+            out.putBoolean("search_scroll",true);out.putInt("search_position",search.getFirstVisiblePosition());
+            out.putInt("search_top",search.getChildCount()==0?0:search.getChildAt(0).getTop());
+        }else if(pendingSearchScroll){
+            out.putBoolean("search_scroll",true);out.putInt("search_position",pendingSearchPosition);out.putInt("search_top",pendingSearchTop);
+        }
         if(!bibleReader.isPickerScreen(screen))return;
         bibleReader.savePickerState(out);
         out.putLong("picker_unified",collectionActions.openUnifiedId);out.putLong("picker_group",collectionActions.selectedGroup);
         out.putLong("picker_deck",flashcardSession.selectedDeck);
         out.putLong("picker_insert_entry",collectionActions.insertAfterEntryId);out.putLong("picker_insert_card",collectionActions.insertAfterCardId);
+    }
+    private void restoreActivityState(Bundle state){
+        studySession.restoreState(state.getBundle("study_v1"));
+        flashcardSession.restoreState(state.getBundle("cards_v1"));
+        bibleReader.restoreState(state.getBundle("reader_v1"));
+        collectionActions.restoreState(state.getBundle("collections_v1"));
+        try{screen=Screen.valueOf(state.getString("navigation_v1","HOME"));}
+        catch(IllegalArgumentException invalid){screen=Screen.HOME;}
+        Bundle scrolls=state.getBundle("scrolls");
+        if(scrolls!=null)for(Screen destination:Screen.values())if(scrolls.containsKey(destination.name()))savedScrollY.put(destination,scrolls.getInt(destination.name()));
+        if(state.getBoolean("scroll_available")){pendingRestoredScreen=screen;pendingRestoredY=Math.max(0,state.getInt("scroll_y"));}
+        pendingSearchScroll=state.getBoolean("search_scroll");pendingSearchPosition=state.getInt("search_position");pendingSearchTop=state.getInt("search_top");
+        if(pendingSearchScroll)pendingRestoredScreen=screen;
+    }
+    private ScrollView findScroll(View view){
+        if(view instanceof ScrollView)return (ScrollView)view;
+        if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++){ScrollView found=findScroll(group.getChildAt(i));if(found!=null)return found;}
+        }return null;
+    }
+    private void restoreVisibleScroll(){
+        if(pendingRestoredScreen!=null&&pendingRestoredScreen!=screen){pendingRestoredScreen=null;pendingSearchScroll=false;return;}
+        if(pendingSearchScroll&&bibleReader.isBibleSearchScreen()){
+            ListView list=visibleSearchResults()==null?null:(ListView)root.getChildAt(0);
+            if(list!=null&&!bibleReader.bibleSearchLoading){
+                final View page=root;afterPickerLayout(list,()->{if(root==page){list.setSelectionFromTop(pendingSearchPosition,pendingSearchTop);pendingSearchScroll=false;pendingRestoredScreen=null;}});
+            }return;
+        }
+        if(pendingRestoredScreen!=screen)return;
+        if((screen==Screen.CHAPTER||screen==Screen.CHAPTERS||screen==Screen.VERSES||bibleReader.isPickerScreen(screen))&&!bibleReader.bible.isReady())return;
+        ScrollView scroll=findScroll(root);if(scroll==null)return;
+        final Screen destination=screen;final View page=root;final int y=pendingRestoredY;
+        afterPickerLayout(scroll,()->{if(root==page&&screen==destination){scroll.scrollTo(0,y);pendingRestoredScreen=null;}});
     }
     private void restorePickerState(Bundle state){
         if(state==null||!state.containsKey("picker_screen"))return;
@@ -1016,13 +1074,13 @@ public final class MainActivity extends Activity {
         tabWarmGeneration++;
         readyTabs.clear();
         rememberHomeScroll();
-        if(currentScroller!=null && lastRenderedScreen!=null && lastRenderedScreen!=Screen.HOME){
+        if(currentScroller!=null && lastRenderedScreen!=null && lastRenderedScreen!=Screen.HOME && pendingRestoredScreen!=lastRenderedScreen){
             savedScrollY.put(lastRenderedScreen,currentScroller.getScrollY());
         }
         if(collectionAnimator!=null){collectionAnimator.cancel();collectionAnimator=null;}
-        if(screen==Screen.TRAIN){lastRenderedScreen=screen;renderFullscreenLesson();return;}
-        if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();return;}
-        if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
+        if(screen==Screen.TRAIN){lastRenderedScreen=screen;renderFullscreenLesson();restoreVisibleScroll();return;}
+        if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();restoreVisibleScroll();return;}
+        if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();restoreVisibleScroll();return;}
         for(int i=0;i<bottomModeButtons.length;i++)bottomModeButtons[i]=null;
         boolean focusedReaderChapter=screen==Screen.CHAPTER && bibleReader.chapterFromVerseGrid && bibleReader.focusVerse>0;
         boolean virtualBibleSearch=bibleReader.isBibleSearchScreen()&&bibleReader.bibleSearchActive&&!bibleReader.bibleSearchLoading&&bibleReader.bibleSearchError.isEmpty();
@@ -1122,6 +1180,7 @@ public final class MainActivity extends Activity {
                 }
             });
         }
+        restoreVisibleScroll();
     }
     /** Search is the first scrolling item, both in the catalogue and the search results. */
     private void renderScrollingBibleSearch(LinearLayout into){
@@ -1754,6 +1813,7 @@ public final class MainActivity extends Activity {
     /** One continuous two-page slide; the bottom bar is never moved or blanked. */
 
     private void goToMainTab(int index) {
+        pendingRestoredScreen=null;pendingSearchScroll=false;
         if (index < 0 || index > 2 || tabSwitchInProgress) {
             return;
         }

@@ -1,0 +1,8 @@
+allprojects {
+    afterEvaluate { p ->
+        if(p.path==':app') {
+            p.android.defaultConfig.testInstrumentationRunner='org.biblememory.app.ActivityRecreationCheck'
+            p.android.sourceSets.androidTest.java.srcDirs=[rootProject.file('tests/device'),rootProject.file('tests/support')]
+        }
+    }
+}

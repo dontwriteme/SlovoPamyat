@@ -269,4 +269,72 @@ final class BibleReaderController {
         }catch(IllegalArgumentException|NullPointerException invalid){passageSelection.cancel();return false;}
     }
 
+
+    /** Activity/process recreation snapshot; durable progress still belongs to LocalStore. */
+    Bundle saveState(){
+        Bundle state=new Bundle();
+        state.putInt("selectedBook",selectedBook);
+        state.putInt("selectedChapter",selectedChapter);
+        state.putInt("focusVerse",focusVerse);
+        state.putInt("readerVerseNumber",readerVerseNumber);
+        state.putBoolean("chapterFromVerseGrid",chapterFromVerseGrid);
+        state.putBoolean("selectingPassage",selectingPassage);
+        state.putInt("rangeStartChapter",rangeStartChapter);
+        state.putInt("rangeStartVerse",rangeStartVerse);
+        state.putInt("rangeEndChapter",rangeEndChapter);
+        state.putInt("rangeEndVerse",rangeEndVerse);
+        state.putString("bibleSearchQuery",bibleSearchQuery);
+        state.putInt("searchVisibleLimit",searchVisibleLimit);
+        state.putString("pickerTarget",pickerTarget.name());
+        state.putLong("pickerTargetId",pickerTargetId);
+        state.putBoolean("pickerRange",pickerRange);
+        state.putBoolean("pickerHasAnchor",pickerHasAnchor);
+        state.putBoolean("pickerChooseEnd",pickerChooseEnd);
+        state.putString("pickerBackScreen",pickerBackScreen.name());
+        state.putInt("pickerQuickBook",pickerQuickBook);
+        state.putInt("pickerQuickChapter",pickerQuickChapter);
+        state.putInt("pickerQuickScroll",pickerQuickScroll);
+        state.putInt("pickerVerseNumber",pickerVerseNumber);
+        state.putInt("readerBookBeforePicker",readerBookBeforePicker);
+        state.putInt("readerChapterBeforePicker",readerChapterBeforePicker);
+        state.putBoolean("searchActive",bibleSearchActive);
+        state.putLong("selectionCollection",passageSelection.collectionId);
+        state.putIntArray("selection",new int[]{passageSelection.book,passageSelection.chapter,passageSelection.startChapter,passageSelection.startVerse,passageSelection.endChapter,passageSelection.endVerse});
+        state.putBoolean("selectionActive",passageSelection.active);
+        return state;
+    }
+    void restoreState(Bundle state){
+        if(state==null)return;
+        selectedBook=state.getInt("selectedBook",selectedBook);
+        selectedChapter=state.getInt("selectedChapter",selectedChapter);
+        focusVerse=state.getInt("focusVerse",focusVerse);
+        readerVerseNumber=state.getInt("readerVerseNumber",readerVerseNumber);
+        chapterFromVerseGrid=state.getBoolean("chapterFromVerseGrid",chapterFromVerseGrid);
+        selectingPassage=state.getBoolean("selectingPassage",selectingPassage);
+        rangeStartChapter=state.getInt("rangeStartChapter",rangeStartChapter);
+        rangeStartVerse=state.getInt("rangeStartVerse",rangeStartVerse);
+        rangeEndChapter=state.getInt("rangeEndChapter",rangeEndChapter);
+        rangeEndVerse=state.getInt("rangeEndVerse",rangeEndVerse);
+        bibleSearchQuery=state.getString("bibleSearchQuery",bibleSearchQuery);
+        searchVisibleLimit=state.getInt("searchVisibleLimit",searchVisibleLimit);
+        try{pickerTarget=BibleTarget.valueOf(state.getString("pickerTarget",pickerTarget.name()));}catch(IllegalArgumentException ignored){}
+        pickerTargetId=state.getLong("pickerTargetId",pickerTargetId);
+        pickerRange=state.getBoolean("pickerRange",pickerRange);
+        pickerHasAnchor=state.getBoolean("pickerHasAnchor",pickerHasAnchor);
+        pickerChooseEnd=state.getBoolean("pickerChooseEnd",pickerChooseEnd);
+        try{pickerBackScreen=Screen.valueOf(state.getString("pickerBackScreen",pickerBackScreen.name()));}catch(IllegalArgumentException ignored){}
+        pickerQuickBook=state.getInt("pickerQuickBook",pickerQuickBook);
+        pickerQuickChapter=state.getInt("pickerQuickChapter",pickerQuickChapter);
+        pickerQuickScroll=state.getInt("pickerQuickScroll",pickerQuickScroll);
+        pickerVerseNumber=state.getInt("pickerVerseNumber",pickerVerseNumber);
+        readerBookBeforePicker=state.getInt("readerBookBeforePicker",readerBookBeforePicker);
+        readerChapterBeforePicker=state.getInt("readerChapterBeforePicker",readerChapterBeforePicker);
+        cancelBibleSearchWork();bibleSearchLoading=false;bibleSearchHits=Collections.emptyList();bibleSearchError="";
+        bibleSearchActive=state.getBoolean("searchActive");bibleSearchNeedsRefresh=bibleSearchActive&&!BibleSearchLogic.isBlankQuery(bibleSearchQuery);
+        passageSelection.collectionId=state.getLong("selectionCollection",-1);
+        int[] bounds=state.getIntArray("selection");if(bounds!=null&&bounds.length==6){
+            passageSelection.book=bounds[0];passageSelection.chapter=bounds[1];passageSelection.startChapter=bounds[2];
+            passageSelection.startVerse=bounds[3];passageSelection.endChapter=bounds[4];passageSelection.endVerse=bounds[5];
+        }passageSelection.active=state.getBoolean("selectionActive");
+    }
 }

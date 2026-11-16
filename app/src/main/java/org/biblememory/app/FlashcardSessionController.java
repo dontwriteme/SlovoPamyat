@@ -1,4 +1,5 @@
 package org.biblememory.app;
+import android.os.Bundle;
 import android.content.SharedPreferences;
 import org.json.*;
 import java.util.*;
@@ -113,5 +114,36 @@ final class FlashcardSessionController {
         }
         cardRevealed=false;cardShowReference=cardRandom.nextBoolean();
         saveCardSession();return true;
+    }
+
+    /** Activity/process recreation snapshot; durable progress still belongs to LocalStore. */
+    Bundle saveState(){
+        Bundle state=new Bundle();
+        state.putBoolean("cardFromUnified",cardFromUnified);
+        state.putLong("selectedDeck",selectedDeck);
+        SessionSnapshot.putLongs(state,"cardSequence",cardSequence);
+        state.putInt("cardIndex",cardIndex);
+        state.putBoolean("cardShowReference",cardShowReference);
+        state.putBoolean("cardRevealed",cardRevealed);
+        SessionSnapshot.putLongs(state,"cardStudyQueue",cardStudyQueue);
+        state.putInt("cardStudyCursor",cardStudyCursor);
+        state.putLong("cardStudyDeckId",cardStudyDeckId);
+        return state;
+    }
+    void restoreState(Bundle state){
+        if(state==null)return;
+        cardFromUnified=state.getBoolean("cardFromUnified",cardFromUnified);
+        selectedDeck=state.getLong("selectedDeck",selectedDeck);
+        SessionSnapshot.getLongs(state,"cardSequence",cardSequence);
+        cardIndex=state.getInt("cardIndex",cardIndex);
+        cardShowReference=state.getBoolean("cardShowReference",cardShowReference);
+        cardRevealed=state.getBoolean("cardRevealed",cardRevealed);
+        SessionSnapshot.getLongs(state,"cardStudyQueue",cardStudyQueue);
+        cardStudyCursor=state.getInt("cardStudyCursor",cardStudyCursor);
+        cardStudyDeckId=state.getLong("cardStudyDeckId",cardStudyDeckId);
+        List<Long> available=cardIds(eligibleSessionCards());
+        if(!cardSequence.isEmpty()&&!available.containsAll(cardSequence)){
+            cardSequence.retainAll(available);cardRevealed=false;
+        }cardIndex=Math.max(0,Math.min(cardIndex,Math.max(0,cardSequence.size()-1)));
     }
 }

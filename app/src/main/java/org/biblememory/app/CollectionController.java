@@ -1,4 +1,5 @@
 package org.biblememory.app;
+import android.os.Bundle;
 
 import android.content.SharedPreferences;
 import java.util.*;
@@ -333,4 +334,41 @@ final class CollectionController {
         }
     }
 
+
+    /** Activity/process recreation snapshot; durable progress still belongs to LocalStore. */
+    Bundle saveState(){
+        Bundle state=new Bundle();
+        state.putLong("activeUnifiedId",activeUnifiedId);
+        state.putLong("openUnifiedId",openUnifiedId);
+        state.putLong("selectedGroup",selectedGroup);
+        state.putLong("customTargetGroupId",customTargetGroupId);
+        SessionSnapshot.putLongs(state,"collectionQueue",collectionQueue);
+        state.putInt("collectionQueueCursor",collectionQueueCursor);
+        state.putLong("collectionQueueGroup",collectionQueueGroup);
+        state.putBoolean("executingCollectionQueue",executingCollectionQueue);
+        state.putBoolean("collectionQueueNewStep",collectionQueueNewStep);
+        state.putLong("insertAfterEntryId",insertAfterEntryId);
+        state.putLong("insertAfterCardId",insertAfterCardId);
+        SessionSnapshot.putLongs(state,"studyInsertionTrail",studyInsertionTrail);
+        SessionSnapshot.putLongs(state,"cardInsertionTrail",cardInsertionTrail);
+        return state;
+    }
+    void restoreState(Bundle state){
+        if(state==null)return;
+        activeUnifiedId=state.getLong("activeUnifiedId",activeUnifiedId);
+        openUnifiedId=state.getLong("openUnifiedId",openUnifiedId);
+        selectedGroup=state.getLong("selectedGroup",selectedGroup);
+        customTargetGroupId=state.getLong("customTargetGroupId",customTargetGroupId);
+        SessionSnapshot.getLongs(state,"collectionQueue",collectionQueue);
+        collectionQueueCursor=state.getInt("collectionQueueCursor",collectionQueueCursor);
+        collectionQueueGroup=state.getLong("collectionQueueGroup",collectionQueueGroup);
+        executingCollectionQueue=state.getBoolean("executingCollectionQueue",executingCollectionQueue);
+        collectionQueueNewStep=state.getBoolean("collectionQueueNewStep",collectionQueueNewStep);
+        insertAfterEntryId=state.getLong("insertAfterEntryId",insertAfterEntryId);
+        insertAfterCardId=state.getLong("insertAfterCardId",insertAfterCardId);
+        SessionSnapshot.getLongs(state,"studyInsertionTrail",studyInsertionTrail);
+        SessionSnapshot.getLongs(state,"cardInsertionTrail",cardInsertionTrail);
+        ensureActiveUnified();
+        if(collectionQueueCursor>=collectionQueue.size()){collectionQueue.clear();collectionQueueCursor=-1;executingCollectionQueue=false;}
+    }
 }
