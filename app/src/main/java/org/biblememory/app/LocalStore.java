@@ -220,6 +220,18 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     /** Backfill both legacy kinds after the bundled Bible has loaded. Idempotent by mapping keys. */
     public void syncUnifiedCollection(long collectionId,Bible bible){
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try{
+            syncUnifiedCollectionInTransaction(collectionId,bible);
+            db.setTransactionSuccessful();
+        }catch(SQLiteException failure){
+            // Never log the saved text or SQL argument values.
+            android.util.Log.w("LocalStore","Collection sync rolled back; collection="+collectionId+
+                "; error="+failure.getClass().getSimpleName());
+            throw failure;
+        }finally{db.endTransaction();}
+    }
+    private void syncUnifiedCollectionInTransaction(long collectionId,Bible bible){
         UnifiedCollection u=unifiedCollection(collectionId);
         if(u==null)return;
         // Legacy decks previously had no study entries. Preserve their original card records.
@@ -244,7 +256,8 @@ public final class LocalStore extends SQLiteOpenHelper {
                 // A pre-existing single-verse/custom card already supplies this entry.
                 // Do not manufacture a duplicate when syncing study entries below.
                 if(verses.size()==1)mapEntryCard(collectionId,entryId,0,card.id);
-            }catch(Exception ignored){ /* Do not destroy inaccessible legacy data. */ }
+            }catch(SQLiteException failure){throw failure;}
+            catch(Exception ignored){ /* Do not destroy inaccessible legacy data. */ }
         }
         // Study passages automatically supply one flashcard per canonical verse.
         for(Entry entry:entries(u.groupId)){

@@ -199,14 +199,26 @@ public class StorageSafetyCheck extends Instrumentation {
     private void syncAtomicity(SafetySandbox context){
         LocalStore s=context.store();LocalStore.UnifiedCollection u=s.unifiedCollection(s.createUnifiedCollection("Fault"));entry(s,u.groupId);mappingFailure(s);
         boolean threw=false;try{s.syncUnifiedCollection(u.id,null);}catch(SQLiteException expected){threw=true;}
-        riskRequire(threw&&s.flashcards(u.deckId).isEmpty(),"sync threw="+threw+"; committed card memberships="+s.flashcards(u.deckId).size()+", entry mappings="+number(s.getReadableDatabase(),"SELECT COUNT(*) FROM unified_entry_cards"));
+        require(threw&&s.flashcards(u.deckId).isEmpty(),"sync threw="+threw+"; committed card memberships="+s.flashcards(u.deckId).size()+", entry mappings="+number(s.getReadableDatabase(),"SELECT COUNT(*) FROM unified_entry_cards"));
     }
     private void syncRetry(SafetySandbox context){
         LocalStore s=context.store();LocalStore.UnifiedCollection u=s.unifiedCollection(s.createUnifiedCollection("Retry"));entry(s,u.groupId);mappingFailure(s);
         try{s.syncUnifiedCollection(u.id,null);throw new AssertionError("Injected mapping failure did not occur");}
         catch(SQLiteException expected){require(expected.getMessage().contains("injected-mapping-failure"),"Wrong injected failure");}
         s.getWritableDatabase().execSQL("DROP TRIGGER fail_mapping");s.syncUnifiedCollection(u.id,null);
-        riskRequire(s.flashcards(u.deckId).size()==2,"Retry after rejected mappings duplicated custom cards: "+s.flashcards(u.deckId).size());
+        require(s.flashcards(u.deckId).size()==2,"Retry after rejected mappings duplicated custom cards: "+s.flashcards(u.deckId).size());
+    }
+    private void legacySyncRollback(SafetySandbox context){
+        LocalStore s=context.store();LocalStore.UnifiedCollection u=s.unifiedCollection(s.createUnifiedCollection("Legacy fault"));
+        long card=s.addCustomFlashcard(u.deckId,"Legacy","Сохранённый текст");
+        s.getWritableDatabase().execSQL("CREATE TRIGGER fail_legacy BEFORE INSERT ON unified_card_entries BEGIN SELECT RAISE(ABORT,'injected-legacy-failure'); END");
+        try{s.syncUnifiedCollection(u.id,null);throw new AssertionError("Legacy database error was swallowed");}
+        catch(SQLiteException expected){require(expected.getMessage().contains("injected-legacy-failure"),"Wrong legacy failure");}
+        require(s.entries(u.groupId).isEmpty(),"Legacy sync left a partial study entry");
+        require(s.flashcards(u.deckId).size()==1&&s.flashcards(u.deckId).get(0).id==card,"Legacy card was lost");
+        require(number(s.getReadableDatabase(),"SELECT COUNT(*) FROM unified_card_entries")==0,"Legacy mapping partially committed");
+        s.getWritableDatabase().execSQL("DROP TRIGGER fail_legacy");s.syncUnifiedCollection(u.id,null);
+        require(s.entries(u.groupId).size()==1&&s.flashcards(u.deckId).size()==1,"Legacy retry duplicated material");
     }
     private void rejectedSchedule(SafetySandbox context){
         LocalStore s=context.store();long id=entry(s,s.newGroup("Fault"));
@@ -240,8 +252,9 @@ public class StorageSafetyCheck extends Instrumentation {
             // Desired safety properties: expected failures are REPORTED, not counted as passed guards.
             run("populated-default-title-preserves-history",false,this::defaultTitleLoss);
             run("empty-default-title-is-removed",false,this::emptyDefaultRemoved);
-            run("P1-sync-rejected-mapping",true,this::syncAtomicity);
-            run("P1-sync-retry-duplicates",true,this::syncRetry);
+            run("sync-rejected-mapping-rolls-back",false,this::syncAtomicity);
+            run("sync-retry-does-not-duplicate",false,this::syncRetry);
+            run("legacy-sync-rejected-mapping-rolls-back",false,this::legacySyncRollback);
             require(installed.equals(installedDatabaseHash()),"Installed app database changed during isolated tests");
             report("INSTALLED_DATABASE_UNCHANGED");
             result.putString("stream","GUARDS_PASSED="+passed+" EXPECTED_FAILURES="+expectedFailures+" UNEXPECTED_FAILURES="+failed+"\n");
