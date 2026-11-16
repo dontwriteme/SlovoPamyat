@@ -71,7 +71,7 @@ public final class StudyRepository {
         try(Cursor c=db.rawQuery("SELECT id FROM groups_ WHERE title=? LIMIT 1",new String[]{LocalStore.CARD_STUDY_GROUP})){
             if(c.moveToFirst())group=c.getLong(0);
         }
-        if(group<0)group=scope.legacy.newGroup(LocalStore.CARD_STUDY_GROUP);
+        if(group<0)group=scope.collections.newGroup(LocalStore.CARD_STUDY_GROUP);
         return add(group,card.reference,card.reference,verses);
     }
 
@@ -104,7 +104,7 @@ public final class StudyRepository {
         for(Entry old:allEntries()){
             if(!old.reference.equals(reference))continue;
             if(old.groupId==groupId)return old.id;
-            Group existing=scope.legacy.group(old.groupId);
+            Group existing=scope.collections.group(old.groupId);
             if(existing!=null && !LocalStore.CARD_STUDY_GROUP.equals(existing.title))continue;
             // Reattach a previously archived entry with its original progress.
             List<Bible.Verse> saved=old.lines();

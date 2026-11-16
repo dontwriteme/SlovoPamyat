@@ -8,11 +8,13 @@ final class RepositoryScope {
     final StudyRepository study;
     final ProgressRepository progress;
     final FlashcardRepository flashcards;
+    final CollectionRepository collections;
     RepositoryScope(LocalStore helper){
         legacy=helper;
         study=new StudyRepository(this);
         progress=new ProgressRepository(this);
         flashcards=new FlashcardRepository(this);
+        collections=new CollectionRepository(this);
     }
     SQLiteDatabase read(){return legacy.getReadableDatabase();}
     SQLiteDatabase write(){return legacy.getWritableDatabase();}
