@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Owns the current shuffled card cycle and its persistent checkpoint, without Views. */
 final class FlashcardSessionController {
-    interface Source { LocalStore store(); SharedPreferences preferences(); }
+    interface Source { StudyRepository study(); FlashcardRepository flashcards(); SharedPreferences preferences(); }
     private final Source source;
     FlashcardSessionController(Source source){this.source=source;}
     boolean cardFromUnified = false;
@@ -28,7 +28,7 @@ final class FlashcardSessionController {
         StudyStart(long firstEntry,String message,boolean failed){this.firstEntry=firstEntry;this.message=message;this.failed=failed;}
     }
     StudyStart studyCardDeck(Bible bible){
-        List<LocalStore.Flashcard> cards=source.store().flashcards(selectedDeck);
+        List<LocalStore.Flashcard> cards=source.flashcards().flashcards(selectedDeck);
         if(cards.isEmpty())return new StudyStart(0,"Подборка пуста",false);
         if(!bible.isReady())for(LocalStore.Flashcard card:cards)
             if(card.bookId>0)return new StudyStart(0,"Библия ещё загружается",false);
@@ -38,7 +38,7 @@ final class FlashcardSessionController {
                 List<Bible.Verse> verses=card.bookId==0?
                     Collections.singletonList(new Bible.Verse("1:1",card.content)):
                     bible.passage(card.bookId,card.firstChapter,card.firstVerse,card.lastChapter,card.lastVerse);
-                long id=source.store().findOrCreateCardStudyEntry(card,verses);
+                long id=source.study().findOrCreateCardStudyEntry(card,verses);
                 if(!cardStudyQueue.contains(id))cardStudyQueue.add(id);
             }catch(Exception failure){
                 cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
@@ -64,7 +64,7 @@ final class FlashcardSessionController {
     }
 
     List<LocalStore.Flashcard> eligibleSessionCards(){
-        List<LocalStore.Flashcard> items=source.store().flashcards(selectedDeck);
+        List<LocalStore.Flashcard> items=source.flashcards().flashcards(selectedDeck);
         if(!cardFromUnified)return items;
         List<LocalStore.Flashcard> singles=new ArrayList<>();
         for(LocalStore.Flashcard card:items)if(card.bookId==0 ||

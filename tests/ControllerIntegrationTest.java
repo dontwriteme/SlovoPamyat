@@ -27,14 +27,16 @@ public class ControllerIntegrationTest {
     @Before public void setup(){
         store=new LocalStore(RuntimeEnvironment.getApplication());
         preferences=RuntimeEnvironment.getApplication().getSharedPreferences("card_sessions",0);
-        source=new FlashcardSessionController.Source(){public LocalStore store(){return store;}public SharedPreferences preferences(){return preferences;}};
+        source=new FlashcardSessionController.Source(){public StudyRepository study(){return store.study();}public FlashcardRepository flashcards(){return store.flashcards();}public SharedPreferences preferences(){return preferences;}};
         deck=store.newCardDeck("Controller fixture");ids=new ArrayList<>();
         for(int i=0;i<3;i++)ids.add(store.addCustomFlashcard(deck,"Card "+i,"Saved text "+i));
     }
     @After public void close(){for(BibleReaderController reader:readers)reader.close();store.close();}
     private FlashcardSessionController controller(){FlashcardSessionController result=new FlashcardSessionController(source);result.selectedDeck=deck;return result;}
     private StudySessionController study(){return new StudySessionController(new StudySessionController.Ports(){
-        public LocalStore store(){return store;}
+        public StudyRepository study(){return store.study();}
+        public ProgressRepository progress(){return store.progress();}
+        public CollectionRepository collections(){return store.collections();}
         public SharedPreferences studyPreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("study_session",0);}
         public SharedPreferences runPreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("unified_library_ui",0);}
         public SharedPreferences gapPreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("gap_rotation",0);}
@@ -184,7 +186,10 @@ public class ControllerIntegrationTest {
     }
     private long collectionPicker=-1,openedEntry=-1,clearedRun=-1;
     private CollectionController collections(){return new CollectionController(new CollectionController.Ports(){
-        public LocalStore store(){return store;}
+        public StudyRepository study(){return store.study();}
+        public ProgressRepository progress(){return store.progress();}
+        public FlashcardRepository flashcards(){return store.flashcards();}
+        public CollectionRepository collections(){return store.collections();}
         public SharedPreferences activePreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("unified_library_ui",0);}
         public SharedPreferences queuePreferences(){return RuntimeEnvironment.getApplication().getSharedPreferences("collection_queue",0);}
         public Bible bible(){return new Bible();}

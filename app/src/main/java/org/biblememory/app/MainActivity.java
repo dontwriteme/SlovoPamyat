@@ -54,7 +54,10 @@ public final class MainActivity extends Activity {
 
     private LocalStore store;
     private final CollectionController collectionActions=new CollectionController(new CollectionController.Ports(){
-        public LocalStore store(){return store;}
+        public StudyRepository study(){return store.study();}
+        public ProgressRepository progress(){return store.progress();}
+        public FlashcardRepository flashcards(){return store.flashcards();}
+        public CollectionRepository collections(){return store.collections();}
         public android.content.SharedPreferences activePreferences(){return getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);}
         public android.content.SharedPreferences queuePreferences(){return getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);}
         public Bible bible(){return bibleReader.bible;}
@@ -94,7 +97,9 @@ public final class MainActivity extends Activity {
     });
 
     private final StudySessionController studySession=new StudySessionController(new StudySessionController.Ports(){
-        public LocalStore store(){return store;}
+        public StudyRepository study(){return store.study();}
+        public ProgressRepository progress(){return store.progress();}
+        public CollectionRepository collections(){return store.collections();}
         public android.content.SharedPreferences studyPreferences(){return getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);}
         public android.content.SharedPreferences runPreferences(){return getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);}
         public android.content.SharedPreferences gapPreferences(){return getSharedPreferences("gap_rotation",MODE_PRIVATE);}
@@ -116,7 +121,8 @@ public final class MainActivity extends Activity {
         public void toast(String message){MainActivity.this.toast(message);}
     });
     private final FlashcardSessionController flashcardSession=new FlashcardSessionController(new FlashcardSessionController.Source(){
-        public LocalStore store(){return store;}
+        public StudyRepository study(){return store.study();}
+        public FlashcardRepository flashcards(){return store.flashcards();}
         public android.content.SharedPreferences preferences(){return getSharedPreferences("card_sessions",MODE_PRIVATE);}
     });
 
@@ -532,12 +538,12 @@ public final class MainActivity extends Activity {
             case CHAPTER:screen=bibleReader.chapterFromVerseGrid?Screen.VERSES:Screen.CHAPTERS;render();break;
             case ENTRIES:screen=Screen.HOME;render();break;
             case REORDER_STUDY:
-                {LocalStore.UnifiedCollection u=store.unifiedForGroup(collectionActions.selectedGroup);
+                {LocalStore.UnifiedCollection u=store.collections().unifiedForGroup(collectionActions.selectedGroup);
                 screen=u==null?Screen.ENTRIES:Screen.COLLECTION_DETAIL;
                 if(u!=null)collectionActions.openUnifiedId=u.id;render();break;}
             case REORDER_CARDS:screen=Screen.CARD_DECK;render();break;
             case CUSTOM:{
-                LocalStore.UnifiedCollection u=store.unifiedForGroup(collectionActions.customTargetGroupId);
+                LocalStore.UnifiedCollection u=store.collections().unifiedForGroup(collectionActions.customTargetGroupId);
                 collectionActions.customTargetGroupId=-1;screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
                 if(u!=null)collectionActions.openUnifiedId=u.id;render();break;}
             case TRAIN:
@@ -1663,7 +1669,7 @@ public final class MainActivity extends Activity {
             case BIBLE_PICKER:case PICKER_BOOKS:case PICKER_CHAPTERS:
             case PICKER_VERSES:case PICKER_TEXT:
                 return bibleReader.pickerTarget==BibleReaderController.BibleTarget.STUDY_GROUP &&
-                    store.unifiedForGroup(bibleReader.pickerTargetId)==null?0:2;
+                    store.collections().unifiedForGroup(bibleReader.pickerTargetId)==null?0:2;
             default:return 0;
         }
     }
@@ -2000,7 +2006,7 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseCardDeck(Pick action){
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
+        List<LocalStore.UnifiedCollection> collections=store.collections().unifiedCollections();
         String[] options=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)options[i]=collections.get(i).title;
         options[collections.size()]="＋ Новая коллекция";
@@ -2043,7 +2049,7 @@ public final class MainActivity extends Activity {
     private void renderCardDecks(){
         tabWordmark();
         action(content,"＋  Создать подборку",true,()->newCardDeck(null));
-        for(LocalStore.CardDeck deck:store.cardDecks()){
+        for(LocalStore.CardDeck deck:store.flashcards().cardDecks()){
             LinearLayout panel=card(content);panel.setPadding(dp(11),dp(11),dp(9),dp(11));
             panel.setBackground(homeSurface());
             LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
@@ -2219,14 +2225,14 @@ public final class MainActivity extends Activity {
             .setTitle("Переименовать").setView(wrap)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(name).isEmpty()){toast("Укажи название");return;}
-                store.renameCardDeck(deck.id,value(name));render();
+                store.flashcards().renameCardDeck(deck.id,value(name));render();
             }).setNegativeButton("Отмена",null).create());
     }
     private void confirmDeleteCardDeck(LocalStore.CardDeck deck){
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить подборку?")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteCardDeck(deck.id);flashcardSession.clearSavedCardSession(deck.id);
+                store.flashcards().deleteCardDeck(deck.id);flashcardSession.clearSavedCardSession(deck.id);
                 screen=Screen.CARDS;render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -2241,15 +2247,15 @@ public final class MainActivity extends Activity {
                 if(value(reference).isEmpty()||value(verse).isEmpty()){
                     toast("Укажи название и текст");return;
                 }
-                store.addCustomFlashcard(deckId,value(reference),value(verse));
+                store.flashcards().addCustomFlashcard(deckId,value(reference),value(verse));
                 if(screen==Screen.CARD_DECK||screen==Screen.CARDS)render();
             }).setNegativeButton("Отмена",null).create());
     }
     private void renderCardDeck(){
-        LocalStore.CardDeck deck=store.cardDeck(flashcardSession.selectedDeck);
+        LocalStore.CardDeck deck=store.flashcards().cardDeck(flashcardSession.selectedDeck);
         if(deck==null){screen=Screen.CARDS;render();return;}
         title(deck.title,null);
-        List<LocalStore.Flashcard> cards=store.flashcards(flashcardSession.selectedDeck);
+        List<LocalStore.Flashcard> cards=store.flashcards().flashcards(flashcardSession.selectedDeck);
         if(cards.isEmpty())helper(content,"Здесь пока нет карточек.");
         for(LocalStore.Flashcard card:cards){
             LinearLayout c=card(content);c.setBackground(homeSurface());
@@ -2426,7 +2432,7 @@ public final class MainActivity extends Activity {
                 "Начать изучение коллекции " + group.title
         );
 
-        boolean hasEntries = !store.entries(group.id).isEmpty();
+        boolean hasEntries = !store.study().entries(group.id).isEmpty();
 
         start.setEnabled(hasEntries);
         start.setAlpha(hasEntries ? 1f : 0.42f);
@@ -2603,7 +2609,7 @@ public final class MainActivity extends Activity {
         final int targetVerse=bibleReader.focusVerse;bibleReader.focusVerse=-1;
         final Set<String> present=new HashSet<>(),included=new HashSet<>();
         if(bibleReader.pickerTarget==BibleReaderController.BibleTarget.STUDY_GROUP){
-            for(LocalStore.Entry entry:store.entries(bibleReader.pickerTargetId)){
+            for(LocalStore.Entry entry:store.study().entries(bibleReader.pickerTargetId)){
                 present.add(entry.reference);
                 if(entry.lines().size()>1&&entry.reference.startsWith(Bible.NAMES[bibleReader.selectedBook-1]+" "))
                     for(Bible.Verse part:entry.lines())included.add(part.ref);
@@ -2697,7 +2703,7 @@ public final class MainActivity extends Activity {
         try{
             List<Bible.Verse> lines=bibleReader.bible.passage(book,sc,sv,ec,ev);
             String text=PassageText.join(lines);
-            boolean added=store.addFlashcard(deckId,book,sc,sv,ec,ev,Bible.reference(book,sc,sv,ec,ev),text);
+            boolean added=store.flashcards().addFlashcard(deckId,book,sc,sv,ec,ev,Bible.reference(book,sc,sv,ec,ev),text);
             toast(added?"Карточка добавлена":"Карточка уже есть в подборке");
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
         }catch(Exception ex){toast(ex.getMessage()==null?"Не удалось добавить карточку":ex.getMessage());}
@@ -2798,14 +2804,14 @@ public final class MainActivity extends Activity {
         }
     }
     private void renderCardSession(){
-        List<LocalStore.Flashcard> items=store.flashcards(flashcardSession.selectedDeck);
+        List<LocalStore.Flashcard> items=store.flashcards().flashcards(flashcardSession.selectedDeck);
         LocalStore.Flashcard current=null;
         if(!flashcardSession.cardSequence.isEmpty())for(LocalStore.Flashcard f:items)
             if(f.id==flashcardSession.cardSequence.get(Math.min(flashcardSession.cardIndex,flashcardSession.cardSequence.size()-1))){current=f;break;}
         if(current==null){screen=flashcardSession.cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
         root=column();root.setBackground(pageBackground());
         LinearLayout header=column();header.setPadding(dp(16),dp(16),dp(16),dp(7));
-        LocalStore.CardDeck deck=store.cardDeck(flashcardSession.selectedDeck);
+        LocalStore.CardDeck deck=store.flashcards().cardDeck(flashcardSession.selectedDeck);
         TextView deckHeading=displayText(deck==null?"Карточки":deck.title,22);
         deckHeading.setGravity(Gravity.CENTER);
         header.addView(deckHeading,new LinearLayout.LayoutParams(-1,dp(45)));
@@ -2963,7 +2969,7 @@ public final class MainActivity extends Activity {
         FrameLayout clip=new FrameLayout(this);clip.setClipChildren(true);
         LinearLayout collectionList=column();collectionList.setPadding(0,0,0,dp(4));
         // One readable compact list, part of the main page's single scroll surface.
-        for(LocalStore.Group group:store.groups()){
+        for(LocalStore.Group group:store.collections().groups()){
             LinearLayout tile=row();tile.setPadding(dp(9),dp(8),dp(8),dp(8));
             tile.setGravity(Gravity.CENTER_VERTICAL);
             tile.setMinimumHeight(dp(72));
@@ -3162,7 +3168,7 @@ public final class MainActivity extends Activity {
         if(verses.isEmpty()){helper(content,"Нет текста главы.");return;}
         bibleReader.rememberChapter(bibleReader.selectedBook,bibleReader.selectedChapter);
         action(content,"Глава "+bibleReader.selectedChapter+"  ▾",false,this::showChapterJump);
-        Map<Integer,LocalStore.VerseStatus> statuses=store.statusesForChapter(
+        Map<Integer,LocalStore.VerseStatus> statuses=store.progress().statusesForChapter(
             Bible.NAMES[bibleReader.selectedBook-1],bibleReader.selectedChapter);
         for(Bible.Verse verse:verses){
             final int verseNumber;
@@ -3434,10 +3440,10 @@ public final class MainActivity extends Activity {
         catch(IllegalArgumentException ex){toast(ex.getMessage());return;}
         String ref=Bible.reference(bibleReader.selectedBook,bibleReader.rangeStartChapter,bibleReader.rangeStartVerse,ec,ev);
         LocalStore.Entry existing=null;
-        for(LocalStore.Entry e:store.allEntries())if(ref.equals(e.reference)){
+        for(LocalStore.Entry e:store.study().allEntries())if(ref.equals(e.reference)){
             existing=e;break;
         }
-        int mastered=existing==null?0:store.masteryCount(existing.id);
+        int mastered=existing==null?0:store.progress().masteryCount(existing.id);
         String description=ref+"\n"+verses.size()+" стихов · освоено "+mastered;
         AlertDialog.Builder dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Твой отрывок")
             .setMessage(description)
@@ -3448,15 +3454,15 @@ public final class MainActivity extends Activity {
                 bibleReader.selectingPassage=false;studySession.openTraining(entryId);
             });
             dialog.setNeutralButton("Добавить в другую подборку",(d,w)->{
-                chooseGroup(groupId->{store.add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
+                chooseGroup(groupId->{store.study().add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
             });
         }else{
             dialog.setPositiveButton("Начать изучение",(d,w)->{
-                chooseGroup(groupId->{long id=store.add(groupId,ref,ref,verses);
+                chooseGroup(groupId->{long id=store.study().add(groupId,ref,ref,verses);
                     bibleReader.selectingPassage=false;studySession.openTraining(id);});
             });
             dialog.setNeutralButton("Добавить в подборку",(d,w)->{
-                chooseGroup(groupId->{store.add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
+                chooseGroup(groupId->{store.study().add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
             });
         }
         dialog.show();
@@ -3475,7 +3481,7 @@ public final class MainActivity extends Activity {
     }
     private interface Pick {void apply(long groupId);}
     private void chooseGroup(Pick action) {
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
+        List<LocalStore.UnifiedCollection> collections=store.collections().unifiedCollections();
         String[] names=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)names[i]=collections.get(i).title;
         names[collections.size()]="＋ Новая коллекция";
@@ -3509,13 +3515,13 @@ public final class MainActivity extends Activity {
             .setTitle("Удалить коллекцию и все стихи?")
             .setMessage("Это действие нельзя отменить.")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteGroup(group.id);screen=Screen.HOME;render();
+                store.collections().deleteGroup(group.id);screen=Screen.HOME;render();
             }).setNegativeButton("Отмена",null).create());
     }
 
     private void renderEntries() {
 
-        LocalStore.Group group = store.group(collectionActions.selectedGroup);
+        LocalStore.Group group = store.collections().group(collectionActions.selectedGroup);
 
         if (group == null) {
             screen = Screen.HOME;
@@ -3535,7 +3541,7 @@ public final class MainActivity extends Activity {
         // Все стихи коллекции прокручиваются независимо
         // от нижних кнопок.
         for (LocalStore.Entry entry :
-                store.entries(group.id)) {
+                store.study().entries(group.id)) {
 
             entryCard(entry);
         }
@@ -3550,25 +3556,25 @@ public final class MainActivity extends Activity {
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать коллекцию").setView(box)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(name).isEmpty()){toast("Укажи название");return;}
-                store.renameGroup(group.id,value(name));render();
+                store.collections().renameGroup(group.id,value(name));render();
             }).setNegativeButton("Отмена",null).create());
     }
 
     /** Dedicated drag-to-reorder mode; dragging never starts in normal study lists. */
     private void renderStudyReorder(){
         title("Изменить порядок", "Удерживай строку и перетащи её на новое место");
-        List<LocalStore.Entry> list=store.entries(collectionActions.selectedGroup);
+        List<LocalStore.Entry> list=store.study().entries(collectionActions.selectedGroup);
         List<Long> ids=new ArrayList<>();for(LocalStore.Entry e:list)ids.add(e.id);
         for(LocalStore.Entry e:list)renderReorderRow(e.id,e.reference,ids,false);
         action(content,"Готово",true,()->{
-            LocalStore.UnifiedCollection u=store.unifiedForGroup(collectionActions.selectedGroup);
+            LocalStore.UnifiedCollection u=store.collections().unifiedForGroup(collectionActions.selectedGroup);
             screen=u==null?Screen.ENTRIES:Screen.COLLECTION_DETAIL;
             if(u!=null)collectionActions.openUnifiedId=u.id;render();
         });
     }
     private void renderCardReorder(){
         title("Изменить порядок", "Удерживай строку и перетащи её на новое место");
-        List<LocalStore.Flashcard> list=store.flashcards(flashcardSession.selectedDeck);
+        List<LocalStore.Flashcard> list=store.flashcards().flashcards(flashcardSession.selectedDeck);
         List<Long> ids=new ArrayList<>();for(LocalStore.Flashcard f:list)ids.add(f.id);
         for(LocalStore.Flashcard f:list)renderReorderRow(f.id,f.reference,ids,true);
         action(content,"Готово",true,()->{screen=Screen.CARD_DECK;render();});
@@ -3660,7 +3666,7 @@ public final class MainActivity extends Activity {
                 editBibleRange("Изменить отрывок",book,first[0],first[1],last[0],last[1],
                     (a,b,c,d)->{
                         List<Bible.Verse> lines=bibleReader.bible.passage(book,a,b,c,d);
-                        store.reviseStudyPassage(e.id,Bible.reference(book,a,b,c,d),lines);
+                        store.study().reviseStudyPassage(e.id,Bible.reference(book,a,b,c,d),lines);
                         render();
                     });
                 return;
@@ -3684,7 +3690,7 @@ public final class MainActivity extends Activity {
                 for(int i=0;i<fragments.length;i++)if(!fragments[i].trim().isEmpty()){
                     lines.add(new Bible.Verse("свой:"+(i+1),fragments[i].trim()));
                 }
-                store.reviseStudyPassage(e.id,value(source),lines);
+                store.study().reviseStudyPassage(e.id,value(source),lines);
                 render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -3693,7 +3699,7 @@ public final class MainActivity extends Activity {
             editBibleRange("Изменить карточку",card.bookId,card.firstChapter,card.firstVerse,
                 card.lastChapter,card.lastVerse,(a,b,c,d)->{
                     String ref=Bible.reference(card.bookId,a,b,c,d);
-                    store.changeCardInDeck(flashcardSession.selectedDeck,card,card.bookId,a,b,c,d,
+                    store.flashcards().changeCardInDeck(flashcardSession.selectedDeck,card,card.bookId,a,b,c,d,
                         ref,PassageText.join(bibleReader.bible.passage(card.bookId,a,b,c,d)));
                     render();
                 });
@@ -3707,7 +3713,7 @@ public final class MainActivity extends Activity {
             .setTitle("Изменить карточку").setView(fields)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(source).isEmpty()||value(words).isEmpty()){toast("Заполни поля");return;}
-                store.changeCardInDeck(flashcardSession.selectedDeck,card,0,0,0,0,0,value(source),value(words));
+                store.flashcards().changeCardInDeck(flashcardSession.selectedDeck,card,0,0,0,0,0,value(source),value(words));
                 render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -3726,7 +3732,7 @@ public final class MainActivity extends Activity {
                     styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать отрывок из коллекции?")
                         .setPositiveButton("Убрать",(d,w)->{
-                            store.removeUnifiedPassage(entry.groupId,entry.reference);render();
+                            store.collections().removeUnifiedPassage(entry.groupId,entry.reference);render();
                         }).setNegativeButton("Отмена",null).create());break;
             }
         });
@@ -3745,7 +3751,7 @@ public final class MainActivity extends Activity {
                     styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать карточку из подборки?")
                         .setPositiveButton("Убрать",(d,w)->{
-                            store.removeFlashcard(flashcardSession.selectedDeck,card.id);render();
+                            store.flashcards().removeFlashcard(flashcardSession.selectedDeck,card.id);render();
                         }).setNegativeButton("Отмена",null).create());break;
             }
         });
@@ -3760,21 +3766,21 @@ public final class MainActivity extends Activity {
                     new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать отрывок").setView(box)
                         .setPositiveButton("Сохранить",(dd,w)->{
                             if(value(name).isEmpty()){toast("Укажи название");return;}
-                            store.renameEntry(entry.id,value(name));render();
+                            store.study().renameEntry(entry.id,value(name));render();
                         }).setNegativeButton("Отмена",null).show();
                 } else new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                     .setTitle("Удалить отрывок?")
                     .setMessage("Будут удалены и его результаты обучения.")
-                    .setPositiveButton("Удалить",(dd,w)->{store.deleteEntry(entry.id);render();})
+                    .setPositiveButton("Удалить",(dd,w)->{store.study().deleteEntry(entry.id);render();})
                     .setNegativeButton("Отмена",null).show();
             }).show();
     }
     private void entryCard(LocalStore.Entry e) {
-        long source=store.canonicalStudyEntryId(e.id);
-        int total=e.lines().size(),learned=store.masteryCount(source);
-        int established=store.consolidatedVerseCount(source);
+        long source=store.study().canonicalStudyEntryId(e.id);
+        int total=e.lines().size(),learned=store.progress().masteryCount(source);
+        int established=store.progress().consolidatedVerseCount(source);
         String progress=established+" выучено · "+Math.max(0,learned-established)+" освоено";
-        String detail=e.reference+" · "+progress+" · Связок: "+store.masteredLinkedSegments(source);
+        String detail=e.reference+" · "+progress+" · Связок: "+store.progress().masteredLinkedSegments(source);
         LinearLayout c=card(content);c.setBackground(homeSurface());
         LinearLayout row=row();
         LinearLayout body=column();
@@ -3807,12 +3813,12 @@ public final class MainActivity extends Activity {
             if(items.size()>500){toast("Максимум 500 строк");return;}
             if(collectionActions.customTargetGroupId>0){
                 long groupId=collectionActions.customTargetGroupId;
-                if(store.group(groupId)==null){toast("Коллекция не найдена");return;}
+                if(store.collections().group(groupId)==null){toast("Коллекция не найдена");return;}
                 collectionActions.customTargetGroupId=-1;
-                long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);
+                long id=store.study().add(groupId,t,r.isEmpty()?"Свой текст":r,items);
                 studySession.openTraining(id);
             }else{
-                chooseGroup(groupId->{long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);studySession.openTraining(id);});
+                chooseGroup(groupId->{long id=store.study().add(groupId,t,r.isEmpty()?"Свой текст":r,items);studySession.openTraining(id);});
             }
         });
 
@@ -3828,7 +3834,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showAnyVerse(LocalStore.Entry e) {
-        int max=store.unlockedPosition(e.id,e.lines().size());
+        int max=store.progress().unlockedPosition(e.id,e.lines().size());
         final EditText positionInput=numeric("Номер стиха в подборке",String.valueOf(studySession.stepCursor+1));
         LinearLayout wrapper=column();wrapper.setPadding(dp(20),dp(5),dp(20),dp(5));
         wrapper.addView(positionInput);
@@ -3851,7 +3857,7 @@ public final class MainActivity extends Activity {
         }
         if(chosen==StudySessionController.TrainingMode.ORDER && studySession.trainingMode!=StudySessionController.TrainingMode.ORDER)studySession.resetWordTiles();
         if((studySession.reviewMode || studySession.groupMode || (studySession.studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)>=4)) && chosen!=StudySessionController.TrainingMode.TYPE)
+            store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor)>=4)) && chosen!=StudySessionController.TrainingMode.TYPE)
             studySession.testAssisted=true;
         StudySessionController.TrainingMode previous=studySession.trainingMode;
         studySession.trainingMode=chosen;
@@ -3994,7 +4000,7 @@ public final class MainActivity extends Activity {
             LinearLayout typing=column();typing.setPadding(dp(13),dp(16),dp(13),dp(16));
             typing.setBackground(outlined(CARD_ALT,17,VIOLET));
             add(typing,txt(studySession.reviewMode?"↻  Контрольное повторение":
-                (!studySession.groupMode && studySession.studyStage==StudyPlanLogic.Stage.VERSE && store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)>=4)?
+                (!studySession.groupMode && studySession.studyStage==StudyPlanLogic.Stage.VERSE && store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor)>=4)?
                 "✦  Контрольная проверка":"✎  Напиши по памяти",19,WHITE,true),0);
             helper(typing,"Введи текст без номера стиха. Контрольная выполняется без подсказок.");
             EditText answer=input("Твой ответ…",true);forbidKeyboardHints(answer,true);
@@ -4017,7 +4023,7 @@ public final class MainActivity extends Activity {
         if(studySession.trainingMode!=StudySessionController.TrainingMode.READ)
             action(activeWorkArea,"Показать исходный текст",false,()->chooseTrainingMode(StudySessionController.TrainingMode.READ,studySession.activeMastered));
         if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE){
-            final int completed=store.exerciseDone(studySession.selectedEntry,studySession.stepCursor);
+            final int completed=store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor);
             if(completed==0 && studySession.trainingMode==StudySessionController.TrainingMode.READ)
                 action(activeWorkArea,"✓  Прочитал · перейти к пропускам",true,()->completeIntro(1));
             if(completed==1 && studySession.trainingMode==StudySessionController.TrainingMode.HIDE && studySession.mask==100)
@@ -4028,9 +4034,9 @@ public final class MainActivity extends Activity {
     }
     private void completeIntro(int completed){
         if(studySession.reviewMode||studySession.groupMode||studySession.studyStage!=StudyPlanLogic.Stage.VERSE)return;
-        if(store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)==completed-1 &&
+        if(store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor)==completed-1 &&
             (completed!=2 || (studySession.trainingMode==StudySessionController.TrainingMode.HIDE && studySession.mask==100))){
-            store.finishExercise(studySession.selectedEntry,studySession.stepCursor,completed);
+            store.progress().finishExercise(studySession.selectedEntry,studySession.stepCursor,completed);
             studySession.trainingMode=completed==1?StudySessionController.TrainingMode.HIDE:StudySessionController.TrainingMode.ORDER;
             studySession.mask=completed==1?25:0;studySession.resetWordTiles();studySession.saveTrainingSession();render();
         }
@@ -4041,7 +4047,7 @@ public final class MainActivity extends Activity {
         TextView next=button("Вперёд  →",false,()->studySession.moveStep(e,1));
         prev.setEnabled(studySession.stepCursor>0);prev.setAlpha(studySession.stepCursor>0?1f:0.45f);
         boolean nextAllowed=studySession.stepCursor+1<stepCount && (studySession.groupMode||studySession.reviewMode||studySession.studyStage!=StudyPlanLogic.Stage.VERSE||
-            LessonFlowLogic.canOpen(studySession.stepCursor+1,store.unlockedPosition(e.id,e.lines().size()),e.lines().size()));
+            LessonFlowLogic.canOpen(studySession.stepCursor+1,store.progress().unlockedPosition(e.id,e.lines().size()),e.lines().size()));
         next.setEnabled(nextAllowed);next.setAlpha(nextAllowed?1f:0.45f);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(51),1);lp.rightMargin=dp(7);
         controls.addView(prev,lp);controls.addView(next,new LinearLayout.LayoutParams(0,dp(51),1));
@@ -4126,8 +4132,8 @@ public final class MainActivity extends Activity {
                 });
             else {
                 if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE &&
-                    store.exerciseDone(studySession.selectedEntry,studySession.stepCursor)==2 && !studySession.orderCompleted){
-                    studySession.orderCompleted=true;store.finishExercise(studySession.selectedEntry,studySession.stepCursor,3);
+                    store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor)==2 && !studySession.orderCompleted){
+                    studySession.orderCompleted=true;store.progress().finishExercise(studySession.selectedEntry,studySession.stepCursor,3);
                 }
                 helper(card,"Ты расставил слова с подсказками. Теперь проверь, сможешь ли воспроизвести их без готовых вариантов.");
                 action(card,"✎  Написать по памяти",true,()->chooseTrainingMode(StudySessionController.TrainingMode.TYPE,false));
@@ -4137,7 +4143,7 @@ public final class MainActivity extends Activity {
         action(card,"↺  Собрать сначала",false,()->{studySession.resetWordTiles();updateActiveTrainingUI();});
     }
     private void renderTraining() {
-        LocalStore.Entry e=store.entry(studySession.selectedEntry);
+        LocalStore.Entry e=store.study().entry(studySession.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
         studySession.activeEntry=e;
         List<Bible.Verse> all=e.lines();
@@ -4145,8 +4151,8 @@ public final class MainActivity extends Activity {
         if(steps.isEmpty()){helper(content,"Нет текста для тренировки.");return;}
         studySession.stepCursor=Math.max(0,Math.min(studySession.stepCursor,steps.size()-1));
         StudyPlanLogic.Step step=steps.get(studySession.stepCursor);studySession.activeStep=step;
-        int learned=store.masteryCount(e.id),count=all.size();
-        boolean mastered=store.isStepMastered(e.id,studySession.studyStage.name(),step.start,step.end);
+        int learned=store.progress().masteryCount(e.id),count=all.size();
+        boolean mastered=store.progress().isStepMastered(e.id,studySession.studyStage.name(),step.start,step.end);
         studySession.activeMastered=mastered;
         title(studySession.reviewMode?"Повторение":studySession.groupMode?"Связный фрагмент":e.title,e.reference);
         int bookId=studySession.bookForEntry(e);
@@ -4164,7 +4170,7 @@ public final class MainActivity extends Activity {
                 action(stat,"Тренировать связку",false,()->studySession.openGroup(group));
             }
             if(studySession.studyStage==StudyPlanLogic.Stage.VERSE){
-                int completed=store.exerciseDone(e.id,studySession.stepCursor);
+                int completed=store.progress().exerciseDone(e.id,studySession.stepCursor);
                 add(stat,txt(completed>=5?"Пять упражнений выполнены":
                     LessonFlowLogic.label(LessonFlowLogic.Exercise.values()[completed]),14,GREEN,true),10);
             }
@@ -4175,7 +4181,7 @@ public final class MainActivity extends Activity {
         LinearLayout textCard=card(content);
         add(textCard,txt("КАРТОЧКА "+(studySession.stepCursor+1)+" ИЗ "+steps.size(),12,GREEN,true),0);
         add(textCard,txt(step.title+(mastered?"  ✓":""),18,WHITE,true),5);
-        String status=store.consolidated(e.id,studySession.studyStage.name(),step.start,step.end)?"Закреплён":
+        String status=store.progress().consolidated(e.id,studySession.studyStage.name(),step.start,step.end)?"Закреплён":
             mastered?"Предварительно выучен":"Изучается";
         add(textCard,txt(status,13,mastered?GREEN:MUTED,true),8);
         if(!studySession.checked) {
@@ -4206,7 +4212,7 @@ public final class MainActivity extends Activity {
                 action(content,"←  К стихам",false,()->{studySession.groupMode=false;studySession.forcedStep=null;studySession.studyStage=StudyPlanLogic.Stage.VERSE;
                     studySession.stepCursor=studySession.returnVerseCursor;studySession.resetTrainingStep(e);render();});
             }else if(studySession.studyStage==StudyPlanLogic.Stage.VERSE){
-                int done=store.exerciseDone(e.id,studySession.stepCursor);
+                int done=store.progress().exerciseDone(e.id,studySession.stepCursor);
                 if(studySession.passed&&done==4)action(content,"✦  Начать контрольную проверку",true,()->{
                     studySession.draft="";studySession.checked=false;studySession.passed=false;studySession.testAssisted=false;studySession.trainingMode=StudySessionController.TrainingMode.TYPE;render();
                 });
@@ -4236,17 +4242,17 @@ public final class MainActivity extends Activity {
 
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderFullscreenLesson() {
-        LocalStore.Entry e=store.entry(studySession.selectedEntry);
+        LocalStore.Entry e=store.study().entry(studySession.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
         List<StudyPlanLogic.Step> steps=studySession.studySteps(e);
         if(steps.isEmpty()){
-            LocalStore.UnifiedCollection u=store.unifiedForGroup(e.groupId);
+            LocalStore.UnifiedCollection u=store.collections().unifiedForGroup(e.groupId);
             screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
             if(u!=null)collectionActions.openUnifiedId=u.id;render();return;
         }
         studySession.stepCursor=Math.max(0,Math.min(studySession.stepCursor,steps.size()-1));
         studySession.activeEntry=e;studySession.activeStep=steps.get(studySession.stepCursor);
-        studySession.activeMastered=store.isStepMastered(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end);
+        studySession.activeMastered=store.progress().isStepMastered(e.id,studySession.studyStage.name(),studySession.activeStep.start,studySession.activeStep.end);
         LessonCurriculumLogic.Phase phase=studySession.checked&&studySession.passed?
             LessonCurriculumLogic.Phase.COMPLETE:studySession.lessonPhase(e);
         lessonErrorArea=null;
@@ -4263,7 +4269,7 @@ public final class MainActivity extends Activity {
             final int bookId=studySession.bookForEntry(e);
             DeveloperModeController.open(this,e,
                 chapter->bookId>0 && bibleReader.bible.isReady()?bibleReader.bible.chapter(bookId,chapter).size():0,
-                store.masteryCount(e.id));
+                store.progress().masteryCount(e.id));
             return true;
         });
         topRow.addView(close,new LinearLayout.LayoutParams(dp(45),dp(45)));
@@ -4280,7 +4286,7 @@ public final class MainActivity extends Activity {
                 final int bookId=studySession.bookForEntry(e);
                 DeveloperModeController.open(this,e,
                     chapter->bookId>0 && bibleReader.bible.isReady()?bibleReader.bible.chapter(bookId,chapter).size():0,
-                    store.masteryCount(e.id));
+                    store.progress().masteryCount(e.id));
             });
             topRow.addView(devButton,new LinearLayout.LayoutParams(dp(48),dp(45)));
         }
@@ -4298,7 +4304,7 @@ public final class MainActivity extends Activity {
             renderLessonIntro();
             mainAction=button("Продолжить",true,()->{
                 if(studySession.groupMode)studySession.groupIntroDone=true;
-                else store.finishExercise(e.id,studySession.activeStep.start,1);
+                else store.progress().finishExercise(e.id,studySession.activeStep.start,1);
                 studySession.lessonVariant=0;studySession.lessonChunk=0;studySession.lessonWriteVariant=0;studySession.resetLessonTiles();studySession.mask=0;
                 studySession.saveTrainingSession();render();
             });
@@ -4939,7 +4945,7 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void showUnifiedSelector(){
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
+        List<LocalStore.UnifiedCollection> collections=store.collections().unifiedCollections();
         String[] items=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)items[i]=
             (collections.get(i).id==collectionActions.activeUnifiedId?"✓  ":"")+collections.get(i).title;
@@ -4980,14 +4986,14 @@ public final class MainActivity extends Activity {
         add(panel,chooser,0);
         int verses=0,learned=0;
         Set<String> seenVerses=new HashSet<>();
-        for(LocalStore.Entry e:store.entries(active.groupId)){
+        for(LocalStore.Entry e:store.study().entries(active.groupId)){
             List<Bible.Verse> lines=e.lines();
             for(int i=0;i<lines.size();i++){
                 String identity=StudySessionController.runVerseKey(e,lines.get(i));
                 if(!seenVerses.add(identity))continue;
                 verses++;
-                if(store.isStepMastered(e.id,"VERSE",i,i+1) ||
-                    store.exerciseDone(e.id,i)>=5)learned++;
+                if(store.progress().isStepMastered(e.id,"VERSE",i,i+1) ||
+                    store.progress().exerciseDone(e.id,i)>=5)learned++;
             }
         }
         add(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),8);
@@ -5017,14 +5023,14 @@ public final class MainActivity extends Activity {
     }
     private void startActiveStudy(){
         LocalStore.UnifiedCollection u=collectionActions.activeUnified();if(u==null){newUnifiedCollection(null);return;}
-        if(bibleReader.bible.isReady())store.syncUnifiedCollection(u.id,bibleReader.bible);
-        if(store.entries(u.groupId).isEmpty()){collectionActions.openUnifiedId=u.id;screen=Screen.COLLECTION_DETAIL;render();
+        if(bibleReader.bible.isReady())store.collections().syncUnifiedCollection(u.id,bibleReader.bible);
+        if(store.study().entries(u.groupId).isEmpty()){collectionActions.openUnifiedId=u.id;screen=Screen.COLLECTION_DETAIL;render();
             toast("Добавь стихи в коллекцию");return;}
         collectionActions.selectedGroup=u.groupId;collectionActions.startStudyCollection(u.groupId);
     }
     private void startActiveCards(){
         LocalStore.UnifiedCollection u=collectionActions.activeUnified();if(u==null)return;
-        if(bibleReader.bible.isReady())store.syncUnifiedCollection(u.id,bibleReader.bible);
+        if(bibleReader.bible.isReady())store.collections().syncUnifiedCollection(u.id,bibleReader.bible);
         flashcardSession.selectedDeck=u.deckId;flashcardSession.cardFromUnified=true;
         if(flashcardSession.eligibleSessionCards().isEmpty()){
             toast(!bibleReader.bible.isReady()?"Библия ещё загружается":"Сначала добавь стихи в коллекцию");return;
@@ -5075,7 +5081,7 @@ public final class MainActivity extends Activity {
     }
     private void renderUnifiedCollectionRows(LinearLayout into,String search){
         boolean found=false;
-        for(LocalStore.UnifiedCollection u:store.unifiedCollections()){
+        for(LocalStore.UnifiedCollection u:store.collections().unifiedCollections()){
             if(!u.title.toLowerCase(Locale.ROOT).contains(search.trim().toLowerCase(Locale.ROOT)))continue;
             found=true;
             LinearLayout row=row();row.setPadding(dp(13),dp(14),dp(13),dp(14));
@@ -5120,7 +5126,7 @@ public final class MainActivity extends Activity {
         add(settings,txt("НАСТРОЙКИ КОЛЛЕКЦИИ",12,MUTED,true),0);
         unifiedSettingRow(settings,"Переименовать","pencil",false,()->renameUnified(u));
         unifiedSettingRow(settings,"Настроить порядок стихов","shuffle",false,()->{
-            if(store.entries(u.groupId).size()<2){
+            if(store.study().entries(u.groupId).size()<2){
                 toast("Для изменения порядка нужны хотя бы два отрывка");return;
             }
             collectionActions.selectedGroup=u.groupId;collectionActions.openUnifiedId=u.id;
@@ -5162,7 +5168,7 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void renderUnifiedCollectionDetail(){
-        LocalStore.UnifiedCollection u=store.unifiedCollection(collectionActions.openUnifiedId);
+        LocalStore.UnifiedCollection u=store.collections().unifiedCollection(collectionActions.openUnifiedId);
         if(u==null){screen=Screen.COLLECTIONS;render();return;}
         collectionActions.selectedGroup=u.groupId;flashcardSession.selectedDeck=u.deckId;
         TextView heading=displayText(u.title,25);
@@ -5177,7 +5183,7 @@ public final class MainActivity extends Activity {
                 helper(content,"Последняя проверка памяти: "+last.optInt("correct")+
                     " из "+last.optInt("total")+" без ошибок");}
         }catch(JSONException ignored){}
-        List<LocalStore.Entry> entries=store.entries(u.groupId);
+        List<LocalStore.Entry> entries=store.study().entries(u.groupId);
         if(entries.isEmpty())helper(content,"Добавь первый стих или отрывок.");
         for(LocalStore.Entry entry:entries)entryCard(entry);
     }
@@ -5191,7 +5197,7 @@ public final class MainActivity extends Activity {
             TextView addCollection=button("＋  Добавить коллекцию",true,()->newUnifiedCollection(null));
             footer.addView(addCollection,new LinearLayout.LayoutParams(-1,dp(52)));
         }else if(screen==Screen.COLLECTION_DETAIL){
-            final LocalStore.UnifiedCollection u=store.unifiedCollection(collectionActions.openUnifiedId);
+            final LocalStore.UnifiedCollection u=store.collections().unifiedCollection(collectionActions.openUnifiedId);
             if(u==null)return;
             TextView addBible=button("＋  Добавить из Библии",true,()->{
                 collectionActions.clearInsertionContext();
@@ -5315,7 +5321,7 @@ public final class MainActivity extends Activity {
         Uri uri=data.getData();
         try {
             if(request==EXPORT) {
-                byte[] json=store.exportJson().toString(2).getBytes(StandardCharsets.UTF_8);
+                byte[] json=store.backup().exportJson().toString(2).getBytes(StandardCharsets.UTF_8);
                 try(OutputStream stream=getContentResolver().openOutputStream(uri)) {
                     if(stream==null)throw new IOException("Cannot write file");
                     stream.write(json);
@@ -5331,7 +5337,7 @@ public final class MainActivity extends Activity {
                         buffer.write(chunk,0,n);
                     }
                 }
-                store.importJson(buffer.toString("UTF-8"));
+                store.backup().importJson(buffer.toString("UTF-8"));
                 toast("Подборки импортированы");render();
             }
         }catch(Exception ex){new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Ошибка файла")

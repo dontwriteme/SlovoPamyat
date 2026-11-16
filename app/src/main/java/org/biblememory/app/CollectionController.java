@@ -7,7 +7,7 @@ import java.util.*;
 /** Collection commands, membership, ordering and the independent-entry study queue. */
 final class CollectionController {
     interface Ports {
-        LocalStore store();
+        StudyRepository study(); ProgressRepository progress(); FlashcardRepository flashcards(); CollectionRepository collections();
         SharedPreferences activePreferences();
         SharedPreferences queuePreferences();
         Bible bible();
@@ -45,7 +45,7 @@ final class CollectionController {
         collectionQueueCursor=p.getInt("cursor",0);
         String ids=p.getString("ids","");
         for(String raw:ids.split(","))try{
-            long id=Long.parseLong(raw);if(ports.store().entry(id)!=null)collectionQueue.add(id);
+            long id=Long.parseLong(raw);if(ports.study().entry(id)!=null)collectionQueue.add(id);
         }catch(NumberFormatException ignored){}
         if(collectionQueue.isEmpty()||collectionQueueCursor>=collectionQueue.size())clearCollectionQueue();
     }
@@ -66,21 +66,21 @@ final class CollectionController {
     }
 
     void startStudyCollection(long groupId){
-        List<LocalStore.Entry> entries=ports.store().entries(groupId);
+        List<LocalStore.Entry> entries=ports.study().entries(groupId);
         if(entries.isEmpty()){ports.toast("Коллекция пока пустая");return;}
         ports.stopCardStudy();
         executingCollectionQueue=true;
         if(collectionQueueGroup==groupId&&collectionQueueCursor>=0&&
             collectionQueueCursor<collectionQueue.size()){
             long id=collectionQueue.get(collectionQueueCursor);
-            if(ports.store().entry(id)!=null){collectionQueueNewStep=false;ports.openTraining(id);return;}
+            if(ports.study().entry(id)!=null){collectionQueueNewStep=false;ports.openTraining(id);return;}
         }
         collectionQueue.clear();
         for(LocalStore.Entry e:entries)collectionQueue.add(e.id);
         collectionQueueGroup=groupId;collectionQueueCursor=0;
         for(int i=0;i<entries.size();i++){
             LocalStore.Entry item=entries.get(i);
-            if(ports.store().masteryCount(ports.store().canonicalStudyEntryId(item.id))<item.lines().size() ||
+            if(ports.progress().masteryCount(ports.study().canonicalStudyEntryId(item.id))<item.lines().size() ||
                 ports.hasPendingGroup(item)){collectionQueueCursor=i;break;}
         }
         collectionQueueNewStep=true;
@@ -91,7 +91,7 @@ final class CollectionController {
         if(collectionQueueCursor<0||collectionQueueCursor>=collectionQueue.size())return false;
         executingCollectionQueue=true;
         long id=collectionQueue.get(collectionQueueCursor);
-        if(ports.store().entry(id)==null){clearCollectionQueue();return false;}
+        if(ports.study().entry(id)==null){clearCollectionQueue();return false;}
         collectionQueueNewStep=false;
         ports.openTraining(id);return true;
     }
@@ -111,9 +111,9 @@ final class CollectionController {
 
     String studyProgressFor(long groupId){
         int all=0,mastered=0;
-        for(LocalStore.Entry e:ports.store().entries(groupId)){
+        for(LocalStore.Entry e:ports.study().entries(groupId)){
             all+=e.lines().size();
-            mastered+=ports.store().masteryCount(ports.store().canonicalStudyEntryId(e.id));
+            mastered+=ports.progress().masteryCount(ports.study().canonicalStudyEntryId(e.id));
         }
         return mastered+" из "+all+" стихов";
     }
@@ -121,22 +121,22 @@ final class CollectionController {
     boolean pickerCollectionContainsVerse(int book,int chapter,int verse){
         if(!ports.studyPicker() || ports.pickerTargetId()<0)return false;
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
-        for(LocalStore.Entry e:ports.store().entries(ports.pickerTargetId()))
+        for(LocalStore.Entry e:ports.study().entries(ports.pickerTargetId()))
             if(ref.equals(e.reference))return true;
         return false;
     }
 
     boolean togglePickerCollectionVerse(int book,int chapter,int verse){
         if(!ports.studyPicker() ||
-            ports.store().unifiedForGroup(ports.pickerTargetId())==null)return false;
+            ports.collections().unifiedForGroup(ports.pickerTargetId())==null)return false;
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
         try{
             if(pickerCollectionContainsVerse(book,chapter,verse)){
-                if(!ports.store().removeUnifiedPassage(ports.pickerTargetId(),ref))return false;
+                if(!ports.collections().removeUnifiedPassage(ports.pickerTargetId(),ref))return false;
                 ports.toast("Убрано из коллекции: "+ref);
             }else{
                 // Avoid creating duplicate standalone entries inside a saved long range.
-                for(LocalStore.Entry entry:ports.store().entries(ports.pickerTargetId())){
+                for(LocalStore.Entry entry:ports.study().entries(ports.pickerTargetId())){
                     if(!entry.reference.startsWith(Bible.NAMES[book-1]+" "))continue;
                     if(entry.reference.equals(ref))continue;
                     for(Bible.Verse line:entry.lines())if(line.ref.equals(chapter+":"+verse)){
@@ -144,7 +144,7 @@ final class CollectionController {
                         return false;
                     }
                 }
-                ports.store().addPickedPassage(ports.pickerTargetId(),ref,
+                ports.collections().addPickedPassage(ports.pickerTargetId(),ref,
                     ports.bible().passage(book,chapter,verse,chapter,verse),ports.bible());
                 ports.toast("Добавлено в коллекцию: "+ref);
             }
@@ -158,7 +158,7 @@ final class CollectionController {
         LocalStore.UnifiedCollection active=activeUnified();
         if(active==null)return false;
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
-        for(LocalStore.Entry entry:ports.store().entries(active.groupId))
+        for(LocalStore.Entry entry:ports.study().entries(active.groupId))
             if(ref.equals(entry.reference))return true;
         return false;
     }
@@ -172,10 +172,10 @@ final class CollectionController {
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
         try{
             if(quickBibleVerseExists(book,chapter,verse)){
-                if(!ports.store().removeUnifiedPassage(active.groupId,ref))return false;
+                if(!ports.collections().removeUnifiedPassage(active.groupId,ref))return false;
                 ports.toast("Убрано из коллекции: "+ref);
             }else{
-                ports.store().restoreOrAddStudyPassage(active.groupId,ref,
+                ports.study().restoreOrAddStudyPassage(active.groupId,ref,
                     ports.bible().passage(book,chapter,verse,chapter,verse));
                 ports.toast("Добавлено в «"+active.title+"»: "+ref);
             }
@@ -187,9 +187,9 @@ final class CollectionController {
 
     boolean pickerHasReference(String ref,int book,int chapter,int verse){
         if(ports.studyPicker()){
-            for(LocalStore.Entry e:ports.store().entries(ports.pickerTargetId()))if(ref.equals(e.reference))return true;
+            for(LocalStore.Entry e:ports.study().entries(ports.pickerTargetId()))if(ref.equals(e.reference))return true;
         }else{
-            for(LocalStore.Flashcard f:ports.store().flashcards(ports.pickerTargetId()))
+            for(LocalStore.Flashcard f:ports.flashcards().flashcards(ports.pickerTargetId()))
                 if(f.bookId==book&&f.firstChapter==chapter&&f.lastChapter==chapter&&
                     f.firstVerse==verse&&f.lastVerse==verse)return true;
         }
@@ -209,20 +209,20 @@ final class CollectionController {
                 ports.bible().collectionPassage(book,sc,sv,ec,ev):ports.bible().passage(book,sc,sv,ec,ev);
             String ref=Bible.reference(book,sc,sv,ec,ev);
             if(ports.studyPicker()){
-                if(ports.store().unifiedForGroup(ports.pickerTargetId())==null){ports.toast("Коллекция больше не существует");return false;}
-                for(LocalStore.Entry e:ports.store().entries(ports.pickerTargetId()))if(ref.equals(e.reference)){
+                if(ports.collections().unifiedForGroup(ports.pickerTargetId())==null){ports.toast("Коллекция больше не существует");return false;}
+                for(LocalStore.Entry e:ports.study().entries(ports.pickerTargetId()))if(ref.equals(e.reference)){
                     ports.toast("Уже в коллекции");return false;
                 }
-                long added=ports.store().addPickedPassage(ports.pickerTargetId(),ref,verses,ports.bible(),insertAfterEntryId);
+                long added=ports.collections().addPickedPassage(ports.pickerTargetId(),ref,verses,ports.bible(),insertAfterEntryId);
                 if(insertAfterEntryId>=0){
                     insertAfterEntryId=added;
                     studyInsertionTrail.add(added);
                 }
             }else{
-                boolean added=ports.store().addFlashcard(ports.pickerTargetId(),book,sc,sv,ec,ev,ref,PassageText.join(verses));
+                boolean added=ports.flashcards().addFlashcard(ports.pickerTargetId(),book,sc,sv,ec,ev,ref,PassageText.join(verses));
                 if(!added){ports.toast("Карточка уже в подборке");return false;}
                 if(insertAfterCardId>=0){
-                    for(LocalStore.Flashcard fc:ports.store().flashcards(ports.pickerTargetId())){
+                    for(LocalStore.Flashcard fc:ports.flashcards().flashcards(ports.pickerTargetId())){
                         if(ref.equals(fc.reference)){
                             repositionCardAfter(ports.pickerTargetId(),fc.id,insertAfterCardId);
                             insertAfterCardId=fc.id;
@@ -240,16 +240,16 @@ final class CollectionController {
         try{
             if(ports.studyPicker()){
                 long removedId=-1;
-                for(LocalStore.Entry e:ports.store().entries(ports.pickerTargetId()))
+                for(LocalStore.Entry e:ports.study().entries(ports.pickerTargetId()))
                     if(ref.equals(e.reference)){removedId=e.id;break;}
-                boolean removed=ports.store().detachStudyReference(ports.pickerTargetId(),ref);
+                boolean removed=ports.collections().detachStudyReference(ports.pickerTargetId(),ref);
                 if(removed&&removedId>=0)removedInsertionCandidate(removedId,false);
                 return removed;
             }
-            for(LocalStore.Flashcard f:ports.store().flashcards(ports.pickerTargetId())){
+            for(LocalStore.Flashcard f:ports.flashcards().flashcards(ports.pickerTargetId())){
                 if(f.bookId==book&&f.firstChapter==chapter&&f.lastChapter==chapter&&
                     f.firstVerse==verse&&f.lastVerse==verse){
-                    ports.store().removeFlashcard(ports.pickerTargetId(),f.id);
+                    ports.flashcards().removeFlashcard(ports.pickerTargetId(),f.id);
                     removedInsertionCandidate(f.id,true);
                     return true;
                 }
@@ -261,10 +261,10 @@ final class CollectionController {
     void saveBibleVerseToGroup(long groupId,int book,int chapter,int verse){
         try{
             String ref=Bible.reference(book,chapter,verse,chapter,verse);
-            for(LocalStore.Entry e:ports.store().entries(groupId))if(ref.equals(e.reference)){
+            for(LocalStore.Entry e:ports.study().entries(groupId))if(ref.equals(e.reference)){
                 ports.toast("Стих уже в подборке");return;
             }
-            ports.store().restoreOrAddStudyPassage(groupId,ref,ports.bible().passage(book,chapter,verse,chapter,verse));
+            ports.study().restoreOrAddStudyPassage(groupId,ref,ports.bible().passage(book,chapter,verse,chapter,verse));
             ports.toast("Добавлено: "+ref);
         }catch(Exception ex){ports.toast("Не удалось добавить стих");}
     }
@@ -288,49 +288,49 @@ final class CollectionController {
 
     void repositionStudyAfter(long group,long added,long after){
         List<Long> ids=new ArrayList<>();
-        for(LocalStore.Entry item:ports.store().entries(group))if(item.id!=added)ids.add(item.id);
+        for(LocalStore.Entry item:ports.study().entries(group))if(item.id!=added)ids.add(item.id);
         int index=ids.indexOf(after);ids.add(index<0?ids.size():index+1,added);
-        ports.store().reorderStudy(group,ids);
+        ports.study().reorderStudy(group,ids);
     }
 
     void repositionCardAfter(long deck,long added,long after){
         List<Long> ids=new ArrayList<>();
-        for(LocalStore.Flashcard f:ports.store().flashcards(deck))if(f.id!=added)ids.add(f.id);
+        for(LocalStore.Flashcard f:ports.flashcards().flashcards(deck))if(f.id!=added)ids.add(f.id);
         int index=ids.indexOf(after);ids.add(index<0?ids.size():index+1,added);
-        ports.store().reorderCards(deck,ids);
+        ports.flashcards().reorderCards(deck,ids);
     }
 
     void ensureActiveUnified(){
-        if(ports.store().unifiedCollection(activeUnifiedId)!=null)return;
-        List<LocalStore.UnifiedCollection> collections=ports.store().unifiedCollections();
+        if(ports.collections().unifiedCollection(activeUnifiedId)!=null)return;
+        List<LocalStore.UnifiedCollection> collections=ports.collections().unifiedCollections();
         activeUnifiedId=collections.isEmpty()?-1:collections.get(0).id;
         ports.activePreferences().edit().putLong("active",activeUnifiedId).apply();
     }
 
     LocalStore.UnifiedCollection activeUnified(){
-        ensureActiveUnified();return ports.store().unifiedCollection(activeUnifiedId);
+        ensureActiveUnified();return ports.collections().unifiedCollection(activeUnifiedId);
     }
 
     void activateUnified(long id){
-        if(ports.store().unifiedCollection(id)==null)return;
+        if(ports.collections().unifiedCollection(id)==null)return;
         activeUnifiedId=id;
         ports.activePreferences().edit().putLong("active",id).apply();
     }
     LocalStore.UnifiedCollection createUnifiedCollection(String title){
-        boolean first=ports.store().unifiedCollections().isEmpty();
-        long id=ports.store().createUnifiedCollection(title);
+        boolean first=ports.collections().unifiedCollections().isEmpty();
+        long id=ports.collections().createUnifiedCollection(title);
         if(first)activateUnified(id);
-        return ports.store().unifiedCollection(id);
+        return ports.collections().unifiedCollection(id);
     }
-    void renameUnifiedCollection(long id,String title){ports.store().renameUnifiedCollection(id,title);}
-    void deleteUnifiedCollection(long id){ports.store().deleteUnifiedCollection(id);ensureActiveUnified();}
-    void clearUnifiedCollection(long id){ports.store().clearUnifiedCollection(id);ports.clearRunHistory(id);}
-    void reorderStudy(long group,List<Long> ids){ports.store().reorderStudy(group,ids);}
-    void reorderCards(long deck,List<Long> ids){ports.store().reorderCards(deck,ids);}
+    void renameUnifiedCollection(long id,String title){ports.collections().renameUnifiedCollection(id,title);}
+    void deleteUnifiedCollection(long id){ports.collections().deleteUnifiedCollection(id);ensureActiveUnified();}
+    void clearUnifiedCollection(long id){ports.collections().clearUnifiedCollection(id);ports.clearRunHistory(id);}
+    void reorderStudy(long group,List<Long> ids){ports.study().reorderStudy(group,ids);}
+    void reorderCards(long deck,List<Long> ids){ports.flashcards().reorderCards(deck,ids);}
     void synchronizeCollections(Bible bible){
-        for(LocalStore.UnifiedCollection collection:ports.store().unifiedCollections()){
+        for(LocalStore.UnifiedCollection collection:ports.collections().unifiedCollections()){
             if(ports.stopped())return;
-            try{ports.store().syncUnifiedCollection(collection.id,bible);}catch(Exception ignored){}
+            try{ports.collections().syncUnifiedCollection(collection.id,bible);}catch(Exception ignored){}
         }
     }
 
