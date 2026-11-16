@@ -1,0 +1,40 @@
+Stage 2 validation — 2026-11-16 UTC
+Base: be7d97d; production implementation: 53d55bd; branch: refactor/main-controllers
+Toolchain: JDK 17 / Gradle 8.9 / SDK 35 / AGP 8.7.3 / Robolectric 4.14.1
+Device: API 28 AVD, software rendering (no hardware FPS claim).
+
+Full Gradle invocation (no excluded tasks):
+gradle --no-daemon --max-workers=4 -I tests/validation.init.gradle -I tests/storage-safety-device.init.gradle :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
+BUILD SUCCESSFUL in 56s
+JUnit XML totals: tests=98, failures=0, errors=0, skipped=0
+Includes ControllerIntegrationTest: 20 tests; ActivityRecreationIntegrationTest: 10 tests.
+
+stage2-study-actions-native.log
+SESSION_GUARDS_PASSED=8 UNEXPECTED_FAILURES=0
+
+stage2-final-storage.log
+INSTALLED_DATABASE_UNCHANGED
+GUARDS_PASSED=23 EXPECTED_FAILURES=0 UNEXPECTED_FAILURES=0
+
+stage2-final-recreation.log
+RECREATION_GUARD_PASS unfinished-answer-no-progress-write
+RECREATION_GUARD_PASS card-order-direction-revealed-face
+RECREATION_GUARD_PASS reader-scroll-176-verses-system-back
+RECREATION_GUARDS_PASSED=3 UNEXPECTED_FAILURES=0
+
+stage2-final-bible-icon.log
+PASS: bookmark/pages/cross/glow, repeat, rapid exit, catalog, 176-verse grid, lifecycle
+
+stage2-final-collections-icon.log
+PASS: Collections reference, three independent books, cross-shelf turns, star, repeat/restart, cached exit reset, active rebuild, lifecycle, disabled=false, unchanged collection export
+
+stage2-final-home-icon.log
+PASS: Bible/Collections tab gestures, animator survives attachment, smoke frames, lit rest, repeat deduplication, exit cleanup and pause/resume
+
+Bundled Bible: PASS — 66 books with contiguous chapter/verse numbers; Psalms 150/176; Matthew ranges 10/109.
+APK: apksigner verify passed.
+Lint: FAIL (existing) — styles.xml:5 NewApi windowLightNavigationBar requires API 27, minSdk 26; 1 error, 41 warnings. No suppression or resource change.
+Git: diff --check passed. No resource/icon/algorithm/production dependency changes versus be7d97d.
+
+Native runners must be rebuilt/reinstalled per corresponding tests/*-device.init.gradle.
+Read runner summary: shell exit code alone is not a test result.

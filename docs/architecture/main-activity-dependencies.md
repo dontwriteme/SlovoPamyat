@@ -486,3 +486,27 @@
 | `importFile/0` | 6442 | MainActivity |  |
 | `onActivityResult/3` | 6447 | MainActivity |  |
 | `onDestroy/0` | 6475 | MainActivity | `bibleSearchExecutor`, `bibleSearchHandler` |
+
+## Фактический результат этапа 2
+
+После извлечения и восстановления Activity: 5 347 строк, 200 методов и 77 полей
+верхнего уровня. Методы вложенных View-классов не включены ни в исходный, ни в итоговый счёт.
+Полный результат и команды проверок: [отчёт этапа 2](../ARCHITECTURE_REFACTOR_STAGE_2.md).
+
+| Владелец | Фактическая ответственность | Внешние зависимости |
+| --- | --- | --- |
+| MainActivity | Java View, системный lifecycle/Back, активный Screen, кэш вкладок и анимации, диалоги, применение прокрутки | Четыре контроллера; LocalStore для экранных запросов и оставшихся старых обработчиков; Android API |
+| BibleReaderController | Чтение/сетки, выбор диапазона, состояние reader/picker, debounce/generation/cancellation поиска, жизненный цикл загрузки | Bible/BibleSearchLogic; application Context; callback-порты UI и синхронизации; SharedPreferences последней главы |
+| FlashcardSessionController | Порядок/курсор/направление/раскрытие карточек, checkpoint; отдельная очередь изучения карточек | LocalStore и SharedPreferences через Source |
+| StudySessionController | Этап/упражнение/ввод/feedback/маски/плитки; открытие и продолжение уроков/связок/повторений; проверка ответа; writing run; checkpoints | Существующие pure-Java алгоритмы; один LocalStore; порты UI/навигации, checkpoint-предпочтений и очередей |
+| CollectionController | Активная коллекция, unified CRUD/очистка, membership/toggle/отрывки, порядок вставки, очередь независимых записей, sync | Тот же LocalStore; preference-порты; read-only входы выбора Библии; callbacks владельцам учебных сессий |
+
+Контроллеры не импортируют MainActivity или View и не обращаются друг к другу
+через конкретные типы. Activity связывает их портами: например, очистка коллекции
+передаёт очистку writing-run владельцу Study, а запуск очереди — завершение
+предыдущей card-study владельцу Flashcard. Дублирующих копий извлечённого состояния
+и production-reflection нет. Общее соединение/схема SQLite остаётся у LocalStore.
+
+Снимки Bundle принадлежат контроллерам; SessionSnapshot содержит только типизированные
+кодеки списков, шагов и DueItem. Screen — общий словарь навигации, PassageText —
+общая операция соединения текстов без зависимости одного контроллера от другого.
