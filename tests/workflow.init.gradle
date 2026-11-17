@@ -1,0 +1,10 @@
+apply from: new File(initscript.sourceFile.parentFile, 'validation.init.gradle')
+allprojects {
+    afterEvaluate { p ->
+        if(p.path==':app') {
+            p.android.defaultConfig.testInstrumentationRunner='org.biblememory.app.RepositorySafetyCheck'
+            p.android.sourceSets.androidTest.java.srcDirs=[rootProject.file('tests/device'),rootProject.file('tests/support')]
+            p.android.sourceSets.androidTest.manifest.srcFile(rootProject.file('tests/workflow-manifest.xml'))
+        }
+    }
+}

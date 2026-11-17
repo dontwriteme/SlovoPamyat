@@ -63,3 +63,8 @@ Desktop.ini
 # app/src/main/assets/synodal.json and synodal.sidx (offline Bible + search index)
 # app/src/main/java/, app/src/main/res/, AndroidManifest.xml
 # .github/workflows/*
+
+# Local workflow measurements and installation receipts
+.workflow/
+
+__pycache__/

@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <instrumentation android:name="org.biblememory.app.RepositorySafetyCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.StorageSafetyCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.SessionStateSafetyCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.ActivityRecreationCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.BibleIconCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.CollectionsIconCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.HomeIconCheck" android:targetPackage="org.biblememory.app" />
+    <instrumentation android:name="org.biblememory.app.InstalledUpgradeCheck" android:targetPackage="org.biblememory.app" />
+</manifest>

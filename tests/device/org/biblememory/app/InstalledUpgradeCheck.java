@@ -14,10 +14,11 @@ import org.json.*;
 /** Seed with the pre-refactor APK; verify the identical private fixture after pm install -r. */
 public final class InstalledUpgradeCheck extends Instrumentation {
     private String phase;
-    @Override public void onCreate(Bundle args){phase=args==null?"verify":args.getString("phase","verify");super.onCreate(args);start();}
+    private String fixture="";
+    @Override public void onCreate(Bundle args){if(args!=null)fixture=args.getString("fixture","");if(!fixture.matches("[A-Za-z0-9_-]*"))throw new IllegalArgumentException("Invalid fixture identifier");phase=args==null?"verify":args.getString("phase","verify");super.onCreate(args);start();}
     private static final class Fixture extends ContextWrapper {
         final File directory;
-        Fixture(Context context){super(context);directory=new File(context.getCacheDir(),"architecture_stage3_installed_upgrade");}
+        Fixture(Context context,String suffix){super(context);directory=new File(context.getCacheDir(),"architecture_stage3_installed_upgrade"+suffix);}
         @Override public Context getApplicationContext(){return this;}
         @Override public File getDatabasePath(String name){return new File(directory,new File(name).getName());}
         @Override public SQLiteDatabase openOrCreateDatabase(String name,int mode,SQLiteDatabase.CursorFactory factory){return SQLiteDatabase.openOrCreateDatabase(getDatabasePath(name),factory);}
@@ -42,7 +43,7 @@ public final class InstalledUpgradeCheck extends Instrumentation {
         long old=StorageSafetyCheck.entry(store,archived.groupId);store.finishExercise(old,0,2);store.clearUnifiedCollection(archived.id);
     }
     @Override public void onStart(){
-        Bundle result=new Bundle();Fixture context=new Fixture(getTargetContext());LocalStore store=null;
+        Bundle result=new Bundle();Fixture context=new Fixture(getTargetContext(),fixture);LocalStore store=null;
         try{
             File expected=new File(context.directory,"expected.json");
             if("seed".equals(phase)){
