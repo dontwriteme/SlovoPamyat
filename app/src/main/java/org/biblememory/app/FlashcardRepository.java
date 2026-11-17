@@ -27,7 +27,12 @@ public final class FlashcardRepository {
         return list;
     }
 
-    public CardDeck cardDeck(long id){for(CardDeck d:cardDecks())if(d.id==id)return d;return null;}
+    public CardDeck cardDeck(long id){
+        try(Cursor c=scope.read().rawQuery("SELECT d.id,d.title,COUNT(m.card_id) FROM card_decks d LEFT JOIN card_deck_members m ON m.deck_id=d.id WHERE d.id=? GROUP BY d.id",new String[]{String.valueOf(id)})){
+            if(!c.moveToFirst())return null;
+            CardDeck deck=new CardDeck();deck.id=c.getLong(0);deck.title=c.getString(1);deck.count=c.getInt(2);return deck;
+        }
+    }
 
     public void renameCardDeck(long id,String title){
         ContentValues v=new ContentValues();v.put("title",title.trim());

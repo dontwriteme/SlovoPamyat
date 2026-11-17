@@ -187,19 +187,52 @@ public final class ProgressRepository {
         }
     }
 
+    /** Operation-local snapshot: no persistent cache or invalidation rules.
+     * Inheritance deliberately uses the same ref+text identity across canonical entries. */
+    private BitSet masteredVersePositions(Entry target,int length){
+        BitSet result=new BitSet();
+        boolean canonical=false;
+        for(String book:Bible.NAMES)if(target.reference.startsWith(book+" ")){canonical=true;break;}
+        Map<Long,Set<Integer>> positions=new HashMap<>();
+        String sql=canonical?"SELECT entry_id,position FROM verse_progress":
+            "SELECT entry_id,position FROM verse_progress WHERE entry_id=?";
+        try(Cursor c=scope.read().rawQuery(sql,canonical?null:new String[]{String.valueOf(target.id)})){
+            while(c.moveToNext())positions.computeIfAbsent(c.getLong(0),id->new HashSet<>()).add(c.getInt(1));
+        }
+        for(int position:positions.getOrDefault(target.id,Collections.emptySet()))
+            if(position>=0&&position<length)result.set(position);
+        if(!canonical)return result;
+        Map<String,Set<String>> inherited=new HashMap<>();
+        for(Entry candidate:scope.study.allEntries()){
+            if(candidate.id==target.id||!positions.containsKey(candidate.id))continue;
+            boolean fromBible=false;
+            for(String book:Bible.NAMES)if(candidate.reference.startsWith(book+" ")){fromBible=true;break;}
+            if(!fromBible)continue;
+            List<Bible.Verse> lines=candidate.lines();
+            for(int position:positions.get(candidate.id))if(position>=0&&position<lines.size()){
+                Bible.Verse verse=lines.get(position);
+                inherited.computeIfAbsent(verse.ref,key->new HashSet<>()).add(verse.text);
+            }
+        }
+        List<Bible.Verse> lines=target.lines();
+        for(int i=0;i<Math.min(length,lines.size());i++){
+            Bible.Verse verse=lines.get(i);
+            if(inherited.getOrDefault(verse.ref,Collections.emptySet()).contains(verse.text))result.set(i);
+        }
+        return result;
+    }
+
     public int masteryCount(long entryId){
         Entry entry=scope.study.entry(entryId);
-        if(entry==null)return 0;
-        int total=0;
-        for(int p=0;p<entry.lines().size();p++){
-            if(isStepMastered(entryId,"VERSE",p,p+1))total++;
-        }
-        return total;
+        return entry==null?0:masteredVersePositions(entry,entry.lines().size()).cardinality();
     }
 
     public int firstUnmastered(long entryId,int length){
-        for(int i=0;i<length;i++)if(!isStepMastered(entryId,"VERSE",i,i+1))return i;
-        return 0;
+        if(length<=0)return 0;
+        Entry entry=scope.study.entry(entryId);
+        if(entry==null)return 0;
+        int first=masteredVersePositions(entry,length).nextClearBit(0);
+        return first<length?first:0;
     }
 
     public boolean isStepMastered(long entryId,String stage,int start,int end){

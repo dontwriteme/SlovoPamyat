@@ -73,8 +73,9 @@ public final class RepositorySafetyCheck extends Instrumentation {
         require(before.equals(rows(store)),"Repositories committed on different connections");
     }
     static final class QueryCounter implements SQLiteDatabase.CursorFactory {
-        int fullCardScans;
+        int fullCardScans,totalQueries;
         public Cursor newCursor(SQLiteDatabase db,SQLiteCursorDriver driver,String table,SQLiteQuery query){
+            totalQueries++;
             if(query.toString().contains("SELECT f.id,f.book_id,f.first_chapter"))fullCardScans++;return new SQLiteCursor(driver,table,query);
         }
     }
@@ -112,7 +113,37 @@ public final class RepositorySafetyCheck extends Instrumentation {
         rejected(()->writer.success(entry,"CHAIN",step,true,true,false,1700000000000L));
         require(before.equals(rows(store)),"First verse committed before second failed");
     }
+    void masterySnapshot(SafetySandbox context){
+        QueryCounter queries=new QueryCounter();
+        try(LocalStore store=new LocalStore(context,queries)){
+            long group=store.newGroup("Large fixture");List<Bible.Verse> lines=new ArrayList<>();
+            for(int i=0;i<1000;i++)lines.add(new Bible.Verse("1:"+(i+1),"Text "+i));
+            long target=store.add(group,"Target","Матфея 1:1",lines);
+            long shared=store.add(group,"Shared","Луки 1:1",lines);store.markMastered(shared,0,500,100,"VERSE");
+            queries.totalQueries=0;long start=System.nanoTime();int count=store.masteryCount(target);
+            report("MASTERY_1000_QUERIES="+queries.totalQueries+" NS="+(System.nanoTime()-start));
+            require(count==500,"Shared mastery count changed");require(queries.totalQueries==3,"Per-verse queries returned");
+            require(store.progress().firstUnmastered(target,1000)==500,"First unmastered changed");
+            report("MASTERY_LOOKUP_PLAN="+StorageSafetyCheck.rows(store.getReadableDatabase(),"EXPLAIN QUERY PLAN SELECT entry_id,position FROM verse_progress WHERE entry_id="+target).replace('\n',' '));
+            report("DECK_LOOKUP_PLAN="+StorageSafetyCheck.rows(store.getReadableDatabase(),"EXPLAIN QUERY PLAN SELECT d.id,d.title,COUNT(m.card_id) FROM card_decks d LEFT JOIN card_deck_members m ON m.deck_id=d.id WHERE d.id=1 GROUP BY d.id").replace('\n',' '));
+        }
+    }
+    void concurrentAttempt(SafetySandbox context)throws Exception{
+        LocalStore store=context.store();long id=StorageSafetyCheck.entry(store,store.newGroup("Concurrent"));
+        LocalStore.Entry entry=store.entry(id);StudyPlanLogic.Step step=new StudyPlanLogic.Step(0,1,"1:1");
+        java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.CountDownLatch gate=new java.util.concurrent.CountDownLatch(1);
+        try{
+            java.util.concurrent.Callable<Void> submit=()->{gate.await();
+                new StudyProgressRecorder(store.progress()).success(entry,"VERSE",step,false,false,false,1700000000000L);return null;};
+            java.util.concurrent.Future<Void> a=pool.submit(submit),b=pool.submit(submit);gate.countDown();
+            a.get(30,java.util.concurrent.TimeUnit.SECONDS);b.get(30,java.util.concurrent.TimeUnit.SECONDS);
+            require(StorageSafetyCheck.number(store.getReadableDatabase(),"SELECT COUNT(*) FROM review_attempts WHERE entry_id="+id)==1,"Concurrent attempt recorded twice");
+            require(store.exerciseDone(id,0)==5,"Completion missing");
+        }finally{pool.shutdownNow();pool.awaitTermination(30,java.util.concurrent.TimeUnit.SECONDS);}
+    }
     @Override public void onStart(){
+        run("mastery-snapshot-large-passage",this::masterySnapshot);run("concurrent-attempt-once",this::concurrentAttempt);
         run("study-attempt-rollback-and-replay",this::studyAttempt);run("combined-attempt-rollback",this::combinedAttempt);
         run("cross-repository-rollback",this::sharedTransaction);run("collection-detach-and-membership-rollback",this::collectionRemoval);run("card-delete-rollback",this::cardRemoval);run("card-replacement-rollback",this::cardChange);run("deck-delete-rollback",this::deckRemoval);run("independent-study-create-rollback",this::independentStudyCreation);run("weak-transition-rollback",this::weakTransition);run("rename-all-titles-rollback",this::rename);run("revision-history-rollback",this::revise);run("clear-all-links-rollback",this::clear);run("sync-query-count-and-idempotence",this::syncQueries);
         Bundle result=new Bundle();result.putString("stream","REPOSITORY_GUARDS_PASSED="+passed+" UNEXPECTED_FAILURES="+failed+"\n");finish(failed==0?Activity.RESULT_OK:Activity.RESULT_CANCELED,result);

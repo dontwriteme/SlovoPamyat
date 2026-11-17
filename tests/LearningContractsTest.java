@@ -111,4 +111,21 @@ public class LearningContractsTest {
         assertFalse(StudyAnswerEvaluation.lesson(longText,longText+" лишнее",false).exact);
     }
 
+    @Test public void trimmedDistanceMatchesThePreviousScoringAlgorithm(){
+        Random random=new Random(1739);
+        for(int trial=0;trial<1000;trial++){
+            List<String> a=new ArrayList<>(),b=new ArrayList<>();
+            for(int i=0,n=random.nextInt(35);i<n;i++)a.add("слово"+random.nextInt(5));
+            for(int i=0,n=random.nextInt(35);i<n;i++)b.add("слово"+random.nextInt(5));
+            int[][] d=new int[a.size()+1][b.size()+1];
+            for(int i=0;i<=a.size();i++)d[i][0]=i;
+            for(int j=0;j<=b.size();j++)d[0][j]=j;
+            for(int i=1;i<=a.size();i++)for(int j=1;j<=b.size();j++)
+                d[i][j]=Math.min(d[i-1][j-1]+(a.get(i-1).equals(b.get(j-1))?0:1),Math.min(d[i-1][j]+1,d[i][j-1]+1));
+            int max=Math.max(a.size(),b.size());
+            int expected=max==0?100:Math.max(0,100-Math.round(100f*d[a.size()][b.size()]/max));
+            assertEquals(expected,ReviewLogic.accuracy(String.join(" ",a),String.join(" ",b)));
+        }
+    }
+
 }

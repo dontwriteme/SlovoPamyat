@@ -20,19 +20,25 @@ public final class ReviewLogic {
         List<String> a=words(expected), b=words(actual);
         int m=Math.max(a.size(),b.size());
         if(m==0) return 100;
-        // Levenshtein on words: substitutions, insertions and omissions count as errors.
-        // Two linear-memory rows keep this viable for multi-verse passages.
-        int[] prev=new int[b.size()+1], cur=new int[b.size()+1];
-        for(int j=0;j<prev.length;j++) prev[j]=j;
-        for(int i=1;i<=a.size();i++) {
+        // Identical prefix/suffix removal preserves exact Levenshtein distance.
+        // It avoids quadratic work on correct passages and localized corrections.
+        int prefix=0,ae=a.size(),be=b.size();
+        while(prefix<ae&&prefix<be&&a.get(prefix).equals(b.get(prefix)))prefix++;
+        while(ae>prefix&&be>prefix&&a.get(ae-1).equals(b.get(be-1))){ae--;be--;}
+        List<String> left=a.subList(prefix,ae),right=b.subList(prefix,be);
+        // Keep the shorter remaining side in the two allocated rows.
+        if(right.size()>left.size()){List<String> swap=left;left=right;right=swap;}
+        int[] prev=new int[right.size()+1],cur=new int[right.size()+1];
+        for(int j=0;j<prev.length;j++)prev[j]=j;
+        for(int i=1;i<=left.size();i++){
             cur[0]=i;
-            for(int j=1;j<=b.size();j++) {
-                int sub=prev[j-1] + (a.get(i-1).equals(b.get(j-1))?0:1);
+            for(int j=1;j<=right.size();j++){
+                int sub=prev[j-1]+(left.get(i-1).equals(right.get(j-1))?0:1);
                 cur[j]=Math.min(sub,Math.min(prev[j]+1,cur[j-1]+1));
             }
             int[] swap=prev;prev=cur;cur=swap;
         }
-        return Math.max(0,100-Math.round(100f*prev[b.size()]/m));
+        return Math.max(0,100-Math.round(100f*prev[right.size()]/m));
     }
     public static String masked(String text,int percent,int seed) {
         if(text==null||percent<=0)return text;

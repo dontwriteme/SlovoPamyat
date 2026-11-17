@@ -328,9 +328,10 @@ final class CollectionController {
     void reorderStudy(long group,List<Long> ids){ports.study().reorderStudy(group,ids);}
     void reorderCards(long deck,List<Long> ids){ports.flashcards().reorderCards(deck,ids);}
     void synchronizeCollections(Bible bible){
+        if(ports.stopped())return;
         for(LocalStore.UnifiedCollection collection:ports.collections().unifiedCollections()){
             if(ports.stopped())return;
-            try{ports.collections().syncUnifiedCollection(collection.id,bible);}catch(Exception ignored){}
+            try{ports.collections().syncUnifiedCollection(collection.id,bible);}catch(Exception error){android.util.Log.e("Collections","Startup synchronization failed for collection "+collection.id+"; error="+error.getClass().getSimpleName());}
         }
     }
 

@@ -67,12 +67,19 @@ public final class TypingDiffLogic {
         }
         Collections.reverse(reversed);return reversed;
     }
-    private static void append(List<Piece> result,Kind kind,String text){
-        if(text.isEmpty())return;
-        if(!result.isEmpty() && result.get(result.size()-1).kind==kind){
-            Piece p=result.remove(result.size()-1);result.add(new Piece(kind,p.text+text));
-        }else result.add(new Piece(kind,text));
+    /** Coalesce runs without copying their entire prefix for every word/character. */
+    private static final class Pieces {
+        final List<Piece> values=new ArrayList<>();
+        final StringBuilder text=new StringBuilder();
+        Kind kind;
+        void add(Kind next,String value){
+            if(value.isEmpty())return;
+            if(kind!=null&&kind!=next){values.add(new Piece(kind,text.toString()));text.setLength(0);}
+            kind=next;text.append(value);
+        }
+        List<Piece> finish(){if(kind!=null)values.add(new Piece(kind,text.toString()));return values;}
     }
+    private static void append(Pieces result,Kind kind,String text){result.add(kind,text);}
     public static List<Piece> compare(String expected,String input) {
         if(expected==null)expected="";if(input==null)input="";
         expected=withoutPunctuation(expected);input=withoutPunctuation(input);
@@ -99,16 +106,16 @@ public final class TypingDiffLogic {
                 backwards.add(new Piece(Kind.MISSING,new String(Character.toChars(a[i-1]))));i--;
             }
         }
-        Collections.reverse(backwards);List<Piece> result=new ArrayList<>();
+        Collections.reverse(backwards);Pieces result=new Pieces();
         for(Piece p:backwards)append(result,p.kind,p.text);
-        return result;
+        return result.finish();
     }
     private static List<Piece> byWords(String expected,String input){
         // Long passages: bound memory via a token-aligned prefix/suffix resynchronization.
         // Each inaccurate word is still highlighted at its actual location.
         String[] a=expected.split("(?<=\\s)|(?=\\s)");
         String[] b=input.split("(?<=\\s)|(?=\\s)");
-        int i=0,j=0;List<Piece> result=new ArrayList<>();
+        int i=0,j=0;Pieces result=new Pieces();
         while(i<a.length||j<b.length){
             if(i<a.length&&j<b.length&&same(a[i],b[j])){append(result,Kind.CORRECT,b[j]);i++;j++;}
             else if(i+1<a.length && j<b.length && same(a[i+1],b[j])){append(result,Kind.MISSING,a[i]);i++;}
@@ -118,6 +125,6 @@ public final class TypingDiffLogic {
             }else if(i<a.length){append(result,Kind.MISSING,a[i++]);}
             else{append(result,Kind.EXTRA,b[j++]);}
         }
-        return result;
+        return result.finish();
     }
 }
