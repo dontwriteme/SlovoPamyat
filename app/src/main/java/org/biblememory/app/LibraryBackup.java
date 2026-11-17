@@ -27,7 +27,8 @@ public final class LibraryBackup {
         JSONObject top=new JSONObject().put("format","slovo-pamyat-v5");
         JSONArray groups=new JSONArray();
         for(Group group:groupsForBackup()) {
-            JSONObject g=new JSONObject().put("title",group.title);
+            JSONObject g=new JSONObject().put("title",group.title)
+                .put("archived",!scope.collections.isVisibleGroup(group.id));
             JSONArray entries=new JSONArray();
             for(Entry e:scope.study.entries(group.id)) {
                 JSONObject item=new JSONObject()
@@ -183,12 +184,14 @@ public final class LibraryBackup {
         try {
             for(int i=0;i<groups.length();i++) {
                 JSONObject g=groups.getJSONObject(i);
-                ContentValues gv=new ContentValues();gv.put("title",g.getString("title"));
-                long id=db.insertOrThrow("groups_",null,gv);
+                boolean archived=g.optBoolean("archived",LocalStore.CARD_STUDY_GROUP.equals(g.getString("title")));
+                long id=archived?scope.study.libraryId(db):scope.collections.newGroup(g.getString("title"));
                 JSONArray items=g.getJSONArray("entries");
                 for(int j=0;j<items.length();j++) {
                     JSONObject e=items.getJSONObject(j);ContentValues cv=new ContentValues();
-                    JSONArray lines=e.getJSONArray("lines");
+                    JSONArray lines=new JSONArray(e.getJSONArray("lines").toString());
+                    // Card IDs belong to the source installation; never guess a new binding.
+                    for(int line=0;line<lines.length();line++)lines.getJSONObject(line).remove("study_card_id");
                     cv.put("group_id",id);cv.put("title",e.getString("title"));
                     cv.put("reference",e.getString("reference"));cv.put("lines",lines.toString());
                     cv.put("learned",modern?e.getJSONArray("mastered_positions").length():

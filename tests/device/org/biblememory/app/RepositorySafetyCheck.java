@@ -119,7 +119,7 @@ public final class RepositorySafetyCheck extends Instrumentation {
             long group=store.newGroup("Large fixture");List<Bible.Verse> lines=new ArrayList<>();
             for(int i=0;i<1000;i++)lines.add(new Bible.Verse("1:"+(i+1),"Text "+i));
             long target=store.add(group,"Target","Матфея 1:1",lines);
-            long shared=store.add(group,"Shared","Луки 1:1",lines);store.markMastered(shared,0,500,100,"VERSE");
+            long shared=store.add(group,"Shared","Матфея 1:1",lines);store.markMastered(shared,0,500,100,"VERSE");
             queries.totalQueries=0;long start=System.nanoTime();int count=store.masteryCount(target);
             report("MASTERY_1000_QUERIES="+queries.totalQueries+" NS="+(System.nanoTime()-start));
             require(count==500,"Shared mastery count changed");require(queries.totalQueries==3,"Per-verse queries returned");
@@ -142,7 +142,52 @@ public final class RepositorySafetyCheck extends Instrumentation {
             require(store.exerciseDone(id,0)==5,"Completion missing");
         }finally{pool.shutdownNow();pool.awaitTermination(30,java.util.concurrent.TimeUnit.SECONDS);}
     }
+    void deletionHistory(SafetySandbox context){
+        LocalStore store=context.store();LocalStore.UnifiedCollection a=collection(store);
+        List<Bible.Verse> verses=Arrays.asList(new Bible.Verse("5:3","Первый стих"),new Bible.Verse("5:4","Второй стих"));
+        long id=store.restoreOrAddStudyPassage(a.groupId,"Матфея 5:3–4",verses);
+        store.finishExercise(id,0,3);store.markMastered(id,1,2,100,"VERSE");store.scheduleReview(id,"VERSE",1,2,100,false,1700000000000L);
+        LocalStore.Entry expected=store.entry(id);Map<String,String> before=rows(store);
+        store.deleteUnifiedCollection(a.id);Map<String,String> after=rows(store);
+        for(String table:new String[]{"lesson_progress","verse_progress","stage_progress","review_attempts","review_schedule","recall_activity","transition_issues"})
+            require(before.get(table).equals(after.get(table)),"Lost history table "+table);
+        require(store.dueItems(Long.MAX_VALUE).isEmpty(),"Archived material remains due");
+        try{new StudyProgressRecorder(store.progress(),a.groupId).success(expected,"VERSE",new StudyPlanLogic.Step(0,1,"5:3"),false,false,false,1700000000001L);throw new AssertionError("Stale session accepted");}catch(IllegalStateException correct){}
+        LocalStore.UnifiedCollection b=collection(store);long restored=store.restoreOrAddStudyPassage(b.groupId,"Матфея 5:3–4",verses);
+        require(restored==id&&store.exerciseDone(id,0)==3,"Stable identity/partial exercise lost");
+        require(store.dueItems(Long.MAX_VALUE).size()==1,"Restored review missing");
+    }
+    void deletionRollback(SafetySandbox context){
+        LocalStore store=context.store();LocalStore.UnifiedCollection a=collection(store);long id=StorageSafetyCheck.entry(store,a.groupId);
+        StorageSafetyCheck.progress(store,id);store.syncUnifiedCollection(a.id,null);Map<String,String> before=rows(store);
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_collection_delete BEFORE DELETE ON groups_ BEGIN SELECT RAISE(ABORT,'injected-delete'); END");
+        rejected(()->store.deleteUnifiedCollection(a.id));require(before.equals(rows(store)),"Partial collection deletion committed");
+    }
+    void overlappingReviewOwner(SafetySandbox context){
+        LocalStore store=context.store();LocalStore.UnifiedCollection a=collection(store),b=collection(store);
+        List<Bible.Verse> before=Arrays.asList(new Bible.Verse("5:3","Первый стих"),new Bible.Verse("5:4","Второй стих"));
+        long id=store.restoreOrAddStudyPassage(a.groupId,"Матфея 5:3–4",before);
+        long copy=store.restoreOrAddStudyPassage(b.groupId,"Матфея 5:4",Collections.singletonList(before.get(1)));
+        store.markMastered(id,1,2,100,"VERSE");store.scheduleReview(id,"VERSE",1,2,100,false,1700000000000L);
+        store.deleteUnifiedCollection(a.id);
+        new StudyProgressRecorder(store.progress(),b.groupId).success(store.entry(copy),"VERSE",new StudyPlanLogic.Step(0,1,"5:4"),false,false,false,1700086400000L);
+        require(StorageSafetyCheck.number(store.getReadableDatabase(),"SELECT COUNT(*) FROM review_schedule")==1,"Duplicated shared schedule");
+        require(store.dueItems(1700086400000L).isEmpty(),"Old due remains after shared review");
+    }
+    void customCardSource(SafetySandbox context){
+        LocalStore store=context.store();long deck=store.newCardDeck("Identity");long source=store.addCustomFlashcard(deck,"Own","Слово истины");
+        store.addCustomFlashcard(deck,"Own","Слово истины");LocalStore.Flashcard original=null;
+        for(LocalStore.Flashcard card:store.flashcards(deck))if(card.id==source)original=card;
+        require(original!=null,"Missing source");
+        long entry=store.findOrCreateCardStudyEntry(original,Collections.singletonList(new Bible.Verse("1:1",original.content)));
+        store.removeFlashcard(deck,source);Map<String,String> before=rows(store);
+        try{new StudyProgressRecorder(store.progress(),-deck-2).success(store.entry(entry),"VERSE",new StudyPlanLogic.Step(0,1,"1:1"),false,false,false,1700000000000L);throw new AssertionError("Deleted source accepted by equal contents");}
+        catch(IllegalStateException expected){}
+        require(before.equals(rows(store)),"Stale custom card wrote progress");
+    }
     @Override public void onStart(){
+        run("custom-card-source-identity",this::customCardSource);
+        run("collection-delete-history-readd-and-stale-session",this::deletionHistory);run("collection-delete-atomic-rollback",this::deletionRollback);run("overlapping-review-owner",this::overlappingReviewOwner);
         run("mastery-snapshot-large-passage",this::masterySnapshot);run("concurrent-attempt-once",this::concurrentAttempt);
         run("study-attempt-rollback-and-replay",this::studyAttempt);run("combined-attempt-rollback",this::combinedAttempt);
         run("cross-repository-rollback",this::sharedTransaction);run("collection-detach-and-membership-rollback",this::collectionRemoval);run("card-delete-rollback",this::cardRemoval);run("card-replacement-rollback",this::cardChange);run("deck-delete-rollback",this::deckRemoval);run("independent-study-create-rollback",this::independentStudyCreation);run("weak-transition-rollback",this::weakTransition);run("rename-all-titles-rollback",this::rename);run("revision-history-rollback",this::revise);run("clear-all-links-rollback",this::clear);run("sync-query-count-and-idempotence",this::syncQueries);

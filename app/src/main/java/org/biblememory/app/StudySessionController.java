@@ -19,6 +19,7 @@ final class StudySessionController {
         void collectionStepStarted();
         boolean collectionQueueReady();
         boolean cardStudyActive();
+        default long studyDeckId(){return -1;}
         void advanceCollection();
         void advanceCardStudy();
         void saveCardCheckpoint();
@@ -43,6 +44,7 @@ final class StudySessionController {
     int stepCursor = 0;
     StudyPlanLogic.Stage studyStage = StudyPlanLogic.Stage.VERSE;
     long selectedEntry = 0;
+    long sessionGroup = -1;
     boolean checked = false;
     boolean passed = false;
     TrainingMode trainingMode = TrainingMode.READ;
@@ -105,7 +107,7 @@ final class StudySessionController {
         if(selectedEntry<=0 || (reviewMode&&checked&&passed))return;
         String key=reviewMode?"review_":(groupMode?"linked_":"entry_")+selectedEntry+"_";
         ports.studyPreferences().edit()
-            .putLong("entry",selectedEntry).putString(key+"stage",studyStage.name())
+            .putLong("entry",selectedEntry).putLong(key+"session_group",sessionGroup).putString(key+"stage",studyStage.name())
             .putInt(key+"step",stepCursor).putString(key+"mode",trainingMode.name())
             .putInt(key+"mask",mask).putString(key+"draft",draft)
             .putString(key+"inline_drafts",new JSONArray(Arrays.asList(inlineDrafts)).toString())
@@ -141,6 +143,7 @@ final class StudySessionController {
         android.content.SharedPreferences pref=ports.studyPreferences();
         String key=(linked?"linked_":"entry_")+id+"_";
         if(!pref.contains(key+"stage"))return false;
+        sessionGroup=pref.getLong(key+"session_group",sessionGroup);
         try {
             studyStage=StudyPlanLogic.Stage.valueOf(pref.getString(key+"stage","VERSE"));
             trainingMode=TrainingMode.valueOf(pref.getString(key+"mode","READ"));
@@ -247,10 +250,33 @@ final class StudySessionController {
     }
     void clearRunHistory(long collection){
         String key=runKey(collection);
-        ports.runPreferences().edit().remove("run_history_"+collection).remove(key+"active")
+        // Retain completed diagnostic results; invalidate only this collection's checkpoint.
+        ports.runPreferences().edit().remove(key+"active")
             .remove(key+"cursor").remove(key+"correct").remove(key+"draft")
             .remove(key+"checked").remove(key+"passed").remove(key+"missed").apply();
         if(runCollectionId==collection){runLines.clear();runCollectionId=-1;}
+    }
+
+    boolean finishExercise(long entry,int position,int completed){
+        try{ports.progress().finishExerciseForSession(entry,position,completed,sessionGroup);return true;}
+        catch(android.database.sqlite.SQLiteException|IllegalStateException error){
+            android.util.Log.e("StudySession","Milestone not committed; error="+error.getClass().getSimpleName());
+            ports.toast("Не удалось сохранить результат упражнения");return false;
+        }
+    }
+
+    boolean validSession(){
+        LocalStore.Entry entry=ports.study().entry(selectedEntry);if(entry==null)return false;
+        StudyPlanLogic.Step step=forcedStep!=null?forcedStep:activeStep;
+        int start=step==null?0:step.start,end=step==null?entry.lines().size():step.end;
+        return ports.collections().validSession(selectedEntry,studyStage.name(),start,end,sessionGroup);
+    }
+    boolean requireValidSession(){
+        if(validSession())return true;
+        checked=false;passed=false;selectedEntry=0;activeEntry=null;activeStep=null;
+        reviewQueue.clear();reviewPointer=0;reviewMode=false;groupMode=false;forcedStep=null;
+        ports.studyPreferences().edit().remove("review_pending").apply();
+        ports.toast("Материал больше не входит в коллекцию");ports.navigate(Screen.HOME);return false;
     }
 
     private boolean combinedReview(){return reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage);}
@@ -283,7 +309,7 @@ final class StudySessionController {
         }
     }
     private void checkAnswerInternal(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered){
-        if(checked)return;
+        if(!requireValidSession()||checked)return;
         String expected=texts(e.lines().subList(step.start,step.end));
         StudyAnswerEvaluation evaluation=StudyAnswerEvaluation.recall(expected,draft);
         int accuracy=evaluation.accuracy;
@@ -293,16 +319,15 @@ final class StudySessionController {
         boolean accepted=evaluation.exact && (!independent||!testAssisted);
         lastAccuracy=accuracy;lastExpected=expected;lastTestRef=step.title;
         lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
-        new StudyProgressRecorder(ports.progress()).recall(e,step,studyStage.name(),accuracy,
+        new StudyProgressRecorder(ports.progress(),sessionGroup).recall(e,step,studyStage.name(),accuracy,
             testAssisted,independent,accepted,mastered,reviewMode,groupMode,
             attemptTime(e,step,"recall",draft));
         passed=accepted;checked=true;saveTrainingSession();ports.render();
     }
 
     int bookForEntry(LocalStore.Entry e){
-        if(e==null||e.reference==null)return -1;
-        for(int n=1;n<=66;n++)if(e.reference.startsWith(Bible.NAMES[n-1]+" "))return n;
-        return -1;
+        if(e==null)return -1;
+        int book=StudyRepository.canonicalBook(e);return book==0?-1:book;
     }
 
     GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e){
@@ -388,6 +413,7 @@ final class StudySessionController {
     }
 
     void advanceLessonBuild(LocalStore.Entry e){
+        if(!requireValidSession())return;
         List<String> source=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))source.add(v.text);
         int chunkCount=lessonChunks(source).size();
@@ -395,11 +421,11 @@ final class StudySessionController {
             e.lines().subList(activeStep.start,activeStep.end))).size()).size();
         if(lessonChunk+1<chunkCount){lessonChunk++;resetLessonTiles();}
         else if(lessonVariant+1<variants){
-            if(!groupMode)ports.progress().finishExercise(e.id,activeStep.start,2);
+            if(!groupMode&&!finishExercise(e.id,activeStep.start,2))return;
             lessonVariant++;lessonChunk=0;resetLessonTiles();
         } else {
             if(groupMode)groupBuildDone=true;
-            else ports.progress().finishExercise(e.id,activeStep.start,3);
+            else if(!finishExercise(e.id,activeStep.start,3))return;
             lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();draft="";lastAccuracy=-1;
             lessonWriteHadFeedback=false;
         }
@@ -441,8 +467,7 @@ final class StudySessionController {
     String runKey(long collection){return "writing_run_"+collection+"_";}
 
     static String runVerseKey(LocalStore.Entry e,Bible.Verse v){
-        boolean canonical=false;
-        for(String book:Bible.NAMES)if(e.reference.startsWith(book+" ")){canonical=true;break;}
+        boolean canonical=StudyRepository.canonicalBook(e)>0;
         String bookName="";
         if(canonical)for(String book:Bible.NAMES)if(e.reference.startsWith(book+" ")){
             bookName=book;break;
@@ -453,6 +478,7 @@ final class StudySessionController {
 
     void buildRunLines(LocalStore.UnifiedCollection u){
         runLines.clear();
+        if(u==null)return;
         Map<String,Boolean> confirmed=new HashMap<>();
         for(LocalStore.Entry e:ports.study().allEntries()){
             List<Bible.Verse> lines=e.lines();
@@ -503,6 +529,7 @@ final class StudySessionController {
     }
 
     void saveCompletedRun(){
+        if(!validRun())return;
         try{
             android.content.SharedPreferences p=ports.runPreferences();
             String historyKey="run_history_"+runCollectionId;
@@ -531,7 +558,7 @@ final class StudySessionController {
         state.putInt("mask",mask);
         state.putInt("stepCursor",stepCursor);
         state.putString("studyStage",studyStage.name());
-        state.putLong("selectedEntry",selectedEntry);
+        state.putLong("selectedEntry",selectedEntry);state.putLong("sessionGroup",sessionGroup);
         state.putBoolean("checked",checked);
         state.putBoolean("passed",passed);
         state.putString("trainingMode",trainingMode.name());
@@ -594,7 +621,7 @@ final class StudySessionController {
         mask=state.getInt("mask",mask);
         stepCursor=state.getInt("stepCursor",stepCursor);
         try{studyStage=StudyPlanLogic.Stage.valueOf(state.getString("studyStage",studyStage.name()));}catch(IllegalArgumentException ignored){}
-        selectedEntry=state.getLong("selectedEntry",selectedEntry);
+        selectedEntry=state.getLong("selectedEntry",selectedEntry);sessionGroup=state.getLong("sessionGroup",-1);
         checked=state.getBoolean("checked",checked);
         passed=state.getBoolean("passed",passed);
         try{trainingMode=TrainingMode.valueOf(state.getString("trainingMode",trainingMode.name()));}catch(IllegalArgumentException ignored){}
@@ -641,6 +668,7 @@ final class StudySessionController {
         reviewQueue.clear();ArrayList<Bundle> reviews=state.getParcelableArrayList("reviews");
         if(reviews!=null)for(Bundle item:reviews)reviewQueue.add(SessionSnapshot.due(item));
         activeEntry=ports.study().entry(selectedEntry);activeStep=SessionSnapshot.getStep(state,"activeStep");
+        if(!state.containsKey("sessionGroup")&&activeEntry!=null)sessionGroup=activeEntry.groupId;
         LocalStore.UnifiedCollection collection=ports.collections().unifiedCollection(runCollectionId);
         runLines.clear();if(collection!=null)buildRunLines(collection);
         runCursor=Math.max(0,Math.min(runCursor,runLines.size()));
@@ -689,7 +717,7 @@ final class StudySessionController {
             LocalStore.Entry e=ports.study().entry(id);
             int a=old.getInt("review_begin",-1),b=old.getInt("review_end",-1);
             String stage=old.getString("review_review_stage","");
-            if(e!=null && (reviewCollectionGroup<0 ||
+            if(e!=null && ports.collections().activeMaterial(new LocalStore.DueItem(id,stage,a,b,0)) && (reviewCollectionGroup<0 ||
                 ports.collections().belongsToGroupMaterial(reviewCollectionGroup,
                     new LocalStore.DueItem(id,stage,a,b,0))) &&
                 a>=0&&b>a&&b<=e.lines().size() &&
@@ -718,7 +746,8 @@ final class StudySessionController {
 
     void openReview(LocalStore.DueItem item){
         LocalStore.Entry e=ports.study().entry(item.entryId);if(e==null)return;
-        selectedEntry=item.entryId;lessonPracticeAgain=false;
+        if(!ports.collections().validSession(item.entryId,item.stage,item.start,item.end,reviewCollectionGroup))return;
+        selectedEntry=item.entryId;sessionGroup=reviewCollectionGroup;activeStep=null;lessonPracticeAgain=false;
         // VERSE_RUN is a temporary coherent unit, never recorded as a mastered group.
         studyStage="VERSE_RUN".equals(item.stage)?StudyPlanLogic.Stage.CHAIN:
             StudyPlanLogic.Stage.valueOf(item.stage);
@@ -754,7 +783,10 @@ final class StudySessionController {
         try {
             JSONArray array=new JSONArray(ports.studyPreferences()
                 .getString("recent","[]"));
-            for(int i=0;i<Math.min(7,array.length());i++)ids.add(array.getLong(i));
+            for(int i=0;i<Math.min(7,array.length());i++){
+                long id=array.getLong(i);LocalStore.Entry e=ports.study().entry(id);
+                if(e!=null&&ports.collections().isVisibleGroup(e.groupId))ids.add(id);
+            }
         }catch(JSONException ex){ /* Corrupt metadata must not block the app. */ }
         return ids;
     }
@@ -763,6 +795,13 @@ final class StudySessionController {
         reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
         if(ports.screen()==Screen.TRAIN)saveTrainingSession();
         if(ports.screen()==Screen.CARD_SESSION)ports.saveCardCheckpoint();
+        LocalStore.Entry origin=ports.study().entry(id);
+        long originGroup=origin!=null?origin.groupId:-1;
+        if(ports.cardStudyActive()&&ports.studyDeckId()>0)originGroup=-ports.studyDeckId()-2;
+        else if(origin==null||!ports.collections().isVisibleGroup(originGroup)){
+            ports.toast("Материал больше не входит в коллекцию");ports.navigate(Screen.HOME);return;
+        }
+        sessionGroup=originGroup;activeStep=null;
         selectedEntry=ports.study().canonicalStudyEntryId(id);
         id=selectedEntry;
         LocalStore.Entry entry=ports.study().entry(id);
@@ -776,7 +815,7 @@ final class StudySessionController {
                 !ports.progress().isStepMastered(id,stage,a,b)){
                 GroupLearningLogic.Candidate cand=GroupLearningLogic.candidate(stage,a,b,"Продолжить связку");
                 returnVerseCursor=linked.getInt(lk+"return_cursor",0);
-                openGroup(cand);restoreTrainingSession(id,true);
+                openGroup(cand);restoreTrainingSession(id,true);sessionGroup=originGroup;
                 returnVerseCursor=linked.getInt(lk+"return_cursor",0);ports.render();return;
             }
             linked.edit().remove(lk+"pending").apply();
@@ -790,6 +829,7 @@ final class StudySessionController {
                 testAssisted=ports.progress().isStepMastered(entry.id,studyStage.name(),current.start,current.end);
             }
         }
+        sessionGroup=originGroup;
         // If an old session points beyond the newly protected lesson boundary, restore safely.
         if(studyStage==StudyPlanLogic.Stage.VERSE)
             stepCursor=Math.min(stepCursor,ports.progress().unlockedPosition(id,entry.lines().size()));
@@ -862,7 +902,7 @@ final class StudySessionController {
         }
     }
     private void validateLessonWritingInternal(LocalStore.Entry e){
-        if(checked&&passed)return;
+        if(!requireValidSession()||(checked&&passed))return;
         List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
         lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
@@ -912,7 +952,7 @@ final class StudySessionController {
                 weakTransitionFrom=weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
                 rescheduleWeak=weakVerse>=activeStep.start&&weak.errors>0;
             }
-            new StudyProgressRecorder(ports.progress()).failure(e,studyStage.name(),activeStep,accuracy,
+            new StudyProgressRecorder(ports.progress(),sessionGroup).failure(e,studyStage.name(),activeStep,accuracy,
                 combinedReview(),reviewMode||groupMode||studyStage!=StudyPlanLogic.Stage.VERSE,
                 weakVerse,weakTransitionFrom,rescheduleWeak,attemptTime(e,activeStep,"failure",entered));
             lessonWriteHadFeedback=true;lastAccuracy=accuracy;lastExpected=original;
@@ -921,14 +961,14 @@ final class StudySessionController {
         }
         if(lessonWriteHadFeedback){
             // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
-            new StudyProgressRecorder(ports.progress()).correction(e,studyStage.name(),activeStep,
+            new StudyProgressRecorder(ports.progress(),sessionGroup).correction(e,studyStage.name(),activeStep,
                 attemptTime(e,activeStep,"correction",entered));
             lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
             ports.render();
             ports.toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
             return;
         }
-        new StudyProgressRecorder(ports.progress()).success(e,studyStage.name(),activeStep,combinedReview(),
+        new StudyProgressRecorder(ports.progress(),sessionGroup).success(e,studyStage.name(),activeStep,combinedReview(),
             reviewMode,groupMode,attemptTime(e,activeStep,"success",entered));
         lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
         if(reviewMode)ports.studyPreferences().edit()
@@ -937,7 +977,16 @@ final class StudySessionController {
         ports.render();
     }
 
+    boolean validRun(){
+        LocalStore.UnifiedCollection collection=ports.collections().unifiedCollection(runCollectionId);
+        if(collection==null||runLines.isEmpty())return false;
+        for(RunLine line:runLines)if(!ports.study().containsEntry(collection.groupId,line.entryId))return false;
+        return true;
+    }
+
     void finishRunLine(){
+        if(runCursor<0||runCursor>=runLines.size())return;
+        if(!validRun()){runLines.clear();ports.navigate(Screen.HOME);return;}
         if(runLines.isEmpty())return;
         StudySessionController.RunLine line=runLines.get(runCursor);
         if(runChecked&&runPassed)runCorrect++;

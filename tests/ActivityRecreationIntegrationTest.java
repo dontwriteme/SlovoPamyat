@@ -140,4 +140,36 @@ public class ActivityRecreationIntegrationTest {
         assertFalse(study().passed);assertEquals("",study().draft);assertEquals(3,store.exerciseDone(entry,0));
     }
 
+    private TextView text(View view,String value){
+        if(view instanceof TextView&&value.contentEquals(((TextView)view).getText()))return (TextView)view;
+        if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){
+            TextView result=text(((ViewGroup)view).getChildAt(i),value);if(result!=null)return result;
+        }return null;
+    }
+    @Test public void clearDialogKeepsSelectionAndShowsEmptyActionsAfterRecreation()throws Exception{
+        collections().activateUnified(collection);store.finishExercise(entry,0,3);
+        call("clearUnified",new Class<?>[]{LocalStore.UnifiedCollection.class},store.unifiedCollection(collection));
+        android.app.AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();Shadows.shadowOf(Looper.getMainLooper()).idle();
+        set("homeCollectionsExpanded",true);render(Screen.HOME);assertEquals(collection,collections().activeUnified().id);assertEquals(3,store.exerciseDone(entry,0));
+        assertNotNull(text(root(),"＋ Добавить из Библии"));assertNull(text(root(),"Учить стихи наизусть"));
+        recreate();assertEquals(collection,collections().activeUnified().id);assertEquals(3,store.exerciseDone(entry,0));
+    }
+    @Test public void deleteDialogLeavesExplicitSelectionPromptInsteadOfAnotherCollection()throws Exception{
+        collections().activateUnified(collection);long other=store.createUnifiedCollection("Other");
+        call("deleteUnified",new Class<?>[]{LocalStore.UnifiedCollection.class},store.unifiedCollection(collection));
+        org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog().getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();Shadows.shadowOf(Looper.getMainLooper()).idle();
+        set("homeCollectionsExpanded",true);render(Screen.HOME);assertNull(collections().activeUnified());assertNotNull(store.unifiedCollection(other));
+        assertNotNull(text(root(),"Выбрать коллекцию"));assertNull(text(root(),"Учить стихи наизусть"));
+        recreate();assertNull(collections().activeUnified());
+    }
+    @Test public void visibleLessonRejectsAButtonFromDeletedCollection()throws Exception{
+        collections().activateUnified(collection);store.finishExercise(entry,0,3);
+        call("openTraining",new Class<?>[]{long.class},entry);layout();EditText answer=input(root());assertNotNull(answer);
+        answer.setText("Слово истины");TextView check=text(root(),"Проверить");assertNotNull(check);
+        store.deleteUnifiedCollection(collection);check.performClick();
+        assertEquals(Screen.HOME,get("screen"));assertEquals(3,store.exerciseDone(entry,0));
+        try(android.database.Cursor c=store.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM review_attempts",null)){c.moveToFirst();assertEquals(0,c.getInt(0));}
+    }
+
 }

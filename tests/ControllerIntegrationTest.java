@@ -209,7 +209,7 @@ public class ControllerIntegrationTest {
         LocalStore.UnifiedCollection second=actions.createUnifiedCollection("Second");assertEquals(first.id,actions.activeUnifiedId);
         actions.renameUnifiedCollection(second.id,"Renamed");assertEquals("Renamed",store.unifiedCollection(second.id).title);
         actions.activateUnified(second.id);actions.deleteUnifiedCollection(second.id);
-        assertEquals(first.id,actions.activeUnifiedId);assertNotNull(store.unifiedCollection(first.id));
+        assertEquals(-1,actions.activeUnifiedId);assertNotNull(store.unifiedCollection(first.id));
     }
     @Test public void clearingCollectionPreservesStudyProgressAndDelegatesOnlyItsRunCleanup(){
         CollectionController actions=collections();LocalStore.UnifiedCollection collection=actions.createUnifiedCollection("Saved");
@@ -319,6 +319,24 @@ public class ControllerIntegrationTest {
         StudySessionController restored=study();restored.startReviewSession();restored.activeStep=restored.forcedStep;
         assertEquals("Слово истины",restored.draft);restored.validateLessonWriting(entry);
         assertTrue(restored.passed);assertEquals(1,attempts(entry.id));
+    }
+
+    @Test public void repeatedRunCompletionDoesNotWriteHistoryTwiceOrReadPastTheEnd(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();
+        LocalStore.UnifiedCollection collection=store.unifiedForGroup(entry.groupId);
+        session.runCollectionId=collection.id;session.runLines.add(new StudySessionController.RunLine(entry.id,0,"1:1","Слово истины"));
+        session.runChecked=true;session.runPassed=true;session.finishRunLine();session.finishRunLine();
+        assertEquals(1,session.runCorrect);assertEquals(Screen.RUN_SUMMARY,readerScreen);
+        try{assertEquals(1,new org.json.JSONArray(RuntimeEnvironment.getApplication().getSharedPreferences("unified_library_ui",0).getString("run_history_"+collection.id,"[]")).length());}
+        catch(org.json.JSONException failure){throw new AssertionError(failure);}
+    }
+
+    @Test public void invalidatingRunCheckpointPreservesCompletedHistory(){
+        StudySessionController session=study();SharedPreferences saved=RuntimeEnvironment.getApplication().getSharedPreferences("unified_library_ui",0);
+        saved.edit().putString("run_history_17","[{\"correct\":2}]").putBoolean("writing_run_17_active",true).putString("writing_run_17_draft","old").commit();
+        session.runCollectionId=17;session.clearRunHistory(17);
+        assertEquals("[{\"correct\":2}]",saved.getString("run_history_17",""));assertFalse(saved.contains("writing_run_17_active"));assertFalse(saved.contains("writing_run_17_draft"));
+        assertEquals(-1,session.runCollectionId);
     }
 
 }

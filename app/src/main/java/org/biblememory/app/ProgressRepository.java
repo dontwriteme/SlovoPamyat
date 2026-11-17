@@ -14,20 +14,51 @@ public final class ProgressRepository {
 
     /** One submitted answer: receipt, history, mastery and schedule commit together.
      * Existing recall timestamps serve as receipts; no schema migration is needed. */
-    boolean commitStudyAttempt(Entry expected,int start,int end,long attemptedAt,Runnable writes){
+    boolean commitStudyAttempt(Entry expected,int start,int end,long attemptedAt,long sessionGroup,boolean perVerse,Runnable writes){
         return scope.transaction(db->{
             Entry current=scope.study.entry(expected.id);
             if(current==null || !Objects.equals(current.linesJson,expected.linesJson) ||
                 !Objects.equals(current.reference,expected.reference) || start<0 ||
                 end<=start || end>current.lines().size())
                 throw new IllegalStateException("Study material changed; reopen the lesson");
+            if(!scope.collections.validSession(expected.id,"VERSE",start,end,sessionGroup))
+                throw new IllegalStateException("Study collection no longer contains this material");
             try(Cursor c=db.rawQuery("SELECT 1 FROM recall_activity WHERE entry_id=? AND last_attempt=? LIMIT 1",
                     new String[]{String.valueOf(expected.id),String.valueOf(attemptedAt)})){
                 if(c.moveToFirst())return false;
             }
+            for(int position=start;perVerse&&position<end;position++){
+                long[] owner=canonicalVerseLocation(expected.id,position);
+                try(Cursor c=db.rawQuery("SELECT 1 FROM recall_activity WHERE entry_id=? AND first_line=? AND last_line=? AND last_attempt=? LIMIT 1",
+                    new String[]{String.valueOf(owner[0]),String.valueOf(owner[1]),String.valueOf(owner[1]+1),String.valueOf(attemptedAt)})){
+                    if(c.moveToFirst())return false;
+                }
+            }
             writes.run();
             return true;
         });
+    }
+
+    /** Prefer an existing history owner; otherwise the oldest matching canonical row.
+     * User texts never alias by their contents. Existing duplicate history is retained. */
+    private long[] canonicalVerseLocation(long id,int position){
+        List<long[]> locations=matchingVerseLocations(id,position);
+        long[] owner={id,position};int best=-1;
+        locations.add(owner);
+        for(long[] candidate:locations){
+            String entry=String.valueOf(candidate[0]),first=String.valueOf(candidate[1]),last=String.valueOf(candidate[1]+1);
+            int rank=0;
+            try(Cursor c=scope.read().rawQuery(
+                "SELECT 3 AS rank FROM review_schedule WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=? "+
+                "UNION ALL SELECT 2 FROM lesson_progress WHERE entry_id=? AND position=? "+
+                "UNION ALL SELECT 2 FROM verse_progress WHERE entry_id=? AND position=? "+
+                "UNION ALL SELECT 2 FROM recall_activity WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=? ORDER BY rank DESC LIMIT 1",
+                new String[]{entry,first,last,entry,first,entry,first,entry,first,last})){
+                if(c.moveToFirst())rank=c.getInt(0);
+            }
+            if(rank>best||(rank==best&&(candidate[0]<owner[0]||candidate[0]==owner[0]&&candidate[1]<owner[1]))){owner=candidate;best=rank;}
+        }
+        return owner;
     }
 
     public void recordWeakTransition(long entryId,int from,int to,long now){
@@ -43,6 +74,7 @@ public final class ProgressRepository {
     }
 
     public void rescheduleWeakVerse(long id,int position,long now){
+        long[] owner=canonicalVerseLocation(id,position);id=owner[0];position=(int)owner[1];
         if(!isStepMastered(id,"VERSE",position,position+1))return;
         SQLiteDatabase db=scope.write();
         long due=now+86400000L;
@@ -69,17 +101,17 @@ public final class ProgressRepository {
         for(String book:Bible.NAMES){
             if(original.reference.startsWith(book+" ")){canonical=true;break;}
         }
-        if(!canonical)return matches;
+        if(!canonical||StudyRepository.canonicalBook(original)==0)return matches;
+        int originalBook=StudyRepository.canonicalBook(original);
         for(Entry candidate:scope.study.allEntries()){
-            if(candidate.id==id)continue;
             boolean fromBible=false;
             for(String book:Bible.NAMES){
                 if(candidate.reference.startsWith(book+" ")){fromBible=true;break;}
             }
-            if(!fromBible)continue;
+            if(!fromBible||StudyRepository.canonicalBook(candidate)!=originalBook)continue;
             List<Bible.Verse> other=candidate.lines();
             for(int i=0;i<other.size();i++){
-                if(verse.ref.equals(other.get(i).ref)&&verse.text.equals(other.get(i).text)){
+                if((candidate.id!=id||i!=position)&&verse.ref.equals(other.get(i).ref)&&verse.text.equals(other.get(i).text)){
                     matches.add(new long[]{candidate.id,i});
                 }
             }
@@ -130,7 +162,16 @@ public final class ProgressRepository {
         return 0;
     }
 
+    void finishExerciseForSession(long id,int position,int completed,long group){
+        scope.transaction(db->{
+            if(!scope.collections.validSession(id,"VERSE",position,position+1,group))
+                throw new IllegalStateException("Study collection no longer contains this material");
+            finishExercise(id,position,completed);return null;
+        });
+    }
+
     public void finishExercise(long id,int position,int completed) {
+        long[] owner=canonicalVerseLocation(id,position);id=owner[0];position=(int)owner[1];
         if(completed<1||completed>5)throw new IllegalArgumentException("Invalid lesson stage");
         int old=exerciseDone(id,position);
         if(completed>old){
@@ -141,6 +182,9 @@ public final class ProgressRepository {
     }
 
     public void scheduleReview(long id,String stage,int start,int end,int accuracy,boolean assisted,long now) {
+        if("VERSE".equals(stage)&&end==start+1){
+            long[] owner=canonicalVerseLocation(id,start);id=owner[0];start=(int)owner[1];end=start+1;
+        }
         SQLiteDatabase db=scope.write();
         db.beginTransaction();try{
             ContentValues a=new ContentValues();a.put("entry_id",id);a.put("stage",stage);
@@ -166,13 +210,30 @@ public final class ProgressRepository {
     }
 
     public List<DueItem> dueItems(long now) {
-        List<DueItem> items=new ArrayList<>();
+        List<DueItem> items=new ArrayList<>();Set<String> seen=new HashSet<>();
         try(Cursor c=scope.read().rawQuery(
-            "SELECT r.entry_id,r.stage,r.first_line,r.last_line,r.due FROM review_schedule r WHERE r.due<=? AND " +
-            "(EXISTS(SELECT 1 FROM stage_progress s WHERE s.entry_id=r.entry_id AND s.stage=r.stage AND s.first_line=r.first_line AND s.last_line=r.last_line) OR " +
-            "(r.stage='VERSE' AND EXISTS(SELECT 1 FROM verse_progress v WHERE v.entry_id=r.entry_id AND v.position=r.first_line))) ORDER BY r.due ASC",
+            "SELECT r.entry_id,r.stage,r.first_line,r.last_line,r.due FROM review_schedule r WHERE r.due<=? ORDER BY r.due ASC",
             new String[]{String.valueOf(now)})){
-            while(c.moveToNext())items.add(new DueItem(c.getLong(0),c.getString(1),c.getInt(2),c.getInt(3),c.getLong(4)));
+            while(c.moveToNext()){
+                DueItem item=new DueItem(c.getLong(0),c.getString(1),c.getInt(2),c.getInt(3),c.getLong(4));
+                if(isStepMastered(item.entryId,item.stage,item.start,item.end)&&scope.collections.activeMaterial(item)){
+                    if("VERSE".equals(item.stage)&&item.end==item.start+1){
+                        long[] owner=canonicalVerseLocation(item.entryId,item.start);
+                        if(owner[0]!=item.entryId||owner[1]!=item.start)continue;
+                    }
+                    Entry source=scope.study.entry(item.entryId);
+                    int book=StudyRepository.canonicalBook(source);
+                    String key="entry:"+item.entryId+":"+item.stage+":"+item.start+":"+item.end;
+                    if(book>0){
+                        JSONArray segment=new JSONArray();
+                        for(Bible.Verse verse:source.lines().subList(item.start,item.end)){
+                            JSONArray line=new JSONArray();line.put(verse.ref);line.put(verse.text);segment.put(line);
+                        }
+                        key=book+":"+item.stage+":"+segment.toString();
+                    }
+                    if(seen.add(key))items.add(item);
+                }
+            }
         }
         return items;
     }
@@ -201,13 +262,14 @@ public final class ProgressRepository {
         }
         for(int position:positions.getOrDefault(target.id,Collections.emptySet()))
             if(position>=0&&position<length)result.set(position);
-        if(!canonical)return result;
+        if(!canonical||StudyRepository.canonicalBook(target)==0)return result;
+        int originalBook=StudyRepository.canonicalBook(target);
         Map<String,Set<String>> inherited=new HashMap<>();
         for(Entry candidate:scope.study.allEntries()){
-            if(candidate.id==target.id||!positions.containsKey(candidate.id))continue;
+            if(!positions.containsKey(candidate.id))continue;
             boolean fromBible=false;
             for(String book:Bible.NAMES)if(candidate.reference.startsWith(book+" ")){fromBible=true;break;}
-            if(!fromBible)continue;
+            if(!fromBible||StudyRepository.canonicalBook(candidate)!=originalBook)continue;
             List<Bible.Verse> lines=candidate.lines();
             for(int position:positions.get(candidate.id))if(position>=0&&position<lines.size()){
                 Bible.Verse verse=lines.get(position);
@@ -259,6 +321,9 @@ public final class ProgressRepository {
     }
 
     public void markMastered(long entryId,int start,int end,int score,String stage) {
+        if("VERSE".equals(stage)&&end==start+1){
+            long[] owner=canonicalVerseLocation(entryId,start);entryId=owner[0];start=(int)owner[1];end=start+1;
+        }
         SQLiteDatabase db=scope.write();db.beginTransaction();
         try {
             for(int i=start;"VERSE".equals(stage) && i<end;i++) {
@@ -276,6 +341,9 @@ public final class ProgressRepository {
 
     public void recordRecall(long entryId,String stage,int start,int end,int accuracy,
                              boolean assisted,long now) {
+        if("VERSE".equals(stage)&&end==start+1){
+            long[] owner=canonicalVerseLocation(entryId,start);entryId=owner[0];start=(int)owner[1];end=start+1;
+        }
         SQLiteDatabase db=scope.write();
         db.beginTransaction();
         try {

@@ -28,13 +28,13 @@ public class PerformanceRegressionTest {
                 long group=store.newGroup("Performance "+size);List<Bible.Verse> lines=new ArrayList<>();
                 for(int i=0;i<size;i++)lines.add(new Bible.Verse("1:"+(i+1),"Текст "+i));
                 long id=store.add(group,"Fixture","Матфея 1:1",lines);
-                long other=store.add(group,"Shared","Луки 1:1",lines);
+                long other=store.add(group,"Shared","Матфея 1:1",lines);
                 store.markMastered(other,0,size/2,100,"VERSE");
                 queries.count=0;long start=System.nanoTime();
                 int total=store.masteryCount(id);long elapsed=System.nanoTime()-start;
                 assertEquals(size/2,total);assertTrue("Per-verse query amplification: "+queries.count,queries.count<=3);
                 System.out.println("MASTERY size="+size+" queries="+queries.count+" ns="+elapsed);
-                store.getWritableDatabase().delete("groups_","id=?",new String[]{String.valueOf(group)});
+                store.deleteGroup(group);
             }
         }
     }
@@ -53,14 +53,14 @@ public class PerformanceRegressionTest {
             long group=store.newGroup("Equivalence");
             List<Bible.Verse> lines=Arrays.asList(new Bible.Verse("1:1","Первый"),new Bible.Verse("1:2","Второй"),new Bible.Verse("1:1","Первый"));
             long canonical=store.add(group,"Canonical","Матфея 1:1",lines);
-            long shared=store.add(group,"Shared","Луки 1:1",lines);
+            long shared=store.add(group,"Shared","Матфея 1:1",lines);
             long custom=store.add(group,"Custom","Свой текст",lines);
             store.markMastered(shared,0,1,100,"VERSE");store.markMastered(custom,1,2,100,"VERSE");
             for(long id:new long[]{canonical,shared,custom})checkSnapshot(store,id,lines.size());
             assertEquals(2,store.masteryCount(canonical));assertEquals(1,store.masteryCount(custom));
             store.markMastered(canonical,1,2,100,"VERSE");checkSnapshot(store,canonical,3);
             store.getWritableDatabase().delete("entries","id=?",new String[]{String.valueOf(shared)});
-            checkSnapshot(store,canonical,3);assertEquals(1,store.masteryCount(canonical));
+            checkSnapshot(store,canonical,3);assertEquals(3,store.masteryCount(canonical));
         }
     }
     private void checkSnapshot(LocalStore store,long id,int size){

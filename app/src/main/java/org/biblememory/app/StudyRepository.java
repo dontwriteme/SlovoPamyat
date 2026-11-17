@@ -31,6 +31,32 @@ public final class StudyRepository {
         return scope.write().insertOrThrow("entries",null,cv);
     }
 
+    /** Optional metadata in the existing verse JSON; old readers ignore these keys. */
+    static int canonicalBook(Entry entry){
+        try{
+            JSONArray lines=new JSONArray(entry.linesJson);
+            if(lines.length()==0||lines.getJSONObject(0).optBoolean("user_material",false))return 0;
+        }
+        catch(JSONException error){throw new IllegalStateException("Invalid saved passage",error);}
+        return CollectionRepository.bibleBookFromReference(entry.reference);
+    }
+    private void tagEntry(SQLiteDatabase db,long id,String key,Object value){
+        try{
+            JSONArray lines=new JSONArray(entry(id).linesJson);lines.getJSONObject(0).put(key,value);
+            ContentValues values=new ContentValues();values.put("lines",lines.toString());
+            db.update("entries",values,"id=?",new String[]{String.valueOf(id)});
+        }catch(JSONException error){throw new IllegalStateException("Invalid material metadata",error);}
+    }
+    public long addUserMaterial(long group,String title,String reference,List<Bible.Verse> verses){
+        return scope.transaction(db->{long id=add(group,title,reference,verses);tagEntry(db,id,"user_material",true);return id;});
+    }
+    private boolean cardIdentity(Entry entry,long cardId){
+        try{if(new JSONArray(entry.linesJson).getJSONObject(0).optLong("study_card_id",-1)==cardId)return true;}
+        catch(JSONException error){throw new IllegalStateException("Invalid saved passage",error);}
+        try(Cursor c=scope.read().rawQuery("SELECT 1 FROM unified_card_entries WHERE card_id=? AND entry_id=? LIMIT 1",
+            new String[]{String.valueOf(cardId),String.valueOf(entry.id)})){return c.moveToFirst();}
+    }
+
     public long canonicalStudyEntryId(long entryId){
         Entry selected=entry(entryId);if(selected==null)return entryId;
         // Only canonical Bible references share study history, not user-authored titles.
@@ -38,7 +64,7 @@ public final class StudyRepository {
         for(String book:Bible.NAMES){
             if(selected.reference.startsWith(book+" ")){bibleReference=true;break;}
         }
-        if(!bibleReference)return entryId;
+        if(!bibleReference||canonicalBook(selected)==0)return entryId;
         long best=entryId;int score=-1;
         try(Cursor c=scope.read().rawQuery(
             "SELECT id FROM entries WHERE reference=? AND lines=? ORDER BY id",
@@ -55,8 +81,12 @@ public final class StudyRepository {
     public long findOrCreateCardStudyEntry(Flashcard card,List<Bible.Verse> verses){
         if(card==null||verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустая карточка");
         return scope.transaction(db->{
-            for(Entry old:allEntries()){
+            List<Entry> candidates=allEntries();
+            if(card.bookId==0)candidates.sort(Comparator.comparingLong(entry->entry.id));
+            for(Entry old:candidates){
                 if(!card.reference.equals(old.reference))continue;
+                if(card.bookId==0&&!cardIdentity(old,card.id))continue;
+                if(card.bookId>0&&canonicalBook(old)==0)continue;
                 List<Bible.Verse> lines=old.lines();
                 if(lines.size()!=verses.size())continue;
                 boolean identical=true;
@@ -66,14 +96,15 @@ public final class StudyRepository {
                         identical=false;break;
                     }
                 }
-                if(identical)return canonicalStudyEntryId(old.id);
+                if(identical){
+                    if(card.bookId==0){tagEntry(db,old.id,"user_material",true);tagEntry(db,old.id,"study_card_id",card.id);return old.id;}
+                    return canonicalStudyEntryId(old.id);
+                }
             }
-            long group=-1;
-            try(Cursor c=db.rawQuery("SELECT id FROM groups_ WHERE title=? LIMIT 1",new String[]{LocalStore.CARD_STUDY_GROUP})){
-                if(c.moveToFirst())group=c.getLong(0);
-            }
-            if(group<0)group=scope.collections.newGroup(LocalStore.CARD_STUDY_GROUP);
-            return add(group,card.reference,card.reference,verses);
+            long group=libraryId(db);
+            long id=add(group,card.reference,card.reference,verses);
+            if(card.bookId==0){tagEntry(db,id,"user_material",true);tagEntry(db,id,"study_card_id",card.id);}
+            return id;
         });
     }
 
@@ -94,7 +125,7 @@ public final class StudyRepository {
     }
 
     long libraryId(SQLiteDatabase db){
-        try(Cursor c=db.rawQuery("SELECT id FROM groups_ WHERE title=? LIMIT 1",new String[]{LocalStore.CARD_STUDY_GROUP})){
+        try(Cursor c=db.rawQuery("SELECT g.id FROM groups_ g WHERE g.title=? AND NOT EXISTS (SELECT 1 FROM unified_collections u WHERE u.group_id=g.id) LIMIT 1",new String[]{LocalStore.CARD_STUDY_GROUP})){
             if(c.moveToFirst())return c.getLong(0);
         }
         ContentValues values=new ContentValues();values.put("title",LocalStore.CARD_STUDY_GROUP);
@@ -103,11 +134,15 @@ public final class StudyRepository {
 
     public long restoreOrAddStudyPassage(long groupId,String reference,List<Bible.Verse> verses){
         if(verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустой отрывок");
+        boolean canonical=false;
+        for(String book:Bible.NAMES)if(reference.startsWith(book+" ")){canonical=true;break;}
         for(Entry old:allEntries()){
             if(!old.reference.equals(reference))continue;
+            if(canonical&&canonicalBook(old)==0)continue;
             if(old.groupId==groupId)return old.id;
+            if(!canonical)continue; // Equal user text is not a stable identity.
             Group existing=scope.collections.group(old.groupId);
-            if(existing!=null && !LocalStore.CARD_STUDY_GROUP.equals(existing.title))continue;
+            if(existing!=null)continue;
             // Reattach a previously archived entry with its original progress.
             List<Bible.Verse> saved=old.lines();
             if(saved.size()!=verses.size())continue;
@@ -145,6 +180,11 @@ public final class StudyRepository {
                 try{j.put("ref",v.ref);j.put("text",v.text);}catch(JSONException err){throw new IllegalStateException(err);}
                 arr.put(j);
             }
+            try{
+                JSONObject previous=new JSONArray(old.linesJson).getJSONObject(0),first=arr.getJSONObject(0);
+                if(previous.optBoolean("user_material",false))first.put("user_material",true);
+                if(previous.has("study_card_id"))first.put("study_card_id",previous.getLong("study_card_id"));
+            }catch(JSONException error){throw new IllegalStateException("Invalid material metadata",error);}
             ContentValues values=new ContentValues();values.put("reference",reference);
             values.put("title",reference);values.put("lines",arr.toString());
             db.update("entries",values,"id=?",new String[]{String.valueOf(id)});
@@ -188,5 +228,5 @@ public final class StudyRepository {
         scope.write().update("entries",v,"id=?",new String[]{String.valueOf(id)});
     }
 
-    public void deleteEntry(long id) {scope.write().delete("entries","id=?",new String[]{String.valueOf(id)});}
+    public void deleteEntry(long id) {scope.collections.removeStudyEntry(id);}
 }

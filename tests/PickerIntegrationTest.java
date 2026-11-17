@@ -102,7 +102,8 @@ public class PickerIntegrationTest {
         assertEquals(2,store.entries(group).size());
         store.deleteUnifiedCollection(store.unifiedForGroup(group).id);
         assertFalse((Boolean)call("savePickedPassageFor",new Class<?>[]{int.class,int.class,int.class,int.class,int.class},40,5,13,5,15));
-        assertEquals(2,store.entries(group).size());
+        assertEquals(0,store.entries(group).size());
+        assertEquals(2,store.allEntries().size()); // Both original records remain archived.
     }
     @Test public void reversedBoundsEditingAndCancel()throws Exception {
         invoke("openPickerRange");choose(false,5,12);choose(true,5,3);

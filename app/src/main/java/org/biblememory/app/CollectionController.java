@@ -39,6 +39,7 @@ final class CollectionController {
     final List<Long> cardInsertionTrail = new ArrayList<>();
 
     void restoreCollectionQueue(){
+        collectionQueue.clear();
         android.content.SharedPreferences p=ports.queuePreferences();
         if(!p.getBoolean("active",false))return;
         collectionQueueGroup=p.getLong("group",-1);
@@ -47,7 +48,14 @@ final class CollectionController {
         for(String raw:ids.split(","))try{
             long id=Long.parseLong(raw);if(ports.study().entry(id)!=null)collectionQueue.add(id);
         }catch(NumberFormatException ignored){}
-        if(collectionQueue.isEmpty()||collectionQueueCursor>=collectionQueue.size())clearCollectionQueue();
+        if(!queueValid())clearCollectionQueue();
+    }
+
+    boolean queueValid(){
+        if(collectionQueueCursor<0||collectionQueueCursor>=collectionQueue.size()||
+            !ports.collections().isVisibleGroup(collectionQueueGroup))return false;
+        for(long id:collectionQueue)if(!ports.study().containsEntry(collectionQueueGroup,id))return false;
+        return true;
     }
 
     void persistCollectionQueue(){
@@ -73,7 +81,7 @@ final class CollectionController {
         if(collectionQueueGroup==groupId&&collectionQueueCursor>=0&&
             collectionQueueCursor<collectionQueue.size()){
             long id=collectionQueue.get(collectionQueueCursor);
-            if(ports.study().entry(id)!=null){collectionQueueNewStep=false;ports.openTraining(id);return;}
+            if(queueValid()){collectionQueueNewStep=false;ports.openTraining(id);return;}
         }
         collectionQueue.clear();
         for(LocalStore.Entry e:entries)collectionQueue.add(e.id);
@@ -88,7 +96,7 @@ final class CollectionController {
     }
 
     boolean resumeCollectionTraining(){
-        if(collectionQueueCursor<0||collectionQueueCursor>=collectionQueue.size())return false;
+        if(!queueValid()){clearCollectionQueue();return false;}
         executingCollectionQueue=true;
         long id=collectionQueue.get(collectionQueueCursor);
         if(ports.study().entry(id)==null){clearCollectionQueue();return false;}
@@ -98,6 +106,7 @@ final class CollectionController {
 
     void advanceStudyCollection(){
         if(collectionQueueCursor<0||!executingCollectionQueue)return;
+        if(!queueValid()){clearCollectionQueue();ports.navigate(Screen.HOME);return;}
         collectionQueueCursor++;
         if(collectionQueueCursor>=collectionQueue.size()){
             clearCollectionQueue();
@@ -302,8 +311,7 @@ final class CollectionController {
 
     void ensureActiveUnified(){
         if(ports.collections().unifiedCollection(activeUnifiedId)!=null)return;
-        List<LocalStore.UnifiedCollection> collections=ports.collections().unifiedCollections();
-        activeUnifiedId=collections.isEmpty()?-1:collections.get(0).id;
+        activeUnifiedId=-1;
         ports.activePreferences().edit().putLong("active",activeUnifiedId).apply();
     }
 
@@ -323,8 +331,18 @@ final class CollectionController {
         return ports.collections().unifiedCollection(id);
     }
     void renameUnifiedCollection(long id,String title){ports.collections().renameUnifiedCollection(id,title);}
-    void deleteUnifiedCollection(long id){ports.collections().deleteUnifiedCollection(id);ensureActiveUnified();}
-    void clearUnifiedCollection(long id){ports.collections().clearUnifiedCollection(id);ports.clearRunHistory(id);}
+    void deleteUnifiedCollection(long id){
+        LocalStore.UnifiedCollection u=ports.collections().unifiedCollection(id);
+        ports.collections().deleteUnifiedCollection(id);
+        if(u!=null&&collectionQueueGroup==u.groupId)clearCollectionQueue();
+        ports.clearRunHistory(id);ensureActiveUnified();
+    }
+    void clearUnifiedCollection(long id){
+        LocalStore.UnifiedCollection u=ports.collections().unifiedCollection(id);
+        ports.collections().clearUnifiedCollection(id);
+        if(u!=null&&collectionQueueGroup==u.groupId)clearCollectionQueue();
+        ports.clearRunHistory(id);
+    }
     void reorderStudy(long group,List<Long> ids){ports.study().reorderStudy(group,ids);}
     void reorderCards(long deck,List<Long> ids){ports.flashcards().reorderCards(deck,ids);}
     void synchronizeCollections(Bible bible){
@@ -370,6 +388,6 @@ final class CollectionController {
         SessionSnapshot.getLongs(state,"studyInsertionTrail",studyInsertionTrail);
         SessionSnapshot.getLongs(state,"cardInsertionTrail",cardInsertionTrail);
         ensureActiveUnified();
-        if(collectionQueueCursor>=collectionQueue.size()){collectionQueue.clear();collectionQueueCursor=-1;executingCollectionQueue=false;}
+        if(!queueValid())clearCollectionQueue();
     }
 }

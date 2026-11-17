@@ -68,7 +68,14 @@ public final class CollectionRepository {
     }
 
     public void deleteUnifiedCollection(long id){
-        scope.write().delete("unified_collections","id=?",new String[]{String.valueOf(id)});
+        scope.transaction(db->{
+            UnifiedCollection u=unifiedCollection(id);if(u==null)return null;
+            clearUnifiedCollection(id);
+            db.delete("unified_collections","id=?",new String[]{String.valueOf(id)});
+            db.delete("groups_","id=?",new String[]{String.valueOf(u.groupId)});
+            db.delete("card_decks","id=?",new String[]{String.valueOf(u.deckId)});
+            return null;
+        });
     }
 
     public void clearUnifiedCollection(long id){
@@ -96,12 +103,12 @@ public final class CollectionRepository {
         Entry source=scope.study.entry(due.entryId);
         if(source==null)return false;
         if(source.groupId==groupId)return true;
-        int sourceBook=bibleBookFromReference(source.reference);
+        int sourceBook=StudyRepository.canonicalBook(source);
         if(sourceBook==0)return false;
         List<Bible.Verse> expected=source.lines();
         if(due.start<0||due.end>expected.size()||due.start>=due.end)return false;
         for(Entry target:scope.study.entries(groupId)){
-            if(bibleBookFromReference(target.reference)!=sourceBook)continue;
+            if(StudyRepository.canonicalBook(target)!=sourceBook)continue;
             List<Bible.Verse> lines=target.lines();
             for(int i=0;i+due.end-due.start<=lines.size();i++){
                 boolean equal=true;
@@ -115,7 +122,7 @@ public final class CollectionRepository {
         return false;
     }
 
-    private static int bibleBookFromReference(String reference){
+    static int bibleBookFromReference(String reference){
         if(reference==null)return 0;
         for(int i=0;i<Bible.NAMES.length;i++)if(reference.startsWith(Bible.NAMES[i]+" "))return i+1;
         return 0;
@@ -173,7 +180,7 @@ public final class CollectionRepository {
         }
         // Study passages automatically supply one flashcard per canonical verse.
         for(Entry entry:scope.study.entries(u.groupId)){
-            int book=bibleBookFromReference(entry.reference);
+            int book=StudyRepository.canonicalBook(entry);
             List<Bible.Verse> verses=entry.lines();
             for(int i=0;i<verses.size();i++){
                 if(mappedEntryCard(collectionId,entry.id,i))continue;
@@ -220,13 +227,13 @@ public final class CollectionRepository {
     }
 
     public long newGroup(String title) {
-        ContentValues v=new ContentValues();v.put("title",title.trim());
-        return scope.write().insertOrThrow("groups_",null,v);
+        // Legacy callers create the same visible collection as the current UI.
+        return unifiedCollection(createUnifiedCollection(title)).groupId;
     }
 
     public List<Group> groups() {
         List<Group> list=new ArrayList<>();
-        try(Cursor c=scope.read().rawQuery("SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id WHERE g.title!='__slovo_cards_study_library__' GROUP BY g.id ORDER BY g.id",null)) {
+        try(Cursor c=scope.read().rawQuery("SELECT g.id,g.title,COUNT(e.id) FROM groups_ g JOIN unified_collections u ON u.group_id=g.id LEFT JOIN entries e ON e.group_id=g.id GROUP BY g.id ORDER BY g.id",null)) {
             while(c.moveToNext()) { Group g=new Group();g.id=c.getLong(0);g.title=c.getString(1);g.count=c.getInt(2);list.add(g); }
         }
         return list;
@@ -266,14 +273,67 @@ public final class CollectionRepository {
     }
 
     public boolean detachStudyReference(long groupId,String reference){
-        SQLiteDatabase db=scope.write();db.beginTransaction();
-        try{
-            long library=scope.study.libraryId(db);
-            ContentValues values=new ContentValues();values.put("group_id",library);
-            int changed=db.update("entries",values,"group_id=? AND reference=?",
-                new String[]{String.valueOf(groupId),reference});
-            db.setTransactionSuccessful();return changed>0;
-        }finally{db.endTransaction();}
+        return scope.transaction(db->{
+            boolean changed=false;
+            for(Entry entry:scope.study.entries(groupId))if(Objects.equals(reference,entry.reference))
+                changed=removeStudyEntry(entry.id)||changed;
+            return changed;
+        });
+    }
+
+    /** Archive the stable row, never cascade its FK-linked learning history. */
+    public boolean removeStudyEntry(long id){
+        return scope.transaction(db->{
+            Entry entry=scope.study.entry(id);if(entry==null)return false;
+            if(!isVisibleGroup(entry.groupId))return false;
+            UnifiedCollection u=unifiedForGroup(entry.groupId);
+            List<Long> cards=new ArrayList<>();
+            if(u!=null){
+                try(Cursor c=db.rawQuery("SELECT card_id FROM unified_entry_cards WHERE collection_id=? AND entry_id=? UNION SELECT card_id FROM unified_card_entries WHERE collection_id=? AND entry_id=?",
+                    new String[]{String.valueOf(u.id),String.valueOf(id),String.valueOf(u.id),String.valueOf(id)})){while(c.moveToNext())cards.add(c.getLong(0));}
+                db.delete("unified_entry_cards","collection_id=? AND entry_id=?",new String[]{String.valueOf(u.id),String.valueOf(id)});
+                db.delete("unified_card_entries","collection_id=? AND entry_id=?",new String[]{String.valueOf(u.id),String.valueOf(id)});
+            }
+            db.delete("study_order","entry_id=?",new String[]{String.valueOf(id)});
+            ContentValues archived=new ContentValues();archived.put("group_id",scope.study.libraryId(db));
+            db.update("entries",archived,"id=?",new String[]{String.valueOf(id)});
+            if(u!=null)for(long card:cards){
+                try(Cursor c=db.rawQuery("SELECT x.entry_id FROM unified_entry_cards x JOIN entries e ON e.id=x.entry_id WHERE x.collection_id=? AND x.card_id=? AND e.group_id=? LIMIT 1",
+                    new String[]{String.valueOf(u.id),String.valueOf(card),String.valueOf(u.groupId)})){
+                    if(!c.moveToFirst()){
+                        db.delete("card_deck_members","deck_id=? AND card_id=?",new String[]{String.valueOf(u.deckId),String.valueOf(card)});
+                        db.delete("card_order","deck_id=? AND card_id=?",new String[]{String.valueOf(u.deckId),String.valueOf(card)});
+                    }else mapCardEntry(u.id,card,c.getLong(0));
+                }
+            }
+            return true;
+        });
+    }
+
+    boolean isVisibleGroup(long group){return group(group)!=null;}
+
+    /** Archived history participates only while its exact segment has a live membership. */
+    boolean activeMaterial(DueItem item){
+        Entry entry=scope.study.entry(item.entryId);if(entry==null)return false;
+        if(item.start<0||item.end<=item.start||item.end>entry.lines().size())return false;
+        if(isVisibleGroup(entry.groupId))return true;
+        for(Group group:groups())if(belongsToGroupMaterial(group.id,item))return true;
+        return false;
+    }
+
+    boolean validSession(long entryId,String stage,int start,int end,long group){
+        DueItem item=new DueItem(entryId,stage,start,end,0);
+        if(group<=-2){
+            // Legacy card lessons keep their deck context independently of collection lessons.
+            Entry entry=scope.study.entry(entryId);if(entry==null)return false;
+            long sourceCard=-1;
+            try{sourceCard=new JSONArray(entry.linesJson).getJSONObject(0).optLong("study_card_id",-1);}
+            catch(JSONException error){throw new IllegalStateException("Invalid card lesson metadata",error);}
+            for(Flashcard card:scope.flashcards.flashcards(-group-2))
+                if((sourceCard<0||card.id==sourceCard)&&Objects.equals(card.reference,entry.reference)&&Objects.equals(card.content,PassageText.join(entry.lines())))return true;
+            return false;
+        }
+        return group<0?activeMaterial(item):isVisibleGroup(group)&&belongsToGroupMaterial(group,item);
     }
 
     public long addPickedPassage(long groupId,String reference,List<Bible.Verse> verses,Bible bible){
@@ -309,7 +369,15 @@ public final class CollectionRepository {
         scope.write().update("groups_",v,"id=?",new String[]{String.valueOf(id)});
     }
 
-    public void deleteGroup(long id) {scope.write().delete("groups_","id=?",new String[]{String.valueOf(id)});}
+    public void deleteGroup(long id) {
+        if(!isVisibleGroup(id))return; // Never cascade-delete the private history library.
+        UnifiedCollection unified=unifiedForGroup(id);
+        if(unified!=null){deleteUnifiedCollection(unified.id);return;}
+        scope.transaction(db->{
+            for(Entry entry:scope.study.entries(id))removeStudyEntry(entry.id);
+            db.delete("groups_","id=?",new String[]{String.valueOf(id)});return null;
+        });
+    }
     /** Invalidate generated relations within the same material revision transaction. */
     void invalidateEntryCards(SQLiteDatabase db,long id){
         // The edited text/range invalidates its previously generated cards.

@@ -110,6 +110,7 @@ public final class MainActivity extends Activity {
         public void collectionStepStarted(){collectionActions.collectionQueueNewStep=false;}
         public boolean collectionQueueReady(){return collectionActions.executingCollectionQueue&&collectionActions.collectionQueueCursor>=0;}
         public boolean cardStudyActive(){return flashcardSession.cardStudyCursor>=0;}
+        public long studyDeckId(){return flashcardSession.cardStudyDeckId;}
         public void advanceCollection(){collectionActions.advanceStudyCollection();}
         public void advanceCardStudy(){MainActivity.this.advanceCardStudy();}
         public void saveCardCheckpoint(){flashcardSession.saveCardSession();}
@@ -470,7 +471,12 @@ public final class MainActivity extends Activity {
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
-        if(store!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
+        if(store!=null){
+            if(screen==Screen.TRAIN&&studySession.selectedEntry>0&&!studySession.validSession()){
+                invalidateRemovedSessions();screen=Screen.HOME;render();
+            }else if(screen==Screen.RUN&&!studySession.validRun()){studySession.runLines.clear();screen=Screen.HOME;render();}
+            refreshHomeIndex(true);scheduleHomeRefresh();
+        }
     }
     @Override protected void onPause() {
         settleBibleIcons();
@@ -2631,6 +2637,7 @@ public final class MainActivity extends Activity {
                 toggle.setOnClickListener(v->{
                     if(included.contains(verse.ref)&&!present.contains(reference))return;
                     if(collectionActions.togglePickerCollectionVerse(book,chapter,number)){
+                        invalidateRemovedSessions();
                         boolean added=collectionActions.pickerCollectionContainsVerse(book,chapter,number);
                         if(added)present.add(reference);else present.remove(reference);
                         toggle.setText(added?"−":included.contains(verse.ref)?"✓":"+");
@@ -3512,10 +3519,10 @@ public final class MainActivity extends Activity {
     }
     private void confirmDeleteStudyGroup(LocalStore.Group group){
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Удалить коллекцию и все стихи?")
-            .setMessage("Это действие нельзя отменить.")
+            .setTitle("Удалить коллекцию?")
+            .setMessage("Коллекция и её содержимое будут удалены. Прогресс изучения стихов сохранится")
             .setPositiveButton("Удалить",(d,w)->{
-                store.collections().deleteGroup(group.id);screen=Screen.HOME;render();
+                store.collections().deleteGroup(group.id);invalidateRemovedSessions();screen=Screen.HOME;render();
             }).setNegativeButton("Отмена",null).create());
     }
 
@@ -3732,7 +3739,7 @@ public final class MainActivity extends Activity {
                     styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать отрывок из коллекции?")
                         .setPositiveButton("Убрать",(d,w)->{
-                            store.collections().removeUnifiedPassage(entry.groupId,entry.reference);render();
+                            store.collections().removeStudyEntry(entry.id);invalidateRemovedSessions();render();
                         }).setNegativeButton("Отмена",null).create());break;
             }
         });
@@ -3770,8 +3777,8 @@ public final class MainActivity extends Activity {
                         }).setNegativeButton("Отмена",null).show();
                 } else new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                     .setTitle("Удалить отрывок?")
-                    .setMessage("Будут удалены и его результаты обучения.")
-                    .setPositiveButton("Удалить",(dd,w)->{store.study().deleteEntry(entry.id);render();})
+                    .setMessage("Отрывок будет удалён из коллекции. История его изучения сохранится.")
+                    .setPositiveButton("Удалить",(dd,w)->{store.study().deleteEntry(entry.id);invalidateRemovedSessions();render();})
                     .setNegativeButton("Отмена",null).show();
             }).show();
     }
@@ -3815,10 +3822,10 @@ public final class MainActivity extends Activity {
                 long groupId=collectionActions.customTargetGroupId;
                 if(store.collections().group(groupId)==null){toast("Коллекция не найдена");return;}
                 collectionActions.customTargetGroupId=-1;
-                long id=store.study().add(groupId,t,r.isEmpty()?"Свой текст":r,items);
+                long id=store.study().addUserMaterial(groupId,t,r.isEmpty()?"Свой текст":r,items);
                 studySession.openTraining(id);
             }else{
-                chooseGroup(groupId->{long id=store.study().add(groupId,t,r.isEmpty()?"Свой текст":r,items);studySession.openTraining(id);});
+                chooseGroup(groupId->{long id=store.study().addUserMaterial(groupId,t,r.isEmpty()?"Свой текст":r,items);studySession.openTraining(id);});
             }
         });
 
@@ -4033,10 +4040,11 @@ public final class MainActivity extends Activity {
         if(currentScroller!=null)currentScroller.post(()->currentScroller.scrollTo(0,position));
     }
     private void completeIntro(int completed){
+        if(!studySession.requireValidSession())return;
         if(studySession.reviewMode||studySession.groupMode||studySession.studyStage!=StudyPlanLogic.Stage.VERSE)return;
         if(store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor)==completed-1 &&
             (completed!=2 || (studySession.trainingMode==StudySessionController.TrainingMode.HIDE && studySession.mask==100))){
-            store.progress().finishExercise(studySession.selectedEntry,studySession.stepCursor,completed);
+            if(!studySession.finishExercise(studySession.selectedEntry,studySession.stepCursor,completed))return;
             studySession.trainingMode=completed==1?StudySessionController.TrainingMode.HIDE:StudySessionController.TrainingMode.ORDER;
             studySession.mask=completed==1?25:0;studySession.resetWordTiles();studySession.saveTrainingSession();render();
         }
@@ -4133,7 +4141,8 @@ public final class MainActivity extends Activity {
             else {
                 if(!studySession.reviewMode&&!studySession.groupMode&&studySession.studyStage==StudyPlanLogic.Stage.VERSE &&
                     store.progress().exerciseDone(studySession.selectedEntry,studySession.stepCursor)==2 && !studySession.orderCompleted){
-                    studySession.orderCompleted=true;store.progress().finishExercise(studySession.selectedEntry,studySession.stepCursor,3);
+                    if(!studySession.requireValidSession())return;
+                    if(!studySession.finishExercise(studySession.selectedEntry,studySession.stepCursor,3))return;studySession.orderCompleted=true;
                 }
                 helper(card,"Ты расставил слова с подсказками. Теперь проверь, сможешь ли воспроизвести их без готовых вариантов.");
                 action(card,"✎  Написать по памяти",true,()->chooseTrainingMode(StudySessionController.TrainingMode.TYPE,false));
@@ -4143,6 +4152,7 @@ public final class MainActivity extends Activity {
         action(card,"↺  Собрать сначала",false,()->{studySession.resetWordTiles();updateActiveTrainingUI();});
     }
     private void renderTraining() {
+        if(!studySession.requireValidSession())return;
         LocalStore.Entry e=store.study().entry(studySession.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
         studySession.activeEntry=e;
@@ -4242,6 +4252,7 @@ public final class MainActivity extends Activity {
 
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderFullscreenLesson() {
+        if(!studySession.requireValidSession())return;
         LocalStore.Entry e=store.study().entry(studySession.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
         List<StudyPlanLogic.Step> steps=studySession.studySteps(e);
@@ -4303,8 +4314,9 @@ public final class MainActivity extends Activity {
             lessonPhaseHeader("Ознакомление",e);
             renderLessonIntro();
             mainAction=button("Продолжить",true,()->{
+                if(!studySession.requireValidSession())return;
                 if(studySession.groupMode)studySession.groupIntroDone=true;
-                else store.progress().finishExercise(e.id,studySession.activeStep.start,1);
+                else if(!studySession.finishExercise(e.id,studySession.activeStep.start,1))return;
                 studySession.lessonVariant=0;studySession.lessonChunk=0;studySession.lessonWriteVariant=0;studySession.resetLessonTiles();studySession.mask=0;
                 studySession.saveTrainingSession();render();
             });
@@ -4962,8 +4974,10 @@ public final class MainActivity extends Activity {
         LinearLayout panel=card(content);panel.setBackground(homeSurface());
         LocalStore.UnifiedCollection active=collectionActions.activeUnified();
         if(active==null){
-            add(panel,displayText("Пока нет коллекций",22),0);
-            action(panel,"＋ Создать первую коллекцию",true,()->newUnifiedCollection(null));
+            boolean empty=store.collections().unifiedCollections().isEmpty();
+            add(panel,displayText(empty?"Пока нет коллекций":"Выбери коллекцию",22),0);
+            if(!empty)action(panel,"Выбрать коллекцию",true,this::showUnifiedSelector);
+            action(panel,"＋ Создать коллекцию",true,()->newUnifiedCollection(null));
             return;
         }
         // Compact collection switcher: two curved circular arrows, no chevron.
@@ -4997,7 +5011,16 @@ public final class MainActivity extends Activity {
             }
         }
         add(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),8);
-        if(verses>0)progress(panel,learned,verses);
+        if(verses==0){
+            helper(panel,"Коллекция пуста. Добавь материал для изучения.");
+            action(panel,"＋ Добавить из Библии",true,()->{
+                collectionActions.clearInsertionContext();
+                bibleReader.openBiblePicker(BibleReaderController.BibleTarget.STUDY_GROUP,active.groupId,Screen.HOME);
+            });
+            action(panel,"＋ Добавить свой текст",false,()->{collectionActions.customTargetGroupId=active.groupId;screen=Screen.CUSTOM;render();});
+            return;
+        }
+        progress(panel,learned,verses);
         unifiedModeRow(panel,"Учить стихи наизусть","book",this::startActiveStudy);
         unifiedModeRow(panel,"Режим карточек","cards",this::startActiveCards);
         unifiedModeRow(panel,"Повторение стихов","brain",()->startActiveReview(false));
@@ -5136,16 +5159,25 @@ public final class MainActivity extends Activity {
         unifiedSettingRow(settings,"Удалить коллекцию","trash",true,()->deleteUnified(u));
         add(content,settings,14);
     }
+    private void invalidateRemovedSessions(){
+        if(!collectionActions.queueValid())collectionActions.clearCollectionQueue();
+        if(studySession.selectedEntry>0&&!studySession.validSession()){
+            studySession.selectedEntry=0;studySession.activeEntry=null;studySession.activeStep=null;
+            studySession.checked=false;studySession.passed=false;studySession.reviewQueue.clear();
+            studySession.reviewMode=false;studySession.groupMode=false;studySession.forcedStep=null;
+            getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().remove("review_pending").apply();
+        }
+        readyTabs.clear();
+    }
+
     private void clearUnified(LocalStore.UnifiedCollection u){
         if(u.entries==0&&u.cards==0){toast("Коллекция уже пуста");return;}
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Очистить коллекцию?")
-            .setMessage("Все стихи, отрывки и карточки будут убраны из этой коллекции. " +
-                "Саму коллекцию и прежние результаты заучивания сохраним. " +
-                "Отменить очистку нельзя.")
+            .setMessage("Все стихи и отрывки будут удалены из этой коллекции. История их изучения сохранится")
             .setPositiveButton("Очистить",(d,w)->{
-                collectionActions.clearUnifiedCollection(u.id);
-                render();toast("Коллекция очищена");
+                try{collectionActions.clearUnifiedCollection(u.id);invalidateRemovedSessions();render();toast("Коллекция очищена");}
+                catch(RuntimeException error){android.util.Log.e("Collections","Clear failed",error);toast("Не удалось очистить коллекцию");}
             }).setNegativeButton("Отмена",null).create());
     }
     private void renameUnified(LocalStore.UnifiedCollection u){
@@ -5160,11 +5192,11 @@ public final class MainActivity extends Activity {
     }
     private void deleteUnified(LocalStore.UnifiedCollection u){
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Удалить коллекцию из списка?")
-            .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
+            .setTitle("Удалить коллекцию?")
+            .setMessage("Коллекция и её содержимое будут удалены. Прогресс изучения стихов сохранится")
             .setPositiveButton("Удалить",(d,w)->{
-                collectionActions.deleteUnifiedCollection(u.id);
-                screen=Screen.COLLECTIONS;render();
+                try{collectionActions.deleteUnifiedCollection(u.id);invalidateRemovedSessions();screen=Screen.COLLECTIONS;render();}
+                catch(RuntimeException error){android.util.Log.e("Collections","Delete failed",error);toast("Не удалось удалить коллекцию");}
             }).setNegativeButton("Отмена",null).create());
     }
     private void renderUnifiedCollectionDetail(){
@@ -5233,6 +5265,7 @@ public final class MainActivity extends Activity {
     }
 
     private void renderWritingRun(){
+        if(!studySession.validRun()){studySession.runLines.clear();screen=Screen.HOME;render();return;}
         if(studySession.runLines.isEmpty()){screen=Screen.HOME;render();return;}
         studySession.runCursor=Math.min(studySession.runCursor,studySession.runLines.size()-1);
         StudySessionController.RunLine line=studySession.runLines.get(studySession.runCursor);
