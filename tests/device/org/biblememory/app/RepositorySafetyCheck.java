@@ -90,7 +90,30 @@ public final class RepositorySafetyCheck extends Instrumentation {
             Map<String,String> before=rows(store);store.collections().syncUnifiedCollection(u.id,null);require(before.equals(rows(store)),"Repeated sync changed stored rows/order");
         }
     }
+    void studyAttempt(SafetySandbox context){
+        LocalStore store=context.store();long id=StorageSafetyCheck.entry(store,store.newGroup("Attempt"));
+        LocalStore.Entry entry=store.study().entry(id);StudyProgressRecorder writer=new StudyProgressRecorder(store.progress());
+        StudyPlanLogic.Step step=new StudyPlanLogic.Step(0,1,"1:1");long now=1700000000000L;
+        Map<String,String> before=rows(store);
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_attempt BEFORE INSERT ON stage_progress BEGIN SELECT RAISE(ABORT,'injected-attempt'); END");
+        rejected(()->writer.success(entry,"VERSE",step,false,false,false,now));
+        require(before.equals(rows(store)),"Partial answer survived mastery failure");
+        store.getWritableDatabase().execSQL("DROP TRIGGER reject_attempt");
+        writer.success(entry,"VERSE",step,false,false,false,now);Map<String,String> committed=rows(store);
+        writer.success(entry,"VERSE",step,false,false,false,now);
+        require(committed.equals(rows(store)),"Replayed attempt advanced history/schedule");
+        require(store.progress().exerciseDone(id,0)==5,"Lesson did not complete");
+    }
+    void combinedAttempt(SafetySandbox context){
+        LocalStore store=context.store();long id=StorageSafetyCheck.entry(store,store.newGroup("Combined"));
+        LocalStore.Entry entry=store.study().entry(id);StudyProgressRecorder writer=new StudyProgressRecorder(store.progress());
+        StudyPlanLogic.Step step=new StudyPlanLogic.Step(0,2,"1:1–2");Map<String,String> before=rows(store);
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_second BEFORE INSERT ON review_attempts WHEN NEW.first_line=1 BEGIN SELECT RAISE(ABORT,'injected-second'); END");
+        rejected(()->writer.success(entry,"CHAIN",step,true,true,false,1700000000000L));
+        require(before.equals(rows(store)),"First verse committed before second failed");
+    }
     @Override public void onStart(){
+        run("study-attempt-rollback-and-replay",this::studyAttempt);run("combined-attempt-rollback",this::combinedAttempt);
         run("cross-repository-rollback",this::sharedTransaction);run("collection-detach-and-membership-rollback",this::collectionRemoval);run("card-delete-rollback",this::cardRemoval);run("card-replacement-rollback",this::cardChange);run("deck-delete-rollback",this::deckRemoval);run("independent-study-create-rollback",this::independentStudyCreation);run("weak-transition-rollback",this::weakTransition);run("rename-all-titles-rollback",this::rename);run("revision-history-rollback",this::revise);run("clear-all-links-rollback",this::clear);run("sync-query-count-and-idempotence",this::syncQueries);
         Bundle result=new Bundle();result.putString("stream","REPOSITORY_GUARDS_PASSED="+passed+" UNEXPECTED_FAILURES="+failed+"\n");finish(failed==0?Activity.RESULT_OK:Activity.RESULT_CANCELED,result);
     }

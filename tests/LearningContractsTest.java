@@ -98,4 +98,17 @@ public class LearningContractsTest {
         assertEquals(Arrays.asList(12L,27L,39L,42L),ids);assertEquals(Collections.singletonList(12L),FlashcardDeckLogic.shuffled(Collections.singletonList(12L),12,random));
     }
     private void assertRange(StudyPlanLogic.Step step,int start,int end){assertEquals(start,step.start);assertEquals(end,step.end);}
+    @Test public void answerEvaluationPreservesExistingNormalizationAndStrictWordChecks(){
+        String expected="Ёлка — свет миру!";
+        assertTrue(StudyAnswerEvaluation.lesson(expected,"елка СВЕТ миру",false).exact);
+        for(String actual:Arrays.asList("елка цвет миру","елка миру","елка свет свет миру","елка свет миру всем","")){
+            StudyAnswerEvaluation result=StudyAnswerEvaluation.lesson(expected,actual,false);
+            assertFalse(result.exact);assertTrue(result.accuracy<100);
+            assertFalse(TypingDiffLogic.issues(expected,actual).isEmpty());
+        }
+        String longText=String.join(" ",Collections.nCopies(500,"Слово истины"));
+        assertTrue(StudyAnswerEvaluation.lesson(longText,longText,false).exact);
+        assertFalse(StudyAnswerEvaluation.lesson(longText,longText+" лишнее",false).exact);
+    }
+
 }

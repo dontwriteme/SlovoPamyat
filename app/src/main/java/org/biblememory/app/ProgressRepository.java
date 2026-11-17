@@ -12,6 +12,24 @@ public final class ProgressRepository {
     private final RepositoryScope scope;
     ProgressRepository(RepositoryScope scope){this.scope=scope;}
 
+    /** One submitted answer: receipt, history, mastery and schedule commit together.
+     * Existing recall timestamps serve as receipts; no schema migration is needed. */
+    boolean commitStudyAttempt(Entry expected,int start,int end,long attemptedAt,Runnable writes){
+        return scope.transaction(db->{
+            Entry current=scope.study.entry(expected.id);
+            if(current==null || !Objects.equals(current.linesJson,expected.linesJson) ||
+                !Objects.equals(current.reference,expected.reference) || start<0 ||
+                end<=start || end>current.lines().size())
+                throw new IllegalStateException("Study material changed; reopen the lesson");
+            try(Cursor c=db.rawQuery("SELECT 1 FROM recall_activity WHERE entry_id=? AND last_attempt=? LIMIT 1",
+                    new String[]{String.valueOf(expected.id),String.valueOf(attemptedAt)})){
+                if(c.moveToFirst())return false;
+            }
+            writes.run();
+            return true;
+        });
+    }
+
     public void recordWeakTransition(long entryId,int from,int to,long now){
         if(from<0||to!=from+1)return;
         scope.transaction(transactionDb->{
@@ -36,7 +54,7 @@ public final class ProgressRepository {
             new String[]{String.valueOf(id),String.valueOf(position),String.valueOf(position+1)})){
             if(c.moveToFirst() && c.getLong(0)>0 && c.getLong(0)<due)return;
         }
-        db.insertWithOnConflict("review_schedule",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+        db.replaceOrThrow("review_schedule",null,v);
     }
 
     private List<long[]> matchingVerseLocations(long id,int position){
@@ -118,7 +136,7 @@ public final class ProgressRepository {
         if(completed>old){
             ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("position",position);
             cv.put("completed",completed);
-            scope.write().insertWithOnConflict("lesson_progress",null,cv,SQLiteDatabase.CONFLICT_REPLACE);
+            scope.write().replaceOrThrow("lesson_progress",null,cv);
         }
     }
 
@@ -141,7 +159,7 @@ public final class ProgressRepository {
                 ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("stage",stage);
                 cv.put("first_line",start);cv.put("last_line",end);
                 cv.put("level",r.level);cv.put("due",r.due);cv.put("last_score",accuracy);
-                db.insertWithOnConflict("review_schedule",null,cv,SQLiteDatabase.CONFLICT_REPLACE);
+                db.replaceOrThrow("review_schedule",null,cv);
             }
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
@@ -213,12 +231,12 @@ public final class ProgressRepository {
             for(int i=start;"VERSE".equals(stage) && i<end;i++) {
                 ContentValues cv=new ContentValues();cv.put("entry_id",entryId);
                 cv.put("position",i);cv.put("best_score",score);
-                db.insertWithOnConflict("verse_progress",null,cv,SQLiteDatabase.CONFLICT_REPLACE);
+                db.replaceOrThrow("verse_progress",null,cv);
             }
             ContentValues step=new ContentValues();step.put("entry_id",entryId);
             step.put("stage",stage);step.put("first_line",start);step.put("last_line",end);
             step.put("best_score",score);
-            db.insertWithOnConflict("stage_progress",null,step,SQLiteDatabase.CONFLICT_REPLACE);
+            db.replaceOrThrow("stage_progress",null,step);
             db.setTransactionSuccessful();
         } finally{db.endTransaction();}
     }
@@ -243,7 +261,7 @@ public final class ProgressRepository {
             v.put("first_line",start);v.put("last_line",end);v.put("last_attempt",now);
             v.put("first_success",first);v.put("last_success",last);v.put("success_count",successes);
             v.put("fail_streak",fails);v.put("last_score",accuracy);
-            db.insertWithOnConflict("recall_activity",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+            db.replaceOrThrow("recall_activity",null,v);
             db.setTransactionSuccessful();
         } finally{db.endTransaction();}
     }

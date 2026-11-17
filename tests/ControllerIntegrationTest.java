@@ -158,7 +158,7 @@ public class ControllerIntegrationTest {
         session.reviewMode=true;session.testAssisted=true;session.draft="слово ИСТИНЫ!";
         StudyPlanLogic.Step step=new StudyPlanLogic.Step(0,1,"1:1");session.checkAnswer(entry,step,false);
         assertFalse(session.passed);assertFalse(store.isStepMastered(entry.id,"VERSE",0,1));assertEquals(1,renders);
-        session.testAssisted=false;session.checkAnswer(entry,step,false);
+        session.checked=false;session.testAssisted=false;session.checkAnswer(entry,step,false);
         assertTrue(session.passed);assertTrue(store.isStepMastered(entry.id,"VERSE",0,1));assertEquals(2,renders);
         assertEquals(0,store.entry(entry.id).days);assertEquals(0,store.entry(entry.id).repetitions);
     }
@@ -268,6 +268,57 @@ public class ControllerIntegrationTest {
         saved.edit().putBoolean("review_pending",true).putString("entry_"+entry.id+"_draft","ordinary draft").apply();
         session.advanceReviewSession();assertEquals(Screen.HOME,readerScreen);assertFalse(session.reviewMode);assertTrue(session.reviewQueue.isEmpty());
         assertFalse(saved.getBoolean("review_pending",false));assertEquals("ordinary draft",saved.getString("entry_"+entry.id+"_draft",""));
+    }
+
+    private int attempts(long id){
+        try(android.database.Cursor c=store.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM review_attempts WHERE entry_id=?",new String[]{String.valueOf(id)})){c.moveToFirst();return c.getInt(0);}
+    }
+    @Test public void successfulAnswerReplayAfterLostUiCheckpointDoesNotRecordAgain(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();
+        session.selectedEntry=entry.id;session.activeEntry=entry;session.activeStep=new StudyPlanLogic.Step(0,1,"1:1");
+        session.trainingMode=StudySessionController.TrainingMode.TYPE;session.draft="Слово истины";
+        android.os.Bundle before=session.saveState();session.validateLessonWriting(entry);
+        assertTrue(session.passed);assertEquals(1,attempts(entry.id));
+        StudySessionController recreated=study();recreated.restoreState(before);recreated.validateLessonWriting(entry);
+        assertTrue(recreated.passed);assertEquals(1,attempts(entry.id));
+        recreated.validateLessonWriting(entry);assertEquals(1,attempts(entry.id));
+    }
+    @Test public void rejectedMasteryRollsBackWholeAnswerAndRetryCommitsOnce(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();
+        session.selectedEntry=entry.id;session.activeStep=new StudyPlanLogic.Step(0,1,"1:1");
+        session.trainingMode=StudySessionController.TrainingMode.TYPE;session.draft="Слово истины";
+        store.getWritableDatabase().execSQL("CREATE TRIGGER reject_mastery BEFORE INSERT ON stage_progress BEGIN SELECT RAISE(ABORT,'injected-mastery'); END");
+        session.validateLessonWriting(entry);assertFalse(session.passed);assertEquals(0,attempts(entry.id));
+        assertFalse(store.isStepMastered(entry.id,"VERSE",0,1));assertEquals(0,store.exerciseDone(entry.id,0));
+        store.getWritableDatabase().execSQL("DROP TRIGGER reject_mastery");session.validateLessonWriting(entry);
+        assertTrue(session.passed);assertEquals(1,attempts(entry.id));
+    }
+    @Test public void changedMaterialCannotReceiveAnOldAnswer(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();
+        session.selectedEntry=entry.id;session.activeStep=new StudyPlanLogic.Step(0,1,"1:1");
+        session.trainingMode=StudySessionController.TrainingMode.TYPE;session.draft="Слово истины";
+        store.study().reviseStudyPassage(entry.id,entry.reference,Arrays.asList(new Bible.Verse("1:1","Другой текст")));
+        session.validateLessonWriting(entry);assertFalse(session.passed);assertEquals(0,attempts(entry.id));
+    }
+    @Test public void durableCheckpointKeepsInlineAnswersAssistanceAndCompletedFeedback(){
+        StudySessionController session=study();LocalStore.Entry entry=studyEntry();session.selectedEntry=entry.id;
+        session.inlineDrafts=new String[]{"слово","истины"};session.testAssisted=true;
+        session.checked=true;session.passed=false;session.lastAccuracy=75;session.lastExpected="Слово истины";
+        session.saveTrainingSession();StudySessionController restored=study();assertTrue(restored.restoreTrainingSession(entry.id));
+        assertArrayEquals(session.inlineDrafts,restored.inlineDrafts);assertTrue(restored.testAssisted);
+        assertTrue(restored.checked);assertFalse(restored.passed);assertEquals(75,restored.lastAccuracy);
+    }
+
+    @Test public void pendingReviewReplayAfterCommitUsesDurableIdentity(){
+        LocalStore.Entry entry=studyEntry();StudySessionController first=study();
+        first.openReview(new LocalStore.DueItem(entry.id,"VERSE",0,1,1700000000000L));
+        first.activeStep=first.forcedStep;first.draft="Слово истины";first.validateLessonWriting(entry);
+        assertEquals(1,attempts(entry.id));
+        // Simulate death after SQLite commit but before review_pending removal reaches disk.
+        RuntimeEnvironment.getApplication().getSharedPreferences("study_session",0).edit().putBoolean("review_pending",true).commit();
+        StudySessionController restored=study();restored.startReviewSession();restored.activeStep=restored.forcedStep;
+        assertEquals("Слово истины",restored.draft);restored.validateLessonWriting(entry);
+        assertTrue(restored.passed);assertEquals(1,attempts(entry.id));
     }
 
 }

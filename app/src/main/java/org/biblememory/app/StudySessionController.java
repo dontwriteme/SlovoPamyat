@@ -108,6 +108,10 @@ final class StudySessionController {
             .putLong("entry",selectedEntry).putString(key+"stage",studyStage.name())
             .putInt(key+"step",stepCursor).putString(key+"mode",trainingMode.name())
             .putInt(key+"mask",mask).putString(key+"draft",draft)
+            .putString(key+"inline_drafts",new JSONArray(Arrays.asList(inlineDrafts)).toString())
+            .putBoolean(key+"assisted",testAssisted)
+            .putBoolean(key+"checked",checked).putBoolean(key+"passed",passed)
+            .putInt(key+"accuracy",lastAccuracy).putString(key+"expected",lastExpected)
             .putInt(key+"blur_seed",blurSeed)
             .putInt(key+"lesson_variant",lessonVariant).putInt(key+"lesson_chunk",lessonChunk)
             .putInt(key+"lesson_picked",lessonPicked).putLong(key+"lesson_seed",lessonSeed)
@@ -124,6 +128,7 @@ final class StudySessionController {
             .putBoolean(key+"pending",reviewMode||groupMode)
             .putLong(key+"review_entry",reviewMode?selectedEntry:0)
             .putString(key+"review_stage",reviewMode&&currentReview!=null?currentReview.stage:"")
+            .putLong(key+"review_due",reviewMode&&currentReview!=null?currentReview.due:0)
             .putInt(key+"begin",activeStep==null?0:activeStep.start)
             .putInt(key+"end",activeStep==null?0:activeStep.end)
             .putString(key+"group_stage",studyStage.name())
@@ -162,7 +167,13 @@ final class StudySessionController {
         String saved=pref.getString(key+"lesson_tiles","").replace("[", "").replace("]", "");
         for(String part:saved.split(","))try{lessonUsedTiles.add(Integer.parseInt(part.trim()));}
             catch(NumberFormatException ignored){}
-        checked=false;passed=false;testAssisted=false;lastAccuracy=-1;resetWordTiles();
+        checked=pref.getBoolean(key+"checked",false);passed=pref.getBoolean(key+"passed",false);
+        testAssisted=pref.getBoolean(key+"assisted",false);
+        lastAccuracy=pref.getInt(key+"accuracy",-1);lastExpected=pref.getString(key+"expected","");
+        try{JSONArray values=new JSONArray(pref.getString(key+"inline_drafts","[]"));
+            inlineDrafts=new String[values.length()];for(int i=0;i<values.length();i++)inlineDrafts[i]=values.getString(i);
+        }catch(JSONException invalid){inlineDrafts=new String[0];}
+        resetWordTiles();
         return true;
     }
 
@@ -242,32 +253,50 @@ final class StudySessionController {
         if(runCollectionId==collection){runLines.clear();runCollectionId=-1;}
     }
 
-    void checkAnswer(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered) {
+    private boolean combinedReview(){return reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage);}
+
+    /** Persist identity BEFORE SQLite, so replay after process death uses the same receipt.
+     * A new answer/exercise/review due date gets a new timestamp; an unchanged callback reuses it. */
+    private long attemptTime(LocalStore.Entry e,StudyPlanLogic.Step step,String kind,String answer){
+        String raw=e.id+"|"+e.reference+"|"+e.linesJson+"|"+studyStage+"|"+step.start+"|"+step.end+
+            "|"+lessonSeed+"|"+(currentReview==null?0:currentReview.due)+"|"+testAssisted+"|"+kind+"|"+answer;
+        String identity;
+        try{
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex=new StringBuilder();for(byte value:digest)hex.append(String.format(java.util.Locale.ROOT,"%02x",value));
+            identity=hex.toString();
+        }catch(java.security.NoSuchAlgorithmException impossible){throw new AssertionError(impossible);}
+        saveTrainingSession();
+        SharedPreferences prefs=ports.studyPreferences();
+        if(identity.equals(prefs.getString("attempt_identity","")))return prefs.getLong("attempt_time",0);
+        long now=Math.max(System.currentTimeMillis(),prefs.getLong("attempt_time",0)+1);
+        if(!prefs.edit().putString("attempt_identity",identity).putLong("attempt_time",now).commit())
+            throw new IllegalStateException("Cannot save study attempt checkpoint");
+        return now;
+    }
+
+    void checkAnswer(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered){
+        try{checkAnswerInternal(e,step,mastered);}
+        catch(android.database.sqlite.SQLiteException | IllegalStateException error){
+            android.util.Log.e("StudySession","Answer result was not committed",error);
+            ports.toast("Не удалось сохранить ответ. Открой занятие заново или повтори попытку.");
+        }
+    }
+    private void checkAnswerInternal(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered){
+        if(checked)return;
         String expected=texts(e.lines().subList(step.start,step.end));
-        int accuracy=ReviewLogic.accuracy(expected,draft);
+        StudyAnswerEvaluation evaluation=StudyAnswerEvaluation.recall(expected,draft);
+        int accuracy=evaluation.accuracy;
         boolean finalStage=!reviewMode&&!groupMode && studyStage==StudyPlanLogic.Stage.VERSE &&
             ports.progress().exerciseDone(e.id,step.start)==4;
         boolean independent=reviewMode||groupMode||finalStage;
-        passed=LessonCurriculumLogic.exact(expected,draft) && (!independent||!testAssisted);
+        boolean accepted=evaluation.exact && (!independent||!testAssisted);
         lastAccuracy=accuracy;lastExpected=expected;lastTestRef=step.title;
         lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
-        long now=System.currentTimeMillis();
-        ports.progress().recordRecall(e.id,studyStage.name(),step.start,step.end,accuracy,
-            testAssisted||!independent,now);
-        if(independent){
-            ports.progress().scheduleReview(e.id,studyStage.name(),step.start,step.end,accuracy,testAssisted,now);
-            if(passed&&!mastered)ports.progress().markMastered(e.id,step.start,step.end,accuracy,studyStage.name());
-        }
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE){
-            int done=ports.progress().exerciseDone(e.id,step.start);
-            if(done==3&&passed)ports.progress().finishExercise(e.id,step.start,4);
-            else if(done==4&&passed)ports.progress().finishExercise(e.id,step.start,5);
-        }
-        int learned=ports.progress().masteryCount(e.id);
-        ReviewLogic.Schedule unchanged=new ReviewLogic.Schedule(e.repetitions,e.days,e.ease,e.due);
-        // Per-verse and grouped schedules are now authoritative; do not update legacy entry-wide schedule.
-        ports.progress().update(e,unchanged,learned,accuracy);
-        checked=true;saveTrainingSession();ports.render();
+        new StudyProgressRecorder(ports.progress()).recall(e,step,studyStage.name(),accuracy,
+            testAssisted,independent,accepted,mastered,reviewMode,groupMode,
+            attemptTime(e,step,"recall",draft));
+        passed=accepted;checked=true;saveTrainingSession();ports.render();
     }
 
     int bookForEntry(LocalStore.Entry e){
@@ -669,7 +698,7 @@ final class StudySessionController {
                 final long targetId=id;final int first=a,last=b;
                 // A saved unfinished review takes precedence; avoid duplicate overlapping tasks.
                 reviewQueue.removeIf(t->t.entryId==targetId && t.start<last && first<t.end);
-                reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,0));
+                reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,old.getLong("review_review_due",0)));
             }else old.edit().remove("review_pending").apply();
         }
         if(reviewQueue.isEmpty()){ports.navigate(Screen.DUE);return;}
@@ -681,6 +710,8 @@ final class StudySessionController {
         if(restore){
             draft=old.getString("review_draft","");
             lessonWriteHadFeedback=old.getBoolean("review_lesson_had_feedback",false);
+            lessonSeed=old.getLong("review_lesson_seed",lessonSeed);
+            testAssisted=old.getBoolean("review_assisted",false);
             ports.render();
         }
     }
@@ -824,6 +855,14 @@ final class StudySessionController {
     }
 
     void validateLessonWriting(LocalStore.Entry e){
+        try{validateLessonWritingInternal(e);}
+        catch(android.database.sqlite.SQLiteException | IllegalStateException error){
+            android.util.Log.e("StudySession","Answer result was not committed",error);
+            ports.toast("Не удалось сохранить ответ. Открой занятие заново или повтори попытку.");
+        }
+    }
+    private void validateLessonWritingInternal(LocalStore.Entry e){
+        if(checked&&passed)return;
         List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
         lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
@@ -834,9 +873,10 @@ final class StudySessionController {
         List<String> refs=new ArrayList<>();
         for(Bible.Verse line:e.lines().subList(activeStep.start,activeStep.end))refs.add(line.ref);
         boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
-        boolean exact=AcceptedTextLogic.exact(original,entered,special);
-        original=AcceptedTextLogic.bestExpected(original,entered,special);
-        int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
+        StudyAnswerEvaluation evaluation=StudyAnswerEvaluation.lesson(original,entered,special);
+        boolean exact=evaluation.exact;
+        original=evaluation.expected;
+        int accuracy=evaluation.accuracy;
         if(practiceWeakFragment){
             if(!exact){
                 ports.writingErrors(e,original,entered,false);
@@ -854,7 +894,6 @@ final class StudySessionController {
             lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
             lessonSeed=new Random().nextLong();saveTrainingSession();ports.render();return;
         }
-        long now=System.currentTimeMillis();
         if(!exact && !full){
             boolean[] correct=new boolean[Math.min(inlineExpected.size(),inlineDrafts.length)];
             for(int i=0;i<correct.length;i++)correct[i]=LessonCurriculumLogic.exact(inlineExpected.get(i),inlineDrafts[i]);
@@ -864,56 +903,33 @@ final class StudySessionController {
         }
         if(!exact){
             weakVerse=-1;weakTransitionFrom=-1;
-            if(!(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)))
-                ports.progress().recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
-            lessonWriteHadFeedback=true;
-            saveTrainingSession();
-            lastAccuracy=accuracy;lastExpected=original;
+            boolean rescheduleWeak=false;
             if(activeStep.end-activeStep.start>1){
                 List<String> sources=new ArrayList<>();
                 for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))sources.add(v.text);
                 WeakTransitionLogic.WeakSpot weak=WeakTransitionLogic.locate(sources,entered);
                 weakVerse=activeStep.start+weak.verseIndex;
                 weakTransitionFrom=weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
-                if(weakVerse>=activeStep.start && weak.errors>0){
-                    ports.progress().rescheduleWeakVerse(e.id,weakVerse,now);
-                    if(weakTransitionFrom>=0)
-                        ports.progress().recordWeakTransition(e.id,weakTransitionFrom,weakVerse,now);
-                }
+                rescheduleWeak=weakVerse>=activeStep.start&&weak.errors>0;
             }
-            ports.writingErrors(e,original,entered,true);
-            if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
-                // A failed combined attempt is attributed only to the weak verse.
-                // Other due verses remain due; none is falsely marked as successfully recalled.
-                if(weakVerse>=activeStep.start && weakVerse<activeStep.end){
-                    ports.progress().recordRecall(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
-                    ports.progress().scheduleReview(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
-                }
-            } else if(reviewMode || groupMode || studyStage!=StudyPlanLogic.Stage.VERSE)
-                ports.progress().scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
+            new StudyProgressRecorder(ports.progress()).failure(e,studyStage.name(),activeStep,accuracy,
+                combinedReview(),reviewMode||groupMode||studyStage!=StudyPlanLogic.Stage.VERSE,
+                weakVerse,weakTransitionFrom,rescheduleWeak,attemptTime(e,activeStep,"failure",entered));
+            lessonWriteHadFeedback=true;lastAccuracy=accuracy;lastExpected=original;
+            saveTrainingSession();ports.writingErrors(e,original,entered,true);
             return;
         }
         if(lessonWriteHadFeedback){
             // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
-            ports.progress().recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,true,now);
+            new StudyProgressRecorder(ports.progress()).correction(e,studyStage.name(),activeStep,
+                attemptTime(e,activeStep,"correction",entered));
             lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
             ports.render();
             ports.toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
             return;
         }
-        if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
-            for(int i=activeStep.start;i<activeStep.end;i++){
-                ports.progress().recordRecall(e.id,"VERSE",i,i+1,100,false,now);
-                ports.progress().scheduleReview(e.id,"VERSE",i,i+1,100,false,now);
-            }
-        }else{
-            ports.progress().recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
-            ports.progress().scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
-            if(!ports.progress().isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end))
-                ports.progress().markMastered(e.id,activeStep.start,activeStep.end,100,studyStage.name());
-        }
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE)
-            ports.progress().finishExercise(e.id,activeStep.start,5);
+        new StudyProgressRecorder(ports.progress()).success(e,studyStage.name(),activeStep,combinedReview(),
+            reviewMode,groupMode,attemptTime(e,activeStep,"success",entered));
         lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
         if(reviewMode)ports.studyPreferences().edit()
             .remove("review_pending").apply();

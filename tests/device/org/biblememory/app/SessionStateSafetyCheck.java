@@ -61,7 +61,7 @@ public class SessionStateSafetyCheck extends Instrumentation {
         equal(1,get(restored,"lessonVariant"));equal(73,get(restored,"blurSeed"));equal(true,get(restored,"lessonWriteHadFeedback"));equal(2,get(restored,"lessonWriteVariant"));
         equal(true,get(restored,"practiceWeakFragment"));equal("Слабый фрагмент",get(restored,"weakFragmentText"));
         equal(Arrays.asList(1,3),list(restored,"lessonUsedTiles"));equal("0,2,5",get(restored,"rotationMask"));equal(987L,get(restored,"rotationExerciseSeed"));
-        equal(false,get(restored,"checked"));equal(false,get(restored,"passed"));equal(false,get(restored,"testAssisted"));
+        equal(true,get(restored,"checked"));equal(false,get(restored,"passed"));equal(true,get(restored,"testAssisted"));
         equal(0L,StorageSafetyCheck.number(c.store().getReadableDatabase(),"SELECT COUNT(*) FROM verse_progress"));
     }
     private void namespaces(SafetySandbox c)throws Exception{
