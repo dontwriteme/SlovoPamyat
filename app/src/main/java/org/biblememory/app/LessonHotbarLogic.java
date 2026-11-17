@@ -6,12 +6,12 @@ public final class LessonHotbarLogic {
     public static final int DONE=0,CURRENT=1,UPCOMING=2;
     public static final class Model {
         public final int[] totals,finished;
-        public final int activePhase,currentNumber,total;
+        public final int activePhase,currentNumber,total,completedCount;
         private Model(int[] totals,int[] finished,int phase){
             this.totals=totals;this.finished=finished;this.activePhase=phase;
             int all=0,done=0;
             for(int i=0;i<3;i++){all+=totals[i];done+=finished[i];}
-            total=all;
+            total=all;completedCount=done;
             currentNumber=all==0?0:Math.min(all,done+1);
         }
         public int ordinal(int phase,int index){

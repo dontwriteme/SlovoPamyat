@@ -119,8 +119,9 @@ public final class MainActivity extends Activity {
     private TextView lessonBuildPrompt,lessonBuildCounter,lessonBuildError,lessonBuildAction;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
     private int lessonBuildRequired=0;
-    // v0.21.4: per-exercise hotbar. Only its views are updated during a lesson.
-    private final List<List<TextView>> lessonHotbarCells=new ArrayList<>();
+    // Presentation only: one adaptive strip, independent of text/answer Views.
+    private LessonSegmentedBar lessonHotbarStrip;
+    private final List<TextView> lessonHotbarLabels=new ArrayList<>();
     private TextView lessonHotbarCounter;
 
     private int weakVerse=-1,weakTransitionFrom=-1;
@@ -5070,9 +5071,7 @@ public final class MainActivity extends Activity {
             return true;
         });
         topRow.addView(close,new LinearLayout.LayoutParams(dp(45),dp(45)));
-        // Progress design v0.21.4: independently numbered exercises grouped by phase.
-        // The complete strip can scroll horizontally for longer verses without
-        // shrinking a cell below a comfortable touch/reading size.
+        // Compact progress is rendered below this existing lesson header.
         LinearLayout.LayoutParams remaining=new LinearLayout.LayoutParams(0,dp(45),1);
         topRow.addView(new View(this),remaining);
         if(DeveloperModeController.isEnabled(this)){
@@ -5279,185 +5278,96 @@ public final class MainActivity extends Activity {
             store.exerciseDone(e.id,activeStep.start)>=5;
         boolean writingOnly=!groupMode && (reviewMode || lessonPracticeAgain ||
             studyStage!=StudyPlanLogic.Stage.VERSE || previouslyLearned);
-        return LessonHotbarLogic.calculate(phase.ordinal(),4,buildTotal,writingTotal,
-            mask/25,buildDone,lessonWriteVariant,writingOnly);
+        int introDone=groupMode?(groupIntroDone?1:0):
+            (store.exerciseDone(e.id,activeStep.start)>=1?1:0);
+        return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
+            introDone,buildDone,lessonWriteVariant,writingOnly);
     }
-    /** Compact three-part task trail matching the approved visual reference. */
+    /** Minimal phase labels and one responsive, non-scrolling task strip. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
                                     LocalStore.Entry e){
-        lessonHotbarCells.clear();
-        final LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
-        LinearLayout bar=row();bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(9),dp(7),dp(8),dp(7));
-        bar.setBackground(shape(0xFFFFF8EE,17));
-        LinearLayout strip=row();strip.setGravity(Gravity.CENTER_VERTICAL);
-        String[] names={"Ознакомление","Сборка","Письмо"};
-        TextView currentCell=null;
-        for(int group=0;group<3;group++){
-            if(group>0){
-                View separator=new View(this);
-                separator.setBackgroundColor(0xFFD6CEBF);
-                LinearLayout.LayoutParams spl=new LinearLayout.LayoutParams(dp(1),dp(26));
-                spl.leftMargin=dp(5);spl.rightMargin=dp(5);
-                strip.addView(separator,spl);
-            }
-            LinearLayout section=column();section.setGravity(Gravity.CENTER_HORIZONTAL);
-            LinearLayout headingRow=row();headingRow.setGravity(Gravity.CENTER);
-            View glyph=new LessonHotbarIcon(group,0xFF58714C);
-            LinearLayout.LayoutParams glyphP=new LinearLayout.LayoutParams(dp(12),dp(12));
-            glyphP.rightMargin=dp(4);headingRow.addView(glyph,glyphP);
-            TextView heading=txt(names[group],10,
-                group==model.activePhase?0xFF344B2D:0xFF52684C,
-                group==model.activePhase);
-            heading.setSingleLine(true);
-            headingRow.addView(heading,new LinearLayout.LayoutParams(-2,-2));
-            section.addView(headingRow,new LinearLayout.LayoutParams(-2,dp(17)));
-            // A thin rounded bracket groups all tasks under one phase label.
-            View bracket=new LessonHotbarBracket(0xFF9BA878);
-            LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(6));
-            bp.topMargin=dp(1);
-            section.addView(bracket,bp);
-            LinearLayout cells=row();cells.setGravity(Gravity.CENTER);
-            List<TextView> groupCells=new ArrayList<>();
-            for(int task=0;task<model.totals[group];task++){
-                int number=model.ordinal(group,task);
-                TextView cell=txt(String.valueOf(number),11,MUTED,true);
-                cell.setGravity(Gravity.CENTER);
-                cell.setIncludeFontPadding(false);
-                cell.setContentDescription(names[group]+", задание "+(task+1));
-                LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(dp(24),dp(27));
-                if(task>0)cp.leftMargin=dp(3);
-                cells.addView(cell,cp);
-                int visual=model.visual(group,task);
-                paintLessonHotbarCell(cell,visual,number,false);
-                if(visual==LessonHotbarLogic.CURRENT)currentCell=cell;
-                groupCells.add(cell);
-            }
-            section.addView(cells,new LinearLayout.LayoutParams(-2,dp(27)));
-            strip.addView(section,new LinearLayout.LayoutParams(-2,-2));
-            lessonHotbarCells.add(groupCells);
-        }
-        HorizontalScrollView viewport=new HorizontalScrollView(this);
-        viewport.setHorizontalScrollBarEnabled(false);
-        viewport.setFillViewport(false);
-        viewport.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        viewport.addView(strip,new android.widget.FrameLayout.LayoutParams(-2,-2));
-        bar.addView(viewport,new LinearLayout.LayoutParams(0,-2,1));
-        lessonHotbarCounter=txt(model.currentNumber+" / "+model.total,11,0xFF4C623E,true);
-        lessonHotbarCounter.setGravity(Gravity.CENTER);
-        lessonHotbarCounter.setSingleLine(true);
-        lessonHotbarCounter.setPadding(dp(8),dp(6),dp(8),dp(6));
-        lessonHotbarCounter.setBackground(shape(0xFFF0EEDD,22));
-        LinearLayout.LayoutParams totalP=new LinearLayout.LayoutParams(-2,-2);
-        totalP.leftMargin=dp(7);
-        bar.addView(lessonHotbarCounter,totalP);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
-        lp.topMargin=dp(3);
-        top.addView(bar,lp);
-        final TextView center=currentCell;
-        if(center!=null)viewport.post(()->{
-            int left=0;View node=center;
-            while(node!=strip && node.getParent() instanceof View){
-                left+=node.getLeft();node=(View)node.getParent();
-            }
-            int scrollX=Math.max(0,left-viewport.getWidth()/2+dp(12));
-            viewport.scrollTo(scrollX,0);
-        });
-    }
-    /** Small monochrome book / puzzle / pencil icons independent of emoji fonts. */
-    private final class LessonHotbarIcon extends View{
-        private final int stage,ink;
-        private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
-        LessonHotbarIcon(int stage,int ink){
-            super(MainActivity.this);this.stage=stage;this.ink=ink;
-            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        }
-        @Override protected void onDraw(Canvas canvas){
-            super.onDraw(canvas);
-            canvas.save();
-            canvas.translate(getWidth()/2f,getHeight()/2f);
-            float scale=Math.min(getWidth(),getHeight())/24f;
-            canvas.scale(scale,scale);
-            pen.setColor(ink);pen.setStyle(Paint.Style.STROKE);
-            pen.setStrokeWidth(2.1f);pen.setStrokeJoin(Paint.Join.ROUND);
-            pen.setStrokeCap(Paint.Cap.ROUND);
-            Path path=new Path();
-            if(stage==0){
-                path.moveTo(0,-8);path.cubicTo(-4,-11,-8,-10,-11,-8);
-                path.lineTo(-11,9);path.cubicTo(-6,7,-2,8,0,10);
-                path.cubicTo(2,8,6,7,11,9);path.lineTo(11,-8);
-                path.cubicTo(8,-10,4,-11,0,-8);path.close();
-                canvas.drawPath(path,pen);canvas.drawLine(0,-8,0,10,pen);
-            }else if(stage==1){
-                path.moveTo(-10,-9);path.lineTo(-4,-9);
-                path.cubicTo(-4,-5,3,-5,3,-9);path.lineTo(10,-9);
-                path.lineTo(10,-3);path.cubicTo(6,-3,6,4,10,4);
-                path.lineTo(10,10);path.lineTo(3,10);
-                path.cubicTo(3,6,-4,6,-4,10);path.lineTo(-10,10);
-                path.lineTo(-10,3);path.cubicTo(-6,3,-6,-3,-10,-3);
-                path.close();canvas.drawPath(path,pen);
-            }else{
-                path.moveTo(-9,6);path.lineTo(-7,10);path.lineTo(-3,8);
-                path.lineTo(10,-5);path.lineTo(6,-9);path.close();
-                canvas.drawPath(path,pen);
-                canvas.drawLine(4,-7,8,-3,pen);
-            }
-            canvas.restore();
-        }
-    }
-    private final class LessonHotbarBracket extends View{
-        private final Paint stroke=new Paint(Paint.ANTI_ALIAS_FLAG);
-        LessonHotbarBracket(int color){
-            super(MainActivity.this);
-            stroke.setColor(color);stroke.setStyle(Paint.Style.STROKE);
-            stroke.setStrokeWidth(dp(1));stroke.setStrokeCap(Paint.Cap.ROUND);
-        }
-        @Override protected void onDraw(Canvas canvas){
-            super.onDraw(canvas);
-            float w=getWidth(),h=getHeight(),r=dp(5);
-            if(w<=2*r)return;
-            Path p=new Path();p.moveTo(dp(1),h);
-            p.quadTo(dp(1),dp(1),r,dp(1));
-            p.lineTo(w-r,dp(1));
-            p.quadTo(w-dp(1),dp(1),w-dp(1),h);
-            canvas.drawPath(p,stroke);
-        }
-    }
-    private void paintLessonHotbarCell(TextView cell,int visual,int number,boolean animated){
-        Object old=cell.getTag();
-        if(old instanceof Integer && ((Integer)old)==visual)return;
-        cell.setTag(visual);
-        if(visual==LessonHotbarLogic.DONE){
-            cell.setText("✓");
-            cell.setTextColor(Color.WHITE);
-            cell.setBackground(shape(0xFF7E9A60,8));
-            cell.setContentDescription("Задание "+number+" выполнено");
-            if(animated && ValueAnimator.areAnimatorsEnabled()){
-                cell.animate().cancel();cell.setScaleX(.88f);cell.setScaleY(.88f);
-                cell.animate().scaleX(1f).scaleY(1f).setDuration(180L).start();
-            }
-        }else if(visual==LessonHotbarLogic.CURRENT){
-            cell.setText(String.valueOf(number));
-            cell.setTextColor(0xFFAD654A);
-            cell.setBackground(outlined(0xFFFFF8EE,9,0xFFBA765A));
-            cell.setContentDescription("Текущее задание "+number);
-        }else{
-            cell.setText(String.valueOf(number));
-            cell.setTextColor(0xFF796B59);
-            cell.setBackground(shape(0xFFF0E7DA,9));
-            cell.setContentDescription("Будущее задание "+number);
-        }
-    }
-    /** Live updates only the hotbar; typing, tiles and text are not recreated. */
-    private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
-        if(lessonHotbarCells.size()!=3||lessonHotbarCounter==null)return;
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
-        lessonHotbarCounter.setText(model.currentNumber+" / "+model.total);
-        for(int g=0;g<3;g++){
-            List<TextView> cells=lessonHotbarCells.get(g);
-            if(cells.size()!=model.totals[g])continue;
-            for(int i=0;i<cells.size();i++)
-                paintLessonHotbarCell(cells.get(i),model.visual(g,i),model.ordinal(g,i),true);
+        LinearLayout bar=column();bar.setTag("lesson-progress");
+        LinearLayout labels=row();lessonHotbarLabels.clear();
+        String[] names={"Читай","Собери","Напиши"};
+        for(int group=0;group<3;group++){
+            TextView label=txt(names[group],12,MUTED,false);
+            label.setGravity(Gravity.CENTER);label.setSingleLine(true);
+            label.setTag("lesson-progress-label-"+group);
+            label.setVisibility(model.totals[group]>0?View.VISIBLE:View.GONE);
+            labels.addView(label,new LinearLayout.LayoutParams(0,dp(28),1));
+            lessonHotbarLabels.add(label);
+        }
+        bar.addView(labels,new LinearLayout.LayoutParams(-1,-2));
+        lessonHotbarStrip=new LessonSegmentedBar(model);
+        lessonHotbarStrip.setTag("lesson-progress-strip");
+        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(7));stripP.topMargin=dp(3);
+        bar.addView(lessonHotbarStrip,stripP);
+        lessonHotbarCounter=txt("",11,MUTED,false);
+        lessonHotbarCounter.setTag("lesson-progress-count");
+        lessonHotbarCounter.setGravity(Gravity.END);lessonHotbarCounter.setSingleLine(true);
+        // The strip exposes the complete stage/count description to TalkBack.
+        lessonHotbarCounter.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams counterP=new LinearLayout.LayoutParams(-1,-2);counterP.topMargin=dp(5);
+        bar.addView(lessonHotbarCounter,counterP);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(3);
+        top.addView(bar,lp);
+        refreshLessonPhaseProgress(phase,e);
+    }
+
+    /** All logical tasks remain represented, even when the gaps must shrink. */
+    private final class LessonSegmentedBar extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private LessonHotbarLogic.Model model;
+        LessonSegmentedBar(LessonHotbarLogic.Model model){
+            super(MainActivity.this);setModel(model);
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        }
+        void setModel(LessonHotbarLogic.Model value){
+            model=value;
+            String[] names={"Читай","Собери","Напиши"};
+            setContentDescription(names[model.activePhase]+". Текущее задание "+model.currentNumber+
+                " из "+model.total+". Выполнено "+model.completedCount+" из "+model.total);
+            invalidate();
+        }
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            if(model.total<=0||getWidth()<=0)return;
+            float gap=Math.min(dp(3),getWidth()/(float)model.total/4f);
+            float width=(getWidth()-gap*(model.total-1))/model.total;
+            int index=0;
+            for(int group=0;group<3;group++)for(int task=0;task<model.totals[group];task++){
+                float left=index*(width+gap);
+                paintLessonHotbarCell(canvas,paint,model.visual(group,task),left,
+                    Math.min(getWidth(),left+width),getHeight());index++;
+            }
+        }
+        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info){
+            super.onInitializeAccessibilityNodeInfo(info);
+            info.setClassName(android.widget.ProgressBar.class.getName());
+            if(model.total>0)info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
+                android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,0,model.total,model.completedCount));
+        }
+    }
+    private void paintLessonHotbarCell(Canvas canvas,Paint paint,int visual,
+                                      float left,float right,float height){
+        paint.setColor(visual==LessonHotbarLogic.DONE?0xFF4D704D:
+            visual==LessonHotbarLogic.CURRENT?0xFFAFC7A0:0xFFD9D8CC);
+        float radius=Math.min(dp(3.5f),Math.min(height/2f,(right-left)/2f));
+        canvas.drawRoundRect(left,0,right,height,radius,radius,paint);
+    }
+    /** Update progress only; the answer, word tiles and passage keep their Views. */
+    private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
+        if(lessonHotbarStrip==null||lessonHotbarCounter==null)return;
+        LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
+        lessonHotbarCounter.setText(model.completedCount+" из "+model.total+" выполнено");
+        lessonHotbarStrip.setModel(model);
+        for(int group=0;group<lessonHotbarLabels.size();group++){
+            TextView label=lessonHotbarLabels.get(group);boolean active=group==model.activePhase;
+            label.setTextColor(active?0xFF355E43:MUTED);
+            label.setTypeface(null,active?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
+            label.setPaintFlags(active?label.getPaintFlags()|Paint.UNDERLINE_TEXT_FLAG:
+                label.getPaintFlags()&~Paint.UNDERLINE_TEXT_FLAG);
         }
     }
     private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
