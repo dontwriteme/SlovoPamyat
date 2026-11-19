@@ -3231,7 +3231,7 @@ public final class MainActivity extends Activity {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private float openness=0f;
         private ValueAnimator eyelidsAnimator;
-        EyeButton(){super(MainActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
+        EyeButton(){super(MainActivity.this);}
         void setOpen(boolean open,boolean animate){
             if(eyelidsAnimator!=null)eyelidsAnimator.cancel();
             float target=open?1f:0f;
@@ -3248,22 +3248,25 @@ public final class MainActivity extends Activity {
         }
         @Override protected void onDraw(Canvas c){
             super.onDraw(c);
-            float cx=getWidth()/2f,cy=getHeight()/2f,r=dp(15);
+            float cx=getWidth()/2f,cy=getHeight()/2f;
+            float r=Math.min(dp(15),Math.min(getWidth()/2f-dp(2),getHeight()/2f-dp(2)));
+            if(r<=0f)return;
+            // A symmetric almond-shaped eye remains legible even before reveal.
             float open=Math.max(0f,Math.min(1f,openness));
-            paint.setColor(0xFF536C3E);paint.setStrokeWidth(dp(2.5f));
-            paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
+            float arc=dp(8)+dp(3)*open;
+            paint.setColor(0xFF536C3E);
             paint.setStyle(Paint.Style.STROKE);
-            // A compact eye remains recognizable before reveal; the lids widen on tap.
-            float closedArc=dp(6);
-            float arc=closedArc+(r*.82f-closedArc)*open;
-            Path upper=new Path();upper.moveTo(cx-r,cy);
-            upper.cubicTo(cx-r*.55f,cy-arc,cx+r*.55f,cy-arc,cx+r,cy);
-            Path lower=new Path();lower.moveTo(cx-r,cy);
-            lower.cubicTo(cx-r*.55f,cy+arc,cx+r*.55f,cy+arc,cx+r,cy);
-            c.drawPath(upper,paint);
-            c.drawPath(lower,paint);
+            paint.setStrokeWidth(dp(2.2f));
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            Path outline=new Path();
+            outline.moveTo(cx-r,cy);
+            outline.cubicTo(cx-r*.5f,cy-arc,cx+r*.5f,cy-arc,cx+r,cy);
+            outline.cubicTo(cx+r*.5f,cy+arc,cx-r*.5f,cy+arc,cx-r,cy);
+            outline.close();
+            c.drawPath(outline,paint);
             paint.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx,cy,dp(2.5f)+dp(1.5f)*open,paint);
+            c.drawCircle(cx,cy,dp(4),paint);
         }
         @Override protected void onDetachedFromWindow(){
             if(eyelidsAnimator!=null)eyelidsAnimator.cancel();
@@ -3307,30 +3310,36 @@ public final class MainActivity extends Activity {
             if(f.id==cardSequence.get(Math.min(cardIndex,cardSequence.size()-1))){current=f;break;}
         if(current==null){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
         root=column();root.setBackground(pageBackground());
+        // The card measures its content; the page scrolls only when a passage needs more room.
+        ScrollView pageScroll=new ScrollView(this);
+        pageScroll.setFillViewport(false);
+        pageScroll.setVerticalScrollBarEnabled(false);
+        pageScroll.setClipToPadding(false);
+        root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
         SwipeCardLayout swipe=new SwipeCardLayout();
         swipe.setBackground(outlined(0xFFFFF9F1,30,0xFFFFFFFF));
         swipe.setClipToOutline(true);
+        swipe.setMinimumHeight(dp(510));
+        FrameLayout.LayoutParams swipeParams=new FrameLayout.LayoutParams(-1,-2);
+        swipeParams.setMargins(dp(18),dp(16),dp(18),dp(28));
+        pageScroll.addView(swipe,swipeParams);
         ImageView scenicCard=new ImageView(this);
         scenicCard.setImageResource(R.drawable.hero_valley);
         scenicCard.setScaleType(ImageView.ScaleType.CENTER_CROP);
         scenicCard.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        FrameLayout.LayoutParams sceneryP=new FrameLayout.LayoutParams(-1,dp(210),Gravity.BOTTOM);
-        swipe.addView(scenicCard,sceneryP);
+        swipe.addView(scenicCard,new FrameLayout.LayoutParams(-1,dp(178),Gravity.BOTTOM));
         View landscapeTint=new View(this);
         landscapeTint.setBackgroundColor(0x6695A86B);
         landscapeTint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        swipe.addView(landscapeTint,new FrameLayout.LayoutParams(-1,dp(210),Gravity.BOTTOM));
+        swipe.addView(landscapeTint,new FrameLayout.LayoutParams(-1,dp(178),Gravity.BOTTOM));
         View readableOverlay=new View(this);
         readableOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{0xFFFFF9F1,0xFFFFF9F1,0xFFFFF9F1,0xEFFFF8EC,0x00FFF8EC}));
+        readableOverlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         swipe.addView(readableOverlay,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout.LayoutParams swipeParams=new LinearLayout.LayoutParams(-1,0,1);
-        swipeParams.setMargins(dp(18),dp(16),dp(18),dp(18));root.addView(swipe,swipeParams);
-        ScrollView scrolling=new ScrollView(this);scrolling.setFillViewport(true);
-        scrolling.setVerticalScrollBarEnabled(false);
-        swipe.addView(scrolling,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout vertical=column();vertical.setGravity(Gravity.CENTER_HORIZONTAL);
-        vertical.setPadding(dp(24),dp(23),dp(24),dp(34));scrolling.addView(vertical);
+        vertical.setPadding(dp(24),dp(23),dp(24),0);
+        swipe.addView(vertical,new FrameLayout.LayoutParams(-1,-2));
         TextView counter=txt((cardIndex+1)+" / "+cardSequence.size(),16,0xFF826D50,false);
         counter.setGravity(Gravity.RIGHT);add(vertical,counter,0);
         LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(30));
@@ -3342,17 +3351,12 @@ public final class MainActivity extends Activity {
         firstParams.topMargin=dp(22);vertical.addView(initial,firstParams);
         TextView answer=cardShowReference?prose(current.content,24):cardReference(current.reference);
         answer.setGravity(Gravity.CENTER);answer.setTextColor(0xFF374534);
-        // Reserve an answer area so opening the eye never shifts the original citation/text.
         answer.setAlpha(cardRevealed?1f:0f);
+        answer.setVisibility(cardRevealed?View.VISIBLE:View.GONE);
         answer.setImportantForAccessibility(cardRevealed?
             View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        ScrollView answerScroll=new ScrollView(this);
-        answerScroll.setVerticalScrollBarEnabled(false);
-        answerScroll.addView(answer,new ScrollView.LayoutParams(-1,-2));
-        int answerHeight=Math.min(dp(205),Math.max(dp(110),
-            getResources().getDisplayMetrics().heightPixels*25/100));
-        LinearLayout.LayoutParams answerArea=new LinearLayout.LayoutParams(-1,answerHeight);
-        answerArea.topMargin=dp(16);vertical.addView(answerScroll,answerArea);
+        LinearLayout.LayoutParams answerParams=new LinearLayout.LayoutParams(-1,-2);
+        answerParams.topMargin=dp(18);vertical.addView(answer,answerParams);
         EyeButton eye=new EyeButton();
         eye.setOpen(cardRevealed,false);
         eye.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -3368,12 +3372,25 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams revealParams=new LinearLayout.LayoutParams(-2,dp(54));
         revealParams.gravity=Gravity.CENTER_HORIZONTAL;revealParams.topMargin=dp(16);
         vertical.addView(reveal,revealParams);
+        // Keep the scenic footer clear of the action without stretching the reading area.
+        gap(vertical,190);
         reveal.setOnClickListener(v->{
             cardRevealed=!cardRevealed;
             eye.setOpen(cardRevealed,true);
             answer.animate().cancel();
-            answer.animate().alpha(cardRevealed?1f:0f)
-                .setDuration(ValueAnimator.areAnimatorsEnabled()?250L:0L).start();
+            if(cardRevealed){
+                answer.setVisibility(View.VISIBLE);
+                answer.setAlpha(0f);
+                if(ValueAnimator.areAnimatorsEnabled())
+                    answer.animate().alpha(1f).setDuration(180L).start();
+                else answer.setAlpha(1f);
+            }else if(ValueAnimator.areAnimatorsEnabled()){
+                answer.animate().alpha(0f).setDuration(140L).withEndAction(()->{
+                    if(!cardRevealed)answer.setVisibility(View.GONE);
+                }).start();
+            }else{
+                answer.setAlpha(0f);answer.setVisibility(View.GONE);
+            }
             answer.setImportantForAccessibility(cardRevealed?
                 View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             revealLabel.setText(cardRevealed?"Скрыть ответ":"Показать ответ");

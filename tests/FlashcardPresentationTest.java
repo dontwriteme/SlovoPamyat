@@ -2,6 +2,7 @@ package org.biblememory.app;
 
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -76,10 +77,12 @@ public class FlashcardPresentationTest {
         assertNotNull(text(root,"Бытие 1:15"));
         assertNull(text(root,"Карточка"));
         TextView answer=text(root,longVerse);assertNotNull(answer);assertEquals(0f,answer.getAlpha(),0f);
+        assertEquals(View.GONE,answer.getVisibility());
         assertNull(answer.getEllipsize());
         View eye=described(root,"Показать ответ");assertNotNull(eye);
         eye.performClick();
         assertTrue((Boolean)field("cardRevealed"));
+        assertEquals(View.VISIBLE,answer.getVisibility());
         assertEquals(0,field("cardIndex"));
         assertEquals("Скрыть ответ",eye.getContentDescription());
         eye.performClick();assertFalse((Boolean)field("cardRevealed"));
@@ -98,9 +101,39 @@ public class FlashcardPresentationTest {
         assertNotNull(text(root,longVerse));
         TextView reference=text(root,"Бытие 1:15");assertNotNull(reference);
         assertEquals(0f,reference.getAlpha(),0f);
+        assertEquals(View.GONE,reference.getVisibility());
         assertNull(text(root,longVerse).getEllipsize());
         described(root,"Показать ответ").performClick();
         assertEquals("Бытие 1:15",reference.getText().toString());
+        assertEquals(View.VISIBLE,reference.getVisibility());
+        TextView verse=text(root,longVerse);
+        ViewGroup parent=(ViewGroup)verse.getParent();
+        assertSame(parent,reference.getParent());
+        assertTrue(parent.indexOfChild(reference)>parent.indexOfChild(verse));
         assertEquals(0,field("cardIndex"));
+    }
+    @Test @Config(qualifiers="w320dp-h700dp")
+    public void shortCardIsCompactAndLongRevealedVerseCanScroll()throws Exception{
+        set("cardIndex",1);set("cardShowReference",false);call("renderCardSession");
+        View root=(View)field("root");
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,700);
+        ScrollView page=(ScrollView)((ViewGroup)root).getChildAt(0);
+        assertTrue(page.getChildAt(0).getMeasuredHeight()<700);
+        assertNotNull(text(root,"Короткий стих."));
+
+        set("cardIndex",0);set("cardShowReference",true);call("renderCardSession");
+        root=(View)field("root");
+        View eye=described(root,"Показать ответ");
+        eye.performClick();
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,700);
+        page=(ScrollView)((ViewGroup)root).getChildAt(0);
+        assertTrue(page.getChildAt(0).getMeasuredHeight()>page.getMeasuredHeight());
+        TextView answer=text(root,longVerse);
+        assertNotNull(answer);
+        assertEquals(View.VISIBLE,answer.getVisibility());
     }
 }
