@@ -3292,12 +3292,6 @@ public final class MainActivity extends Activity {
         SwipeCardLayout swipe=new SwipeCardLayout();
         swipe.setBackground(outlined(CARD,26,BORDER));
         swipe.setClipToOutline(true);
-        ImageView scenicCard=new ImageView(this);
-        scenicCard.setImageResource(landscapeFor(selectedDeck));
-        scenicCard.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        scenicCard.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        FrameLayout.LayoutParams sceneryP=new FrameLayout.LayoutParams(-1,dp(158),Gravity.BOTTOM);
-        swipe.addView(scenicCard,sceneryP);
         View readableOverlay=new View(this);
         readableOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{0xFFFFFCF8,0xFFFFFAF5,0xFAFFF6EE,0xDDFFF3E6,0x44FFF3E6}));
