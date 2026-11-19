@@ -70,4 +70,84 @@ public class LessonHotbarIntegrationTest {
         ViewGroup progress=((View)get("root")).findViewWithTag("lesson-progress");
         for(int i=0;i<progress.getChildCount();i++)assertFalse(progress.getChildAt(i) instanceof HorizontalScrollView);
     }
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void shortAnswerReviewRetriesSameExerciseAndOnlyCorrectAnswerCompletes()throws Exception{
+        openWritingFixture();
+        for(int attempt=0;attempt<2;attempt++){
+            submit("а");
+            View root=(View)get("root");
+            assertNotNull(root.findViewWithTag("lesson-progress-strip"));
+            assertNotNull(text(root,"Твой ответ"));
+            assertNotNull(text(root,"а"));
+            assertNotNull(text(root,"Слово истины живо"));
+            assertNotNull(text(root,"Не хватает большей части стиха"));
+            assertFalse(visibleText(root).contains("⟨пропуск:"));
+            assertNull(edit(root));
+            assertEquals(3,store.exerciseDone(id,0));
+            TextView retry=text(root,"Написать ещё раз");
+            root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+            root.layout(0,0,320,560);
+            assertTrue(retry.isShown());
+            assertNull(text(root,"Слово истины живо").getEllipsize());
+            retry.performClick();
+            assertEquals("",edit((View)get("root")).getText().toString());
+            assertNull(text((View)get("root"),"Правильный ответ"));
+            assertEquals(0,get("stepCursor"));
+        }
+        submit("Слово истины живо");
+        assertEquals(5,store.exerciseDone(id,0));
+        assertTrue((Boolean)get("passed"));
+    }
+
+    @Test public void emptyReviewDoesNotAdvanceAndCloseStillExitsTheLesson()throws Exception{
+        openWritingFixture();
+        submit("");
+        assertNotNull(text((View)get("root"),"Ответ не введён"));
+        assertEquals(3,store.exerciseDone(id,0));
+        text((View)get("root"),"Написать ещё раз").performClick();
+        submit("Мир");
+        activity.onBackPressed();
+        assertEquals("HOME",get("screen").toString());
+        assertNull(get("answerReview"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    private void openWritingFixture()throws Exception{
+        lifecycle.visible();
+        store.finishExercise(id,0,3);
+        invoke("render");
+    }
+
+    private void submit(String value)throws Exception{
+        View root=(View)get("root");
+        EditText answer=edit(root);
+        assertNotNull(answer);
+        answer.setText(value);
+        text(root,"Проверить").performClick();
+    }
+
+    private String visibleText(View root){
+        if(root.getVisibility()!=View.VISIBLE)return "";
+        if(root instanceof TextView)return ((TextView)root).getText().toString();
+        StringBuilder result=new StringBuilder();
+        if(root instanceof ViewGroup){
+            ViewGroup group=(ViewGroup)root;
+            for(int i=0;i<group.getChildCount();i++)result.append(visibleText(group.getChildAt(i)));
+        }
+        return result.toString();
+    }
+
+    private EditText edit(View root){
+        if(root instanceof EditText)return (EditText)root;
+        if(root instanceof ViewGroup){
+            ViewGroup group=(ViewGroup)root;
+            for(int i=0;i<group.getChildCount();i++){
+                EditText found=edit(group.getChildAt(i));
+                if(found!=null)return found;
+            }
+        }
+        return null;
+    }
+
 }

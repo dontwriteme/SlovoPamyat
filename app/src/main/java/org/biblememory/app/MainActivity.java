@@ -10,6 +10,7 @@ import android.text.style.MaskFilterSpan;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.ReplacementSpan;
+import android.text.style.UnderlineSpan;
 import android.graphics.Canvas;
 import android.graphics.Path;
 import android.graphics.PathMeasure;
@@ -562,6 +563,7 @@ public final class MainActivity extends Activity {
                 customTargetGroupId=-1;screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
                 if(u!=null)openUnifiedId=u.id;render();break;}
             case TRAIN:
+                answerReview=null;
                 executingCollectionQueue=false;
                 cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                 saveTrainingSession();
@@ -4386,6 +4388,7 @@ public final class MainActivity extends Activity {
 
     }
     private void openReview(LocalStore.DueItem item){
+        answerReview=null;
         LocalStore.Entry e=store.entry(item.entryId);if(e==null)return;
         selectedEntry=item.entryId;lessonPracticeAgain=false;
         // VERSE_RUN is a temporary coherent unit, never recorded as a mastered group.
@@ -4491,6 +4494,7 @@ public final class MainActivity extends Activity {
         orderBankOrder=new int[0];usedWordTiles.clear();orderCompleted=false;
     }
     private void openTraining(long id) {
+        answerReview=null;
         reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)saveCardSession();
@@ -5077,7 +5081,7 @@ public final class MainActivity extends Activity {
         activeMastered=store.isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end);
         LessonCurriculumLogic.Phase phase=checked&&passed?
             LessonCurriculumLogic.Phase.COMPLETE:lessonPhase(e);
-        lessonErrorArea=null;
+        if(phase!=LessonCurriculumLogic.Phase.WRITE)answerReview=null;
         if(phase==LessonCurriculumLogic.Phase.COMPLETE){renderCompletion(e);return;}
         root=column();root.setBackground(pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -5137,16 +5141,22 @@ public final class MainActivity extends Activity {
             mainAction.setEnabled(complete);mainAction.setAlpha(complete?1f:0.5f);
             lessonBuildAction=mainAction;
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
-            lessonPhaseHeader("Написание",e);
-            renderLessonWriting();
-            mainAction=button("Проверить",true,()->validateLessonWriting(e));
+            if(answerReview!=null){
+                renderAnswerReview(e,answerReview);
+                mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
+            }else{
+                lessonPhaseHeader("Написание",e);
+                renderLessonWriting();
+                mainAction=button("Проверить",true,()->validateLessonWriting(e));
+            }
         } else {
             renderCompletion(e);
             return;
         }
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
         footer.setBackgroundColor(CARD);
-        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,dp(58)));
+        mainAction.setMinimumHeight(dp(58));
+        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,answerReview!=null?-2:dp(58)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         setContentView(root);
     }
@@ -5590,7 +5600,6 @@ public final class MainActivity extends Activity {
         }
         saveTrainingSession();render();
     }
-    private LinearLayout lessonErrorArea;
     private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
         int n=ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size();
         if(reviewMode||lessonPracticeAgain||practiceWeakFragment)
@@ -5630,14 +5639,12 @@ public final class MainActivity extends Activity {
                 @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
                 @Override public void onTextChanged(CharSequence x,int a,int before,int count){
                     draft=x.toString();lastAccuracy=-1;
-                    if(lessonErrorArea!=null)lessonErrorArea.removeAllViews();
                     saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable x){}
             });
             add(content,answer,18);
         }
-        lessonErrorArea=column();add(content,lessonErrorArea,12);
         // Verification is always explicitly triggered by the existing footer button.
     }
     private void renderInlineGapInputs(LessonCurriculumLogic.Variant variant){
@@ -5728,7 +5735,6 @@ public final class MainActivity extends Activity {
                     int width=Math.min(maxWidth,Math.max(baselineWidth,(int)Math.ceil(textPx)));
                     ViewGroup.LayoutParams lp=field.getLayoutParams();
                     if(lp.width!=width){lp.width=width;field.setLayoutParams(lp);}
-                    if(lessonErrorArea!=null)lessonErrorArea.removeAllViews();
                     lastAccuracy=-1;saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable x){}
@@ -5749,45 +5755,192 @@ public final class MainActivity extends Activity {
         int a=Math.max(0,where-2),b=Math.min(words.size(),where+3);
         return String.join(" ",words.subList(a,b));
     }
-    /** Third mockup: inline colored error markers followed by actionable corrections. */
-    private void showModernErrors(LinearLayout target,String expected,String actual){
-        LinearLayout panel=column();panel.setPadding(dp(16),dp(16),dp(16),dp(16));
-        panel.setBackground(outlined(CARD,18,BORDER));
-        add(panel,displayText("Разбор ответа",22),0);
-        helper(panel,"Ошибочные места выделены красным. Исправь текст выше.");
-        add(panel,typedFeedback(expected,actual),14);
-        List<TypingDiffLogic.Issue> issues=TypingDiffLogic.issues(expected,actual);
-        add(panel,txt("Ошибок: "+issues.size(),14,RED,true),14);
-        int limit=Math.min(issues.size(),15);
-        for(int i=0;i<limit;i++){
-            TypingDiffLogic.Issue issue=issues.get(i);
-            LinearLayout entry=column();entry.setPadding(dp(12),dp(10),dp(12),dp(10));
-            entry.setBackground(shape(CARD_ALT,12));
-            add(entry,txt(issue.label,13,MUTED,true),0);
-            if(!issue.actual.isEmpty())add(entry,txt(issue.actual,16,RED,false),5);
-            if(!issue.expected.isEmpty())add(entry,txt("Правильно: "+issue.expected,15,GREEN,true),5);
-            add(panel,entry,9);
+    private static final class AnswerReview {
+        final String expected,actual;
+        final AnswerReviewLogic.Result result;
+        final boolean offerPractice;
+        AnswerReview(String expected,String actual,boolean offerPractice,boolean special){
+            this.expected=expected;
+            this.actual=actual;
+            this.offerPractice=offerPractice;
+            result=AnswerReviewLogic.compare(expected,actual,special);
         }
-        if(issues.size()>limit)helper(panel,"Ещё ошибок: "+(issues.size()-limit));
-        add(target,panel,0);
     }
+    private AnswerReview answerReview;
+
+    private void openAnswerReview(String expected,String actual,boolean offerPractice,boolean special){
+        answerReview=new AnswerReview(expected,actual,offerPractice,special);
+        View focused=getCurrentFocus();
+        if(focused!=null){
+            android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
+            if(keyboard!=null)keyboard.hideSoftInputFromWindow(focused.getWindowToken(),0);
+            focused.clearFocus();
+        }
+        render();
+    }
+
+    private void retryLessonWriting(){
+        if(answerReview==null)return;
+        answerReview=null;
+        draft="";
+        inlineDrafts=new String[0];
+        lessonWriteHadFeedback=false;
+        lastAccuracy=-1;
+        saveTrainingSession();
+        render();
+    }
+
+    private void renderAnswerReview(LocalStore.Entry entry,AnswerReview review){
+        final int errorInk=0xFF923C37,correctInk=0xFF436044;
+        add(content,txt(lessonFullReference(entry),14,MUTED,true),0);
+        add(content,displayText("Разбор ответа",29),6);
+        addAnswerReviewCard("Твой ответ",review.actual.trim().isEmpty()?"Ответ не введён":review.actual,
+            review.result.actualMarks,false,0xFFF9E9E4,0xFFECD2CA,0xFFF1CBC2,errorInk);
+        addAnswerReviewCard("Правильный ответ",review.expected,review.result.expectedMarks,true,
+            0xFFF0F3E6,0xFFDDE5D4,0xFFD7EAC5,correctInk);
+
+        switch(review.result.summary){
+            case EMPTY:
+                return;
+            case SHORT:
+                answerReviewNotice("Не хватает большей части стиха","Ответ слишком короткий для полного сравнения.");
+                break;
+            case DIFFERENT:
+                answerReviewNotice("Тексты заметно различаются","Сверь свой ответ с правильным текстом.");
+                break;
+            case NONE:
+                break;
+        }
+        Map<AnswerReviewLogic.Kind,List<AnswerReviewLogic.Issue>> groups=new LinkedHashMap<>();
+        for(AnswerReviewLogic.Issue issue:review.result.issues)
+            groups.computeIfAbsent(issue.kind,key->new ArrayList<>()).add(issue);
+        if(!groups.isEmpty()){
+            LinearLayout summary=answerReviewPanel(0xFFFAF2E7,BORDER);
+            for(Map.Entry<AnswerReviewLogic.Kind,List<AnswerReviewLogic.Issue>> group:groups.entrySet()){
+                List<AnswerReviewLogic.Issue> issues=group.getValue();
+                add(summary,txt(answerIssueLabel(group.getKey()),15,WHITE,true),summary.getChildCount()==0?0:10);
+                add(summary,answerReviewText(answerIssueText(issues.get(0),errorInk,correctInk),15),3);
+                if(issues.size()>1)add(summary,txt("Ещё: "+(issues.size()-1),13,MUTED,false),3);
+            }
+            add(content,summary,14);
+        }
+        boolean more=review.result.issues.size()>groups.size();
+        if(more||review.offerPractice){
+            LinearLayout details=column();
+            details.setVisibility(View.GONE);
+            TextView toggle=button("Подробнее",false,()->{});
+            toggle.setOnClickListener(v->{
+                boolean open=details.getVisibility()!=View.VISIBLE;
+                if(open&&details.getChildCount()==0){
+                    for(List<AnswerReviewLogic.Issue> issues:groups.values()){
+                        if(issues.size()<=1)continue;
+                        add(details,txt(answerIssueLabel(issues.get(0).kind),14,WHITE,true),8);
+                        for(int i=1;i<issues.size();i++)add(details,answerReviewText(answerIssueText(issues.get(i),errorInk,correctInk),15),4);
+                    }
+                    if(review.offerPractice)action(details,"Потренировать ошибочный фрагмент",false,()->{
+                        String fragment=weakPhrase(review.expected,review.actual);
+                        if(fragment.isEmpty())return;
+                        answerReview=null;
+                        weakFragmentText=fragment;
+                        practiceWeakFragment=true;
+                        draft="";
+                        saveTrainingSession();
+                        render();
+                    });
+                    if(review.offerPractice&&weakVerse>=0){
+                        List<Bible.Verse> lines=entry.lines();
+                        if(weakVerse<lines.size())add(details,txt("Слабый участок: "+lines.get(weakVerse).ref+
+                            (weakTransitionFrom>=0&&weakTransitionFrom<lines.size()?" (переход "+lines.get(weakTransitionFrom).ref+
+                            " → "+lines.get(weakVerse).ref+")":""),14,MUTED,false),10);
+                    }
+                }
+                details.setVisibility(open?View.VISIBLE:View.GONE);
+                toggle.setText(open?"Скрыть подробности":"Подробнее");
+            });
+            add(content,toggle,12);
+            add(content,details,0);
+        }
+    }
+
+    private LinearLayout answerReviewPanel(int background,int border){
+        LinearLayout panel=column();
+        panel.setPadding(dp(16),dp(12),dp(16),dp(14));
+        panel.setBackground(outlined(background,18,border));
+        return panel;
+    }
+
+    private void addAnswerReviewCard(String title,String text,List<int[]> marks,boolean correct,int background,int border,int highlight,int ink){
+        LinearLayout panel=answerReviewPanel(background,border);
+        LinearLayout heading=row();
+        TextView icon=txt(correct?"✓":"×",15,Color.WHITE,true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(shape(ink,20));
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams iconSize=new LinearLayout.LayoutParams(dp(24),dp(24));
+        iconSize.rightMargin=dp(8);
+        heading.addView(icon,iconSize);
+        heading.addView(txt(title,14,ink,true),new LinearLayout.LayoutParams(0,-2,1));
+        add(panel,heading,0);
+        SpannableString marked=new SpannableString(text);
+        for(int[] range:marks){
+            marked.setSpan(new BackgroundColorSpan(highlight),range[0],range[1],Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            marked.setSpan(new UnderlineSpan(),range[0],range[1],Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        TextView body=answerReviewText(marked,19);
+        body.setLineSpacing(dp(3),1.08f);
+        add(panel,body,8);
+        add(content,panel,14);
+    }
+
+    private TextView answerReviewText(CharSequence text,int size){
+        TextView view=txt("",size,WHITE,false);
+        view.setText(text);
+        return view;
+    }
+
+    private void answerReviewNotice(String title,String description){
+        LinearLayout notice=answerReviewPanel(0xFFFAF2E7,BORDER);
+        add(notice,txt(title,16,WHITE,true),0);
+        add(notice,txt(description,15,MUTED,false),4);
+        add(content,notice,14);
+    }
+
+    private String answerIssueLabel(AnswerReviewLogic.Kind kind){
+        switch(kind){
+            case MISSING:return "Пропущено";
+            case EXTRA:return "Лишнее";
+            default:return "Ошибка в написании";
+        }
+    }
+
+    private CharSequence answerIssueText(AnswerReviewLogic.Issue issue,int errorInk,int correctInk){
+        if(issue.kind==AnswerReviewLogic.Kind.MISSING)return issue.expected;
+        if(issue.kind==AnswerReviewLogic.Kind.EXTRA)return issue.actual;
+        SpannableString text=new SpannableString(issue.actual+" → "+issue.expected);
+        text.setSpan(new ForegroundColorSpan(errorInk),0,issue.actual.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(correctInk),issue.actual.length()+3,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
+    }
+
     private void validateLessonWriting(LocalStore.Entry e){
+        if(answerReview!=null||(checked&&passed))return;
         List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
         lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
         boolean full=kind==LessonCurriculumLogic.Variant.FULL;
-        String original=writingExpected(e,kind);
+        String expected=writingExpected(e,kind);
+        String original=expected;
         String entered=full?draft:InlineGapLogic.response(inlineDrafts);
-        if(entered.trim().isEmpty()){toast("Напиши текст, затем нажми «Проверить»");return;}
+        if(entered.trim().isEmpty()){openAnswerReview(expected,entered,false,false);return;}
         List<String> refs=new ArrayList<>();
         for(Bible.Verse line:e.lines().subList(activeStep.start,activeStep.end))refs.add(line.ref);
         boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
         boolean exact=AcceptedTextLogic.exact(original,entered,special);
-        original=AcceptedTextLogic.bestExpected(original,entered,special);
+        if(!exact&&special)original=AcceptedTextLogic.bestExpected(original,entered,true);
         int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
         if(practiceWeakFragment){
             if(!exact){
-                if(lessonErrorArea!=null){lessonErrorArea.removeAllViews();showModernErrors(lessonErrorArea,original,entered);}
+                openAnswerReview(expected,entered,false,special);
                 return;
             }
             practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
@@ -5804,13 +5957,7 @@ public final class MainActivity extends Activity {
         }
         long now=System.currentTimeMillis();
         if(!exact && !full){
-            for(int i=0;i<inlineFields.size()&&i<inlineExpected.size()&&i<inlineDrafts.length;i++){
-                boolean ok=LessonCurriculumLogic.exact(inlineExpected.get(i),inlineDrafts[i]);
-                inlineFields.get(i).setBackgroundTintList(android.content.res.ColorStateList.valueOf(ok?GREEN:RED));
-            }
-            if(lessonErrorArea!=null){lessonErrorArea.removeAllViews();
-                showModernErrors(lessonErrorArea,original,entered);
-            }
+            openAnswerReview(expected,entered,false,special);
             return;
         }
         if(!exact){
@@ -5832,20 +5979,6 @@ public final class MainActivity extends Activity {
                         store.recordWeakTransition(e.id,weakTransitionFrom,weakVerse,now);
                 }
             }
-            if(lessonErrorArea!=null){
-                lessonErrorArea.removeAllViews();
-                showModernErrors(lessonErrorArea,original,entered);
-                final String weakPart=weakPhrase(original,entered);
-                if(!weakPart.isEmpty())action(lessonErrorArea,"Потренировать ошибочный фрагмент",false,()->{
-                    weakFragmentText=weakPart;practiceWeakFragment=true;draft="";
-                    saveTrainingSession();render();
-                });
-                if(weakVerse>=0){
-                    add(lessonErrorArea,txt("Слабый участок: "+e.lines().get(weakVerse).ref+
-                        (weakTransitionFrom>=0?" (переход "+e.lines().get(weakTransitionFrom).ref+
-                        " → "+e.lines().get(weakVerse).ref+")":""),14,MUTED,false),10);
-                }
-            }
             if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
                 // A failed combined attempt is attributed only to the weak verse.
                 // Other due verses remain due; none is falsely marked as successfully recalled.
@@ -5855,6 +5988,7 @@ public final class MainActivity extends Activity {
                 }
             } else if(reviewMode || groupMode || studyStage!=StudyPlanLogic.Stage.VERSE)
                 store.scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
+            openAnswerReview(expected,entered,true,special);
             return;
         }
         if(lessonWriteHadFeedback){
