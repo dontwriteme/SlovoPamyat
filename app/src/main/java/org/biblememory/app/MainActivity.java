@@ -1712,7 +1712,7 @@ public final class MainActivity extends Activity {
         LinearLayout outer=column();outer.setPadding(dp(16),dp(4),dp(16),dp(12));
         FrameLayout floating=new FrameLayout(this);
         floating.setBackground(outlined(CARD,36,BORDER));
-        floating.setElevation(dp(8));floating.setClipToOutline(false);
+        floating.setClipToOutline(false);
         final View indicator=new View(this);
         indicator.setTag("sv-nav-indicator");
         indicator.setBackground(shape(0xFFF7DED0,29));
