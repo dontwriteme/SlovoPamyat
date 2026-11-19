@@ -999,6 +999,7 @@ public final class MainActivity extends Activity {
     }
     private void render() {
         dismissModeInfo(false);
+        getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN?0xFFF8E5D9:CARD);
         CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
         if(previousCollections!=null && previousCollections.isSelected())
             collectionsIconCycle=previousCollections.settledCycle();
@@ -5155,7 +5156,6 @@ public final class MainActivity extends Activity {
             return;
         }
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
-        footer.setBackgroundColor(CARD);
         mainAction.setMinimumHeight(dp(58));
         footer.addView(mainAction,new LinearLayout.LayoutParams(-1,answerReview!=null?-2:dp(58)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
@@ -6561,7 +6561,6 @@ public final class MainActivity extends Activity {
             }
         }
         LinearLayout footer=column();footer.setPadding(dp(20),dp(10),dp(20),dp(20));
-        footer.setBackgroundColor(CARD);
         TextView go=button(runChecked?"Следующий стих": "Проверить",true,()->{
             if(runChecked){finishRunLine();return;}
             if(runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}

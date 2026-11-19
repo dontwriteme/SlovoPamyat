@@ -48,6 +48,40 @@ public class LessonHotbarIntegrationTest {
             assertSame(passage,get("activePassage"));assertSame(strip,((View)get("root")).findViewWithTag("lesson-progress-strip"));
         }
     }
+    @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
+        assertSeamlessFooter();
+        store.finishExercise(id,0,1);invoke("render");
+        assertSeamlessFooter();
+        openWritingFixture();
+        assertSeamlessFooter();
+        submit("а");
+        assertSeamlessFooter();
+        call("renderCompletion",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        assertSeamlessFooter();
+        activity.onBackPressed();
+        assertEquals(0xFFFFFAF5,activity.getWindow().getNavigationBarColor());
+    }
+
+    @SuppressWarnings({"rawtypes","unchecked"})
+    @Test public void memoryCheckFooterUsesTheSamePageBackground()throws Exception{
+        Class<?> lineType=Class.forName("org.biblememory.app.MainActivity$RunLine");
+        Constructor<?> ctor=lineType.getDeclaredConstructor(long.class,int.class,String.class,String.class);
+        ctor.setAccessible(true);
+        ((List)get("runLines")).add(ctor.newInstance(id,0,"Бытие 1:1","Слово истины живо"));
+        set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$Screen"),"RUN"));
+        invoke("render");
+        assertSeamlessFooter();
+        set("runChecked",true);invoke("render");
+        assertSeamlessFooter();
+    }
+
+    private void assertSeamlessFooter()throws Exception{
+        ViewGroup root=(ViewGroup)get("root");
+        View footer=root.getChildAt(root.getChildCount()-1);
+        assertNull(footer.getBackground());
+        assertNotNull(((ViewGroup)footer).getChildAt(0).getBackground());
+        assertEquals(0xFFF8E5D9,activity.getWindow().getNavigationBarColor());
+    }
     @Test public void continueAndRestoredCheckpointCompleteIntroExactlyOnce()throws Exception{
         TextView next=text((View)get("root"),"Продолжить");assertNotNull(next);next.performClick();next.performClick();
         assertEquals(1,store.exerciseDone(id,0));assertEquals(1,model(LessonCurriculumLogic.Phase.BUILD).completedCount);
