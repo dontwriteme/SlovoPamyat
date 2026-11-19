@@ -3320,14 +3320,17 @@ public final class MainActivity extends Activity {
         answer.setAlpha(cardRevealed?1f:0f);
         answer.setImportantForAccessibility(cardRevealed?
             View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        ScrollView answerScroll=new ScrollView(this);
-        answerScroll.setFillViewport(true);
-        answerScroll.setVerticalScrollBarEnabled(false);
-        answerScroll.addView(answer,new ScrollView.LayoutParams(-1,-2));
+        // Fit the entire revealed answer into the existing answer area without
+        // a second scroll surface. Normal verses keep their original text size.
+        answer.setMaxLines(Integer.MAX_VALUE);
+        answer.setEllipsize(null);
+        answer.setAutoSizeTextTypeUniformWithConfiguration(
+            cardShowReference?11:14,cardShowReference?20:25,1,
+            android.util.TypedValue.COMPLEX_UNIT_SP);
         int answerHeight=Math.min(dp(230),Math.max(dp(100),
             getResources().getDisplayMetrics().heightPixels*32/100));
         LinearLayout.LayoutParams answerArea=new LinearLayout.LayoutParams(-1,answerHeight);
-        answerArea.topMargin=dp(10);vertical.addView(answerScroll,answerArea);
+        answerArea.topMargin=dp(10);vertical.addView(answer,answerArea);
         EyeButton eye=new EyeButton();
         eye.setOpen(cardRevealed,false);
         eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
