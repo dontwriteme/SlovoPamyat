@@ -3330,7 +3330,7 @@ public final class MainActivity extends Activity {
         eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
         eye.setBackground(outlined(0xFFF0F2E7,14,0xFFC9D5C4));
         LinearLayout.LayoutParams eyeParams=new LinearLayout.LayoutParams(dp(60),dp(60));
-        eyeParams.gravity=Gravity.CENTER_HORIZONTAL;eyeParams.topMargin=dp(24);
+        eyeParams.gravity=Gravity.CENTER_HORIZONTAL;eyeParams.topMargin=dp(56);
         vertical.addView(eye,eyeParams);
         eye.setOnClickListener(v->{
             cardRevealed=!cardRevealed;
