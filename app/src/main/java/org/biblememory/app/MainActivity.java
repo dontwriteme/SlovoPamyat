@@ -915,6 +915,37 @@ public final class MainActivity extends Activity {
         b.setClickable(true);b.setFocusable(true);b.setOnClickListener(v->action.run());
         return b;
     }
+    private void animateLessonPress(TextView button){
+        button.setOnTouchListener((view,event)->{
+            if(!view.isEnabled()||!ValueAnimator.areAnimatorsEnabled())return false;
+            switch(event.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    animateLessonScale(view,0.98f,100);
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if(event.getX()<0||event.getX()>view.getWidth()||
+                       event.getY()<0||event.getY()>view.getHeight())
+                        animateLessonScale(view,1f,160);
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    animateLessonScale(view,1f,160);
+                    break;
+            }
+            return false; // Keep Android's click and cancellation behavior.
+        });
+        button.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){
+            @Override public void onViewAttachedToWindow(View view){}
+            @Override public void onViewDetachedFromWindow(View view){
+                view.animate().cancel();view.setScaleX(1f);view.setScaleY(1f);
+            }
+        });
+    }
+    private void animateLessonScale(View view,float scale,long duration){
+        view.animate().cancel();
+        view.animate().scaleX(scale).scaleY(scale).setDuration(duration)
+            .setInterpolator(new DecelerateInterpolator()).start();
+    }
     private void action(LinearLayout into,String label,boolean primary,Runnable runnable) {add(into,button(label,primary,runnable),10);}
     private LinearLayout tapCard(LinearLayout into,String title,String secondary,String arrow,Runnable action) {
         LinearLayout c=card(into);
@@ -5156,6 +5187,7 @@ public final class MainActivity extends Activity {
             return;
         }
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
+        animateLessonPress(mainAction);
         mainAction.setMinimumHeight(dp(58));
         footer.addView(mainAction,new LinearLayout.LayoutParams(-1,answerReview!=null?-2:dp(58)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
@@ -5210,6 +5242,7 @@ public final class MainActivity extends Activity {
         ap.topMargin=dp(10);central.addView(art,ap);
         LinearLayout footer=column();footer.setPadding(dp(24),dp(14),dp(24),dp(25));
         TextView continueButton=button("Продолжить",true,()->advanceAfterSuccess(e));
+        animateLessonPress(continueButton);
         continueButton.setTextSize(20);
         footer.addView(continueButton,new LinearLayout.LayoutParams(-1,dp(61)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
@@ -5453,6 +5486,7 @@ public final class MainActivity extends Activity {
             hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
             saveTrainingSession();
         });
+        animateLessonPress(hide);
         add(content,hide,27);
         // No extra instructional caption: gesture behavior remains unchanged.
     }
@@ -6584,9 +6618,11 @@ public final class MainActivity extends Activity {
             runPassed=AcceptedTextLogic.exact(line.text,runDraft,false);
             runChecked=true;saveRunSession();render();
         });
+        animateLessonPress(go);
         footer.addView(go,new LinearLayout.LayoutParams(-1,dp(55)));
         if(!runChecked){
             TextView skip=button("Пропустить стих",false,this::finishRunLine);
+            animateLessonPress(skip);
             footer.addView(skip,new LinearLayout.LayoutParams(-1,dp(47)));
         }
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));

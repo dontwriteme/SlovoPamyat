@@ -61,6 +61,41 @@ public class LessonHotbarIntegrationTest {
         activity.onBackPressed();
         assertEquals(0xFFFFFAF5,activity.getWindow().getNavigationBarColor());
     }
+    @Test public void lessonButtonTouchKeepsClickAndCancelBehavior()throws Exception{
+        View root=(View)get("root");
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,560);
+        TextView hide=text(root,"Скрыть 25% слов");assertNotNull(hide);
+        assertEquals("Скрыть 25% слов",hide.getText().toString());
+        touch(hide,MotionEvent.ACTION_DOWN);
+        touch(hide,MotionEvent.ACTION_CANCEL);
+        assertEquals(0,get("mask"));
+        touch(hide,MotionEvent.ACTION_DOWN);
+        touch(hide,MotionEvent.ACTION_UP);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(0,get("mask"));
+        hide.performClick();
+        assertEquals(25,get("mask"));
+        assertEquals("Скрыть 50% слов",hide.getText().toString());
+        hide.setEnabled(false);
+        touch(hide,MotionEvent.ACTION_DOWN);
+        touch(hide,MotionEvent.ACTION_UP);
+        assertEquals(25,get("mask"));
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200));
+        assertEquals(1f,hide.getScaleX(),0.001f);
+        assertEquals(1f,hide.getScaleY(),0.001f);
+    }
+
+    private long touchDownTime;
+    private void touch(View view,int action){
+        long now=android.os.SystemClock.uptimeMillis();
+        if(action==MotionEvent.ACTION_DOWN)touchDownTime=now;
+        MotionEvent event=MotionEvent.obtain(touchDownTime,now,action,
+            view.getWidth()/2f,view.getHeight()/2f,0);
+        view.dispatchTouchEvent(event);
+        event.recycle();
+    }
 
     @SuppressWarnings({"rawtypes","unchecked"})
     @Test public void memoryCheckFooterUsesTheSamePageBackground()throws Exception{
