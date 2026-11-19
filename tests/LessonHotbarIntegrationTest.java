@@ -80,7 +80,8 @@ public class LessonHotbarIntegrationTest {
             assertNotNull(text(root,"Твой ответ"));
             assertNotNull(text(root,"а"));
             assertNotNull(text(root,"Слово истины живо"));
-            assertNotNull(text(root,"Не хватает большей части стиха"));
+            assertNull(text(root,"Не хватает большей части стиха"));
+            assertEquals(2,((ViewGroup)get("content")).getChildCount());
             assertFalse(visibleText(root).contains("⟨пропуск:"));
             assertNull(edit(root));
             assertEquals(3,store.exerciseDone(id,0));
@@ -111,6 +112,53 @@ public class LessonHotbarIntegrationTest {
         assertEquals("HOME",get("screen").toString());
         assertNull(get("answerReview"));
         assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    @Test public void markedReviewUsesOnlyTwoCardsAndRetryClearsItsDraft()throws Exception{
+        openWritingFixture();
+        submit("Слово истены");
+        View root=(View)get("root");
+        assertEquals(2,((ViewGroup)get("content")).getChildCount());
+        assertNotNull(root.findViewWithTag("lesson-progress-strip"));
+        TextView displayed=text(root,"Слово истены живо");
+        assertNotNull(displayed);
+        assertTrue(displayed.getText() instanceof android.text.Spanned);
+        android.text.Spanned styled=(android.text.Spanned)displayed.getText();
+        assertEquals(1,styled.getSpans(0,styled.length(),android.text.style.ForegroundColorSpan.class).length);
+        assertEquals(1,styled.getSpans(0,styled.length(),android.text.style.ReplacementSpan.class).length);
+        TextView canonical=text(root,"Слово истины живо");
+        assertNotNull(canonical);
+        assertEquals(0,((android.text.Spanned)canonical.getText()).getSpans(0,canonical.getText().length(),
+            android.text.style.CharacterStyle.class).length);
+        assertNull(text(root,"Подробнее"));
+        assertNull(text(root,"Потренировать ошибочный фрагмент"));
+        assertEquals(3,store.exerciseDone(id,0));
+        text(root,"Написать ещё раз").performClick();
+        assertEquals("",edit((View)get("root")).getText().toString());
+        assertNull(text((View)get("root"),"Правильный ответ"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void longAnswerCardsScrollAboveTheFixedRetryButton()throws Exception{
+        openWritingFixture();
+        StringBuilder passage=new StringBuilder();
+        for(int i=0;i<120;i++)passage.append("Слово истины живо. ");
+        String expected=passage.toString();
+        String actual=expected.replaceFirst("истины","истены");
+        call("openAnswerReview",new Class<?>[]{String.class,String.class,boolean.class},expected,actual,false);
+        View root=(View)get("root");
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,560);
+        ScrollView scroll=(ScrollView)get("currentScroller");
+        assertSame(get("content"),scroll.getChildAt(0));
+        assertEquals(actual,text(root,actual).getText().toString());
+        assertEquals(expected,text(root,expected).getText().toString());
+        assertNull(text(root,expected).getEllipsize());
+        assertTrue(text(root,expected).getWidth()<=root.getWidth());
+        assertTrue(text(root,"Написать ещё раз").isShown());
+        assertEquals(2,((ViewGroup)get("content")).getChildCount());
     }
 
     private void openWritingFixture()throws Exception{

@@ -14,19 +14,35 @@ final class AnswerReviewLogic {
     static final class Issue {
         final Kind kind;
         final String expected, actual;
-        Issue(Kind kind, String expected, String actual) {
+        final int actualStart, actualEnd;
+        Issue(Kind kind, String expected, String actual, int actualStart, int actualEnd) {
             this.kind = kind;
             this.expected = expected;
             this.actual = actual;
+            this.actualStart = actualStart;
+            this.actualEnd = actualEnd;
+        }
+    }
+
+    static final class Mark {
+        final Kind kind;
+        final int start, end;
+        Mark(Kind kind, int start, int end) {
+            this.kind = kind;
+            this.start = start;
+            this.end = end;
         }
     }
 
     static final class Result {
         final Summary summary;
         final List<Issue> issues = new ArrayList<>();
-        final List<int[]> expectedMarks = new ArrayList<>();
-        final List<int[]> actualMarks = new ArrayList<>();
-        Result(Summary summary) { this.summary = summary; }
+        final List<Mark> actualMarks = new ArrayList<>();
+        String displayedActual;
+        Result(Summary summary, String actual) {
+            this.summary = summary;
+            displayedActual = actual;
+        }
     }
 
     private static final Pattern WORD = Pattern.compile("[\\p{L}\\p{N}][\\p{L}\\p{N}\\p{M}]*");
@@ -61,9 +77,9 @@ final class AnswerReviewLogic {
     }
 
     static Result compare(String expected, String actual, boolean allowMatthewVariant) {
-        if (actual.trim().isEmpty()) return new Result(Summary.EMPTY);
+        if (actual.trim().isEmpty()) return new Result(Summary.EMPTY, actual);
         List<Word> a = words(expected, allowMatthewVariant), b = words(actual, allowMatthewVariant);
-        if (a.size() > 0 && 2L * b.size() < a.size()) return new Result(Summary.SHORT);
+        if (a.size() > 0 && 2L * b.size() < a.size()) return new Result(Summary.SHORT, actual);
         int first = 0, endA = a.size(), endB = b.size();
         while (first < endA && first < endB && equal(a.get(first), b.get(first))) first++;
         while (endA > first && endB > first && equal(a.get(endA - 1), b.get(endB - 1))) {
@@ -71,7 +87,7 @@ final class AnswerReviewLogic {
             endB--;
         }
         int n = endA - first, m = endB - first;
-        if ((n + 1L) * (m + 1L) > MAX_ALIGNMENT_CELLS) return new Result(Summary.DIFFERENT);
+        if ((n + 1L) * (m + 1L) > MAX_ALIGNMENT_CELLS) return new Result(Summary.DIFFERENT, actual);
 
         int[][] cost = new int[n + 1][m + 1];
         byte[][] choice = new byte[n + 1][m + 1];
@@ -103,9 +119,9 @@ final class AnswerReviewLogic {
             if (step == 0 || step == 3) matched++;
         }
         if (Math.max(a.size(), b.size()) >= 4 && 3L * matched < Math.max(a.size(), b.size()))
-            return new Result(Summary.DIFFERENT);
+            return new Result(Summary.DIFFERENT, actual);
         Collections.reverse(steps);
-        Result result = new Result(Summary.NONE);
+        Result result = new Result(Summary.NONE, actual);
         int i = first, j = first;
         for (int k = 0; k < steps.size(); k++) {
             byte step = steps.get(k);
@@ -117,18 +133,40 @@ final class AnswerReviewLogic {
                 if (step == 3 || k + 1 == steps.size() || steps.get(k + 1) != step) break;
                 k++;
             } while (true);
-            String wanted = span(expected, a, fromA, i, result.expectedMarks);
-            String typed = span(actual, b, fromB, j, result.actualMarks);
+            String wanted = span(expected, a, fromA, i);
+            String typed = span(actual, b, fromB, j);
+            int start = fromB < b.size() ? b.get(fromB).start : b.get(b.size() - 1).end;
+            int end = j > fromB ? b.get(j - 1).end : start;
             result.issues.add(new Issue(step == 1 ? Kind.MISSING : step == 2 ? Kind.EXTRA : Kind.SPELLING,
-                wanted, typed));
+                wanted, typed, start, end));
         }
+        markActual(result, actual);
         return result;
     }
 
-    private static String span(String original, List<Word> words, int from, int to, List<int[]> marks) {
+    private static void markActual(Result result, String actual) {
+        StringBuilder display = new StringBuilder(actual);
+        int added = 0;
+        for (Issue issue : result.issues) {
+            int start = issue.actualStart + added;
+            if (issue.kind == Kind.MISSING) {
+                boolean before = start > 0 && Character.isLetterOrDigit(display.charAt(start - 1));
+                boolean after = start < display.length() && Character.isLetterOrDigit(display.charAt(start));
+                String insertion = (before ? " " : "") + issue.expected + (after ? " " : "");
+                display.insert(start, insertion);
+                int markStart = start + (before ? 1 : 0);
+                result.actualMarks.add(new Mark(Kind.MISSING, markStart, markStart + issue.expected.length()));
+                added += insertion.length();
+            } else {
+                result.actualMarks.add(new Mark(issue.kind, start, issue.actualEnd + added));
+            }
+        }
+        result.displayedActual = display.toString();
+    }
+
+    private static String span(String original, List<Word> words, int from, int to) {
         if (from == to) return "";
         int start = words.get(from).start, end = words.get(to - 1).end;
-        marks.add(new int[]{start, end});
         return original.substring(start, end);
     }
 

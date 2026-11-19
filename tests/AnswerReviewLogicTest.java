@@ -37,8 +37,9 @@ public class AnswerReviewLogicTest {
         AnswerReviewLogic.Result result=compare(VERSE,"В начеле сатворил Бог небо и землю");
         assertEquals(2,result.issues.size());
         for(AnswerReviewLogic.Issue issue:result.issues)assertEquals(AnswerReviewLogic.Kind.SPELLING,issue.kind);
-        int[] first=result.actualMarks.get(0);
-        assertEquals("начеле","В начеле сатворил Бог небо и землю".substring(first[0],first[1]));
+        AnswerReviewLogic.Mark first=result.actualMarks.get(0);
+        assertEquals("начеле",result.displayedActual.substring(first.start,first.end));
+        assertEquals(AnswerReviewLogic.Kind.SPELLING,first.kind);
     }
 
     @Test public void reorderedWordsAreNotAcceptedAndRepeatsDoNotCascade(){
@@ -62,6 +63,54 @@ public class AnswerReviewLogicTest {
         assertEquals(1,result.issues.size());
         assertEquals(AnswerReviewLogic.Kind.SPELLING,result.issues.get(0).kind);
         assertEquals("земли",result.issues.get(0).expected);
+    }
+
+    @Test public void referenceExampleMarksSpellingAndInsertsMissingWordsInPlace(){
+        String actual="И сказала Бог будет свет и стол свет";
+        AnswerReviewLogic.Result result=compare("И сказал Бог: да будет свет. И стал свет",actual);
+        assertEquals("И сказала Бог да будет свет и стол свет",result.displayedActual);
+        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"сказала");
+        assertMark(result,AnswerReviewLogic.Kind.MISSING,"да");
+        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"стол");
+        assertEquals(actual,result.displayedActual.replace("да ",""));
+    }
+
+    @Test public void multipleOmissionsRemainGroupedAndSeparateOmissionsStayInOrder(){
+        AnswerReviewLogic.Result group=compare("В начале сотворил Бог небо и землю",
+            "В начале сотворил Бог землю");
+        assertEquals("В начале сотворил Бог небо и землю",group.displayedActual);
+        assertMark(group,AnswerReviewLogic.Kind.MISSING,"небо и");
+        AnswerReviewLogic.Result separate=compare("В начале сотворил Бог небо и землю",
+            "В начале Бог и землю");
+        assertEquals("В начале сотворил Бог небо и землю",separate.displayedActual);
+        assertEquals(2,separate.actualMarks.size());
+        assertEquals("сотворил",marked(separate,separate.actualMarks.get(0)));
+        assertEquals("небо",marked(separate,separate.actualMarks.get(1)));
+    }
+
+    @Test public void extrasAreStruckSeparatelyFromSpellingAndRawAnswerStaysIntact(){
+        String actual="В начеле сотворил Бог ещё небо и землю";
+        AnswerReviewLogic.Result result=compare(VERSE,actual);
+        assertEquals(actual,result.displayedActual);
+        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"начеле");
+        assertMark(result,AnswerReviewLogic.Kind.EXTRA,"ещё");
+    }
+
+    @Test public void fallbackAndCorrectAnswerDoNotInventEdits(){
+        assertEquals("а",compare(VERSE,"а").displayedActual);
+        assertTrue(compare(VERSE,"а").actualMarks.isEmpty());
+        assertEquals(" ",compare(VERSE," ").displayedActual);
+        assertTrue(compare(VERSE,VERSE).actualMarks.isEmpty());
+    }
+
+    private String marked(AnswerReviewLogic.Result result,AnswerReviewLogic.Mark mark){
+        return result.displayedActual.substring(mark.start,mark.end);
+    }
+
+    private void assertMark(AnswerReviewLogic.Result result,AnswerReviewLogic.Kind kind,String text){
+        for(AnswerReviewLogic.Mark mark:result.actualMarks)
+            if(mark.kind==kind && text.equals(marked(result,mark)))return;
+        fail("Missing "+kind+" mark for "+text+" in "+result.displayedActual);
     }
 
     private AnswerReviewLogic.Result compare(String expected,String actual){
