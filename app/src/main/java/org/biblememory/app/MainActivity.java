@@ -5791,20 +5791,37 @@ public final class MainActivity extends Activity {
         return panel;
     }
 
-    private static final class ReviewUnderlineSpan extends ReplacementSpan {
+    private static final class ReviewErrorSpan extends ReplacementSpan {
+        private final float thickness;
+        ReviewErrorSpan(float thickness){this.thickness=thickness;}
         @Override public int getSize(Paint paint,CharSequence text,int start,int end,Paint.FontMetricsInt metrics){
-            return (int)Math.ceil(paint.measureText(text,start,end));
+            if(metrics!=null){
+                Paint.FontMetricsInt source=paint.getFontMetricsInt();
+                metrics.top=source.top;metrics.ascent=source.ascent;
+                metrics.descent=Math.max(source.descent,(int)Math.ceil(thickness*2));
+                metrics.bottom=Math.max(source.bottom,metrics.descent);
+                metrics.leading=source.leading;
+            }
+            boolean originalBold=paint.isFakeBoldText();
+            paint.setFakeBoldText(true);
+            int width=(int)Math.ceil(paint.measureText(text,start,end));
+            paint.setFakeBoldText(originalBold);
+            return width;
         }
         @Override public void draw(Canvas canvas,CharSequence text,int start,int end,float x,int top,
                                    int baseline,int bottom,Paint paint){
+            int originalColor=paint.getColor();
+            boolean originalBold=paint.isFakeBoldText();
+            float originalWidth=paint.getStrokeWidth();
+            paint.setColor(0xFFB72F2B);
+            paint.setFakeBoldText(true);
             float width=paint.measureText(text,start,end);
             canvas.drawText(text,start,end,x,baseline,paint);
-            int originalColor=paint.getColor();
-            float originalWidth=paint.getStrokeWidth();
-            paint.setColor(0xFFBE403B);
-            paint.setStrokeWidth(1f);
-            canvas.drawLine(x,baseline+2,x+width,baseline+2,paint);
+            paint.setStrokeWidth(thickness);
+            float underline=Math.min(bottom-thickness/2f,baseline+thickness);
+            canvas.drawLine(x,underline,x+width,underline,paint);
             paint.setStrokeWidth(originalWidth);
+            paint.setFakeBoldText(originalBold);
             paint.setColor(originalColor);
         }
     }
@@ -5825,7 +5842,7 @@ public final class MainActivity extends Activity {
         SpannableString marked=new SpannableString(text);
         for(AnswerReviewLogic.Mark mark:marks){
             if(mark.kind==AnswerReviewLogic.Kind.SPELLING){
-                marked.setSpan(new ReviewUnderlineSpan(),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                marked.setSpan(new ReviewErrorSpan(dp(2)),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }else{
                 marked.setSpan(new ForegroundColorSpan(0xFFAD3C37),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 if(mark.kind==AnswerReviewLogic.Kind.EXTRA)

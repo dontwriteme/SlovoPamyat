@@ -157,11 +157,38 @@ final class AnswerReviewLogic {
                 int markStart = start + (before ? 1 : 0);
                 result.actualMarks.add(new Mark(Kind.MISSING, markStart, markStart + issue.expected.length()));
                 added += insertion.length();
+            } else if (issue.kind == Kind.SPELLING) {
+                int[] changed = spellingRange(issue.expected, issue.actual);
+                result.actualMarks.add(new Mark(Kind.SPELLING,
+                    start + changed[0], start + changed[1]));
             } else {
                 result.actualMarks.add(new Mark(issue.kind, start, issue.actualEnd + added));
             }
         }
         result.displayedActual = display.toString();
+    }
+
+    /** Smallest visibly changed part of the typed word, with a safe one-letter fallback. */
+    private static int[] spellingRange(String expected, String actual) {
+        int prefix = 0, limit = Math.min(expected.length(), actual.length());
+        while (prefix < limit && sameLetter(expected.charAt(prefix), actual.charAt(prefix))) prefix++;
+        int expectedEnd = expected.length(), actualEnd = actual.length();
+        while (expectedEnd > prefix && actualEnd > prefix &&
+               sameLetter(expected.charAt(expectedEnd - 1), actual.charAt(actualEnd - 1))) {
+            expectedEnd--;
+            actualEnd--;
+        }
+        if (actualEnd > prefix) return new int[]{prefix, actualEnd};
+        if (actual.isEmpty()) return new int[]{0, 0};
+        int nearby = Math.min(prefix, actual.length() - 1);
+        return new int[]{nearby, nearby + 1};
+    }
+
+    private static boolean sameLetter(char a, char b) {
+        a = Character.toLowerCase(a);b = Character.toLowerCase(b);
+        if (a == 'ё') a = 'е';
+        if (b == 'ё') b = 'е';
+        return a == b;
     }
 
     private static String span(String original, List<Word> words, int from, int to) {

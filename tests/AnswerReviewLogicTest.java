@@ -38,7 +38,7 @@ public class AnswerReviewLogicTest {
         assertEquals(2,result.issues.size());
         for(AnswerReviewLogic.Issue issue:result.issues)assertEquals(AnswerReviewLogic.Kind.SPELLING,issue.kind);
         AnswerReviewLogic.Mark first=result.actualMarks.get(0);
-        assertEquals("начеле",result.displayedActual.substring(first.start,first.end));
+        assertEquals("е",result.displayedActual.substring(first.start,first.end));
         assertEquals(AnswerReviewLogic.Kind.SPELLING,first.kind);
     }
 
@@ -69,9 +69,9 @@ public class AnswerReviewLogicTest {
         String actual="И сказала Бог будет свет и стол свет";
         AnswerReviewLogic.Result result=compare("И сказал Бог: да будет свет. И стал свет",actual);
         assertEquals("И сказала Бог да будет свет и стол свет",result.displayedActual);
-        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"сказала");
+        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"а");
         assertMark(result,AnswerReviewLogic.Kind.MISSING,"да");
-        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"стол");
+        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"о");
         assertEquals(actual,result.displayedActual.replace("да ",""));
     }
 
@@ -92,8 +92,15 @@ public class AnswerReviewLogicTest {
         String actual="В начеле сотворил Бог ещё небо и землю";
         AnswerReviewLogic.Result result=compare(VERSE,actual);
         assertEquals(actual,result.displayedActual);
-        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"начеле");
+        assertMark(result,AnswerReviewLogic.Kind.SPELLING,"е");
         assertMark(result,AnswerReviewLogic.Kind.EXTRA,"ещё");
+    }
+
+    @Test public void spellingMarksOnlyChangedLettersWithDeletionFallback(){
+        assertMark(compare("сказал","сказала"),AnswerReviewLogic.Kind.SPELLING,"а");
+        assertMark(compare("стал","стол"),AnswerReviewLogic.Kind.SPELLING,"о");
+        assertMark(compare("сказал","скзал"),AnswerReviewLogic.Kind.SPELLING,"з");
+        assertMark(compare("слово","солво"),AnswerReviewLogic.Kind.SPELLING,"ол");
     }
 
     @Test public void fallbackAndCorrectAnswerDoNotInventEdits(){

@@ -159,7 +159,10 @@ public class LessonHotbarIntegrationTest {
         assertTrue(displayed.getText() instanceof android.text.Spanned);
         android.text.Spanned styled=(android.text.Spanned)displayed.getText();
         assertEquals(1,styled.getSpans(0,styled.length(),android.text.style.ForegroundColorSpan.class).length);
-        assertEquals(1,styled.getSpans(0,styled.length(),android.text.style.ReplacementSpan.class).length);
+        android.text.style.ReplacementSpan[] errors=styled.getSpans(0,styled.length(),android.text.style.ReplacementSpan.class);
+        assertEquals(1,errors.length);
+        assertEquals("е",styled.subSequence(styled.getSpanStart(errors[0]),styled.getSpanEnd(errors[0])).toString());
+        assertEquals("ReviewErrorSpan",errors[0].getClass().getSimpleName());
         TextView canonical=text(root,"Слово истины живо");
         assertNotNull(canonical);
         assertEquals(0,((android.text.Spanned)canonical.getText()).getSpans(0,canonical.getText().length(),
