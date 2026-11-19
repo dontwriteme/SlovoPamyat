@@ -3329,9 +3329,15 @@ public final class MainActivity extends Activity {
         eye.setOpen(cardRevealed,false);
         eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
         eye.setBackground(outlined(0xFFF0F2E7,14,0xFFC9D5C4));
-        LinearLayout.LayoutParams eyeParams=new LinearLayout.LayoutParams(dp(60),dp(60));
-        eyeParams.gravity=Gravity.CENTER_HORIZONTAL;eyeParams.topMargin=dp(56);
-        vertical.addView(eye,eyeParams);
+        // Keep the complete eye button (icon and its background) near the card's lower edge.
+        // This reserved space is measured by ScrollView, so the button is not clipped.
+        FrameLayout eyeSlot=new FrameLayout(this);
+        LinearLayout.LayoutParams eyeSlotParams=new LinearLayout.LayoutParams(-1,dp(136));
+        eyeSlotParams.topMargin=dp(56);
+        vertical.addView(eyeSlot,eyeSlotParams);
+        FrameLayout.LayoutParams eyeParams=new FrameLayout.LayoutParams(
+            dp(60),dp(60),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+        eyeSlot.addView(eye,eyeParams);
         eye.setOnClickListener(v->{
             cardRevealed=!cardRevealed;
             eye.setOpen(cardRevealed,true);
