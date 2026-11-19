@@ -486,6 +486,7 @@ public final class MainActivity extends Activity {
         if(store!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
+        dismissModeInfo(false);
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
@@ -523,6 +524,7 @@ public final class MainActivity extends Activity {
         if(rerender&&screen==Screen.HOME&&homeIndex!=old)render();
     }
     @Override public void onBackPressed() {
+        if(dismissModeInfo(true))return;
         switch(screen) {
             case HOME: super.onBackPressed(); break;
             case BOOKS:case DUE:case CARDS:case COLLECTIONS:screen=Screen.HOME;render();break;
@@ -993,6 +995,7 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        dismissModeInfo(false);
         CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
         if(previousCollections!=null && previousCollections.isSelected())
             collectionsIconCycle=previousCollections.settledCycle();
@@ -1531,22 +1534,37 @@ public final class MainActivity extends Activity {
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
-            float size=dp(23),cx=getWidth()/2f,cy=getHeight()/2f;
+            float size=dp(kind.equals("info")?25:kind.startsWith("mode-")?22:23),cx=getWidth()/2f,cy=getHeight()/2f;
             canvas.save();canvas.translate(cx,cy);canvas.scale(size/24f,size/24f);
             pen.setColor(ink);pen.setStrokeWidth(1.85f);pen.setStrokeCap(Paint.Cap.ROUND);
             pen.setStrokeJoin(Paint.Join.ROUND);pen.setStyle(Paint.Style.STROKE);
             Path path=new Path();
-            if(kind.equals("home")){
+            if(kind.startsWith("mode-")||kind.equals("info"))pen.setStrokeWidth(1.6f);
+            if(kind.equals("info")){
+                canvas.drawCircle(0,0,10,pen);
+                canvas.drawPoint(0,-4,pen);
+                canvas.drawLine(0,-0.8f,0,5,pen);
+            }else if(kind.equals("mode-cards")){
+                canvas.drawRoundRect(-10,-3,10,8,2,2,pen);
+                path.moveTo(-8,-6);path.lineTo(8,-6);
+                path.moveTo(-6,-9);path.lineTo(6,-9);
+                canvas.drawPath(path,pen);
+            }else if(kind.equals("mode-check")){
+                canvas.drawRoundRect(-8,-9,8,10,2,2,pen);
+                canvas.drawRoundRect(-4,-11,4,-7,1.5f,1.5f,pen);
+                path.moveTo(-4,2);path.lineTo(-1,5);path.lineTo(4,-1);
+                canvas.drawPath(path,pen);
+            }else if(kind.equals("home")){
                 path.moveTo(-10,-1);path.lineTo(0,-10);path.lineTo(10,-1);
                 path.lineTo(10,10);path.lineTo(-10,10);path.close();canvas.drawPath(path,pen);
                 canvas.drawRoundRect(-2,3,2,10,1,1,pen);
-            }else if(kind.equals("book")){
+            }else if(kind.equals("book")||kind.equals("mode-book")){
                 path.moveTo(0,-8);path.cubicTo(-4,-11,-8,-10,-11,-8);
                 path.lineTo(-11,9);path.cubicTo(-6,7,-2,8,0,10);
                 path.cubicTo(2,8,6,7,11,9);path.lineTo(11,-8);
                 path.cubicTo(8,-10,4,-11,0,-8);path.close();canvas.drawPath(path,pen);
                 canvas.drawLine(0,-8,0,10,pen);
-            }else if(kind.equals("refresh")){
+            }else if(kind.equals("refresh")||kind.equals("mode-repeat")){
                 // Symmetric two-arrow circular refresh glyph, fully path-based.
                 // Both arrowheads are connected to their arcs: no overlapping strokes.
                 path.moveTo(-9,-2);
@@ -1563,7 +1581,7 @@ public final class MainActivity extends Activity {
                 // Magnifying glass, sized to match the collection search bar.
                 canvas.drawCircle(-2,-2,6.5f,pen);
                 canvas.drawLine(3,3,10,10,pen);
-            }else if(kind.equals("brain")){
+            }else if(kind.equals("brain")||kind.equals("mode-brain")){
                 // Split cerebral hemispheres and internal folds.
                 path.moveTo(0,-9);path.cubicTo(-4,-12,-8,-9,-8,-6);
                 path.cubicTo(-12,-5,-12,-1,-10,1);
@@ -1826,6 +1844,7 @@ public final class MainActivity extends Activity {
                                 Screen.COLLECTIONS;
 
         if (screen == destination) return;
+        dismissModeInfo(false);
         if(isBibleSearchScreen()&&bibleSearchLoading){
             cancelBibleSearchWork();bibleSearchLoading=false;bibleSearchNeedsRefresh=true;
         }
@@ -2069,6 +2088,13 @@ public final class MainActivity extends Activity {
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event){
+        if(modeInfoAnchor!=null && event.getActionMasked()==MotionEvent.ACTION_DOWN){
+            int[] location=new int[2];
+            modeInfoAnchor.getLocationOnScreen(location);
+            float x=event.getRawX(),y=event.getRawY();
+            if(x<location[0]||x>=location[0]+modeInfoAnchor.getWidth()||
+               y<location[1]||y>=location[1]+modeInfoAnchor.getHeight())dismissModeInfo(true);
+        }
         // Fullscreen training and card carousels retain their own swipe gestures.
         if(screen==Screen.TRAIN||screen==Screen.CARD_SESSION||tabSwitchInProgress)
             return super.dispatchTouchEvent(event);
@@ -3635,8 +3661,6 @@ public final class MainActivity extends Activity {
             }
             LinearLayout head=row();
             head.addView(txt(verse.ref,14,bookInk(selectedBook),true));
-            if(highlighted&&!chapterFromVerseGrid){TextView tick=txt("✓ Выбран",12,GREEN,true);
-                head.addView(tick);}
             add(c,head,0);
             add(c,prose(verse.text,19),8);
             {
@@ -5947,29 +5971,195 @@ public final class MainActivity extends Activity {
         }
         add(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),8);
         if(verses>0)progress(panel,learned,verses);
-        unifiedModeRow(panel,"Учить стихи наизусть","book",this::startActiveStudy);
-        unifiedModeRow(panel,"Режим карточек","cards",this::startActiveCards);
-        unifiedModeRow(panel,"Повторение стихов","brain",()->startActiveReview(false));
-        unifiedModeRow(panel,"Проверка памяти","notebook",this::startActiveRun);
-        unifiedModeRow(panel,"Повторить все коллекции","repeat",()->startActiveReview(true));
+        unifiedModeRow(panel,"Изучение стихов","mode-book",
+            "Изучай стихи и библейские отрывки шаг за шагом. Читай текст, собирай его из слов и воспроизводи по памяти. Прогресс сохраняется автоматически.",
+            this::startActiveStudy);
+        unifiedModeRow(panel,"Карточки","mode-cards",
+            "Тренируй память с помощью карточек. Вспоминай стих по ссылке или определяй ссылку по тексту. Этот режим не влияет на интервальные повторения.",
+            this::startActiveCards);
+        unifiedModeRow(panel,"Закрепление стихов","mode-brain",
+            "Повторяй изученные стихи из выбранной коллекции. Приложение определяет, какие стихи пора повторить, чтобы лучше сохранить их в памяти.",
+            ()->startActiveReview(false));
+        unifiedModeRow(panel,"Проверка знаний","mode-check",
+            "Проверь, насколько хорошо помнишь закреплённые стихи выбранной коллекции. Воспроизводи их самостоятельно и оценивай результат.",
+            this::startActiveRun);
+        unifiedModeRow(panel,"Общее повторение","mode-repeat",
+            "Повторяй изученные стихи из всех своих коллекций. Приложение подбирает задания по действующему расписанию повторений.",
+            ()->startActiveReview(true));
     }
-    /** One tap launches a mode; no explanatory subtitles in this compact list. */
-    private void unifiedModeRow(LinearLayout panel,String name,String icon,Runnable run){
-        LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(dp(12),dp(11),dp(10),dp(11));
+
+    private void unifiedModeRow(LinearLayout panel,String name,String icon,String description,Runnable run){
+        LinearLayout item=row();
+        item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setPadding(dp(12),0,0,0);
         item.setBackground(outlined(CARD,14,BORDER));
-        NavigationGlyph symbol=new NavigationGlyph(icon,GREEN);
-        LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(dp(27),dp(27));
-        ip.rightMargin=dp(13);item.addView(symbol,ip);
-        TextView nameView=txt(name,16,WHITE,true);
-        item.addView(nameView,new LinearLayout.LayoutParams(0,-2,1));
-        TextView go=txt("›",23,GREEN,false);go.setGravity(Gravity.CENTER);
-        item.addView(go,new LinearLayout.LayoutParams(dp(22),dp(30)));
-        item.setClickable(true);item.setFocusable(true);
-        item.setContentDescription(name);
-        item.setOnClickListener(v->run.run());
+
+        LinearLayout launch=row();
+        launch.setGravity(Gravity.CENTER_VERTICAL);
+        launch.setMinimumHeight(dp(48));
+        launch.setContentDescription(name);
+        launch.setFocusable(true);
+        launch.setOnClickListener(v->run.run());
+        LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(dp(22),dp(24));
+        iconParams.rightMargin=dp(13);
+        launch.addView(new NavigationGlyph(icon,WHITE),iconParams);
+        launch.addView(txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
+        item.addView(launch,new LinearLayout.LayoutParams(0,-2,1));
+
+        View info=new NavigationGlyph("info",0xFF1976D2);
+        info.setContentDescription("О режиме «"+name+"»");
+        info.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        info.setFocusable(true);
+        info.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x241976D2),null,shape(Color.WHITE,24)));
+        info.setOnClickListener(v->showModeInfo(v,name,description));
+        item.addView(info,new LinearLayout.LayoutParams(dp(48),dp(48)));
         add(panel,item,9);
     }
+
+    private PopupWindow modeInfoPopup;
+    private View modeInfoAnchor;
+
+    private boolean dismissModeInfo(boolean animated){
+        PopupWindow popup=modeInfoPopup;
+        if(popup==null)return false;
+        View bubble=popup.getContentView();
+        bubble.animate().cancel();
+        if(animated&&ValueAnimator.areAnimatorsEnabled()){
+            bubble.animate().alpha(0f).scaleX(.9f).scaleY(.9f).setDuration(120)
+                .setInterpolator(new DecelerateInterpolator()).withEndAction(popup::dismiss).start();
+        }else popup.dismiss();
+        return true;
+    }
+
+    private void showModeInfo(View anchor,String name,String description){
+        if(modeInfoAnchor==anchor){dismissModeInfo(true);return;}
+        dismissModeInfo(false);
+        if(!anchor.isAttachedToWindow())return;
+
+        Rect visible=new Rect();
+        anchor.getWindowVisibleDisplayFrame(visible);
+        visible.inset(dp(12),dp(12));
+        if(visible.width()<=dp(64)||visible.height()<=dp(64))return;
+        int[] location=new int[2];
+        anchor.getLocationOnScreen(location);
+        int centerX=location[0]+anchor.getWidth()/2;
+        int centerY=location[1]+anchor.getHeight()/2;
+        int sideTip=location[0]+dp(3);
+        int caret=dp(8);
+        int width=Math.min(dp(320),visible.width());
+        boolean opensLeft=sideTip-visible.left>=Math.min(dp(250),width);
+        if(opensLeft)width=Math.min(width,sideTip-visible.left);
+
+        LinearLayout card=column();
+        card.setPadding(dp(16),dp(8),dp(8),dp(16));
+        LinearLayout heading=row();
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.addView(txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
+        TextView close=txt("×",23,MUTED,false);
+        close.setGravity(Gravity.CENTER);
+        close.setContentDescription("Закрыть подсказку");
+        close.setOnClickListener(v->dismissModeInfo(true));
+        heading.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        card.addView(heading);
+        TextView detail=txt(description,15,WHITE,false);
+        detail.setPadding(0,0,dp(8),0);
+        card.addView(detail);
+        card.measure(View.MeasureSpec.makeMeasureSpec(width-(opensLeft?caret:0),View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+
+        int desiredHeight=card.getMeasuredHeight()+(opensLeft?0:caret);
+        int above=Math.max(0,location[1]+dp(3)-visible.top);
+        int below=Math.max(0,visible.bottom-(location[1]+anchor.getHeight()-dp(3)));
+        boolean opensAbove=!opensLeft && below<desiredHeight && above>=below;
+        int height=Math.min(desiredHeight,opensLeft?visible.height():opensAbove?above:below);
+        if(height<=caret)return;
+        int x=opensLeft?sideTip-width:Math.max(visible.left,Math.min(centerX-width/2,visible.right-width));
+        int y=opensLeft?Math.max(visible.top,Math.min(centerY-height/2,visible.bottom-height)):
+            opensAbove?location[1]+dp(3)-height:location[1]+anchor.getHeight()-dp(3);
+        int tangent=opensLeft?centerY-y:centerX-x;
+
+        FrameLayout bubble=new FrameLayout(this);
+        bubble.setOutlineProvider(new ViewOutlineProvider(){
+            @Override public void getOutline(View view,android.graphics.Outline outline){
+                outline.setRoundRect(0,opensLeft||opensAbove?0:caret,
+                    view.getWidth()-(opensLeft?caret:0),view.getHeight()-(opensAbove?caret:0),dp(18));
+            }
+        });
+        bubble.setElevation(dp(4));
+        View surface=new ModeInfoSurface(opensLeft,opensAbove,tangent,caret);
+        bubble.addView(surface,new FrameLayout.LayoutParams(-1,-1));
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(card,new ScrollView.LayoutParams(-1,-2));
+        FrameLayout.LayoutParams scrollParams=new FrameLayout.LayoutParams(-1,-1);
+        scrollParams.setMargins(0,opensLeft||opensAbove?0:caret,opensLeft?caret:0,opensAbove?caret:0);
+        bubble.addView(scroll,scrollParams);
+
+        PopupWindow popup=new PopupWindow(bubble,width,height,false);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        popup.setAnimationStyle(0);
+        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        // The Activity receives outside touches normally, including the anchor's second tap.
+        popup.setOutsideTouchable(false);
+        popup.setOnDismissListener(()->{
+            if(modeInfoPopup==popup){modeInfoPopup=null;modeInfoAnchor=null;}
+        });
+        modeInfoPopup=popup;
+        modeInfoAnchor=anchor;
+        boolean animate=ValueAnimator.areAnimatorsEnabled();
+        bubble.setPivotX(opensLeft?width:tangent);
+        bubble.setPivotY(opensLeft?tangent:opensAbove?height:0);
+        if(animate){bubble.setAlpha(0f);bubble.setScaleX(.9f);bubble.setScaleY(.9f);}
+        popup.showAsDropDown(anchor,x-location[0],y-location[1]-anchor.getHeight(),Gravity.LEFT);
+        if(animate)bubble.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(175)
+            .setInterpolator(new DecelerateInterpolator()).start();
+    }
+
+    /** Draw the rounded panel and its caret as a single outlined surface. */
+    private final class ModeInfoSurface extends View {
+        private final boolean left,above;
+        private final int tangent,caret;
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path outline=new Path();
+
+        ModeInfoSurface(boolean left,boolean above,int tangent,int caret){
+            super(MainActivity.this);
+            this.left=left;this.above=above;this.tangent=tangent;this.caret=caret;
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+
+        @Override protected void onSizeChanged(int width,int height,int oldWidth,int oldHeight){
+            float top=left||above?1:caret;
+            float right=left?width-caret:width-1;
+            float bottom=above?height-caret:height-1;
+            outline.rewind();
+            outline.addRoundRect(1,top,right,bottom,dp(18),dp(18),Path.Direction.CW);
+            Path arrow=new Path();
+            float base=Math.max(dp(14),Math.min(tangent,(left?height:width)-dp(14)));
+            if(left){
+                arrow.moveTo(right-1,base-caret);arrow.lineTo(width-1,tangent);
+                arrow.lineTo(right-1,base+caret);
+            }else{
+                float edge=above?bottom-1:top+1;
+                arrow.moveTo(base-caret,edge);arrow.lineTo(tangent,above?height-1:1);
+                arrow.lineTo(base+caret,edge);
+            }
+            arrow.close();
+            outline.op(arrow,Path.Op.UNION);
+        }
+
+        @Override protected void onDraw(Canvas canvas){
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(CARD);
+            canvas.drawPath(outline,paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(1));
+            paint.setColor(BORDER);
+            canvas.drawPath(outline,paint);
+        }
+    }
+
     private void startActiveStudy(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null){newUnifiedCollection(null);return;}
         if(bible.isReady())store.syncUnifiedCollection(u.id,bible);
@@ -6383,6 +6573,7 @@ public final class MainActivity extends Activity {
             .setMessage(ex.getMessage()).setPositiveButton("OK",null).show();}
     }
     @Override protected void onDestroy(){
+        dismissModeInfo(false);
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();

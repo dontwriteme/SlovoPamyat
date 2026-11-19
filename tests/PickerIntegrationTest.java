@@ -198,6 +198,12 @@ public class PickerIntegrationTest {
         assertEquals("CHAPTER",field("screen").toString());
         assertEquals(40,field("selectedBook"));assertEquals(5,field("selectedChapter"));
         assertTrue(store.entries(group).isEmpty());assertNull(text("Выбрать отрывок"));
+        assertNull(text("✓ Выбран"));
+        assertNotNull(text("● Не изучен   ·   Повторений: 0"));
+        TextView focused=text("5:3");assertNotNull(focused);
+        View card=(View)((View)focused.getParent()).getParent();
+        android.graphics.drawable.GradientDrawable highlight=(android.graphics.drawable.GradientDrawable)card.getBackground();
+        assertEquals(0xFFEDEBDD,highlight.getColor().getDefaultColor());
     }
     private static final class ManualSearchExecutor extends java.util.concurrent.AbstractExecutorService {
         final List<Runnable> queued=new ArrayList<>();boolean stopped;
@@ -335,12 +341,62 @@ public class PickerIntegrationTest {
         assertArrayEquals(bounds,selection().bounds());assertTrue(store.entries(group).isEmpty());
     }
     @Test public void readerFocusOverridesPreviouslySavedChapterScroll()throws Exception {
+        controller.visible();
         reader("CHAPTER",40,5);
         @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)field("savedScrollY");
         saved.put(option("Screen","CHAPTER"),0);
         reader("VERSES",40,5);text("40").performClick();layoutReader();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));
         assertTrue(((ScrollView)field("currentScroller")).getScrollY()>0);
+    }
+
+    @Test @Config(qualifiers="w1080dp-h1920dp")
+    public void homeModeInfoButtonsOpenTheirOwnNonModalPopup()throws Exception {
+        set("activeUnifiedId",store.unifiedForGroup(group).id);
+        set("homeCollectionsExpanded",true);
+        set("screen",option("Screen","HOME"));
+        invoke("render");
+        controller.visible();
+        View decor=activity.getWindow().getDecorView();
+        decor.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));
+        decor.layout(0,0,1080,1920);
+        View root=(View)field("root");
+        String[] names={"Изучение стихов","Карточки","Закрепление стихов","Проверка знаний","Общее повторение"};
+        String[] descriptions={"шаг за шагом","по ссылке","какие стихи пора","закреплённые стихи","из всех своих коллекций"};
+        for(int i=0;i<names.length;i++){
+            TextView label=text(root,names[i]);assertNotNull(label);
+            android.view.ViewGroup row=(android.view.ViewGroup)((View)label.getParent()).getParent();
+            View anchor=row.getChildAt(1);
+            assertEquals("О режиме «"+names[i]+"»",anchor.getContentDescription());
+            assertNotNull(anchor);
+            assertTrue(anchor.getWidth()>=48*activity.getResources().getDisplayMetrics().density);
+            assertNotSame(label.getParent(),anchor.getParent());
+            ScrollView home=(ScrollView)field("currentScroller");
+            android.graphics.Rect position=new android.graphics.Rect(0,0,anchor.getWidth(),anchor.getHeight());
+            home.offsetDescendantRectToMyCoords(anchor,position);
+            home.scrollTo(0,Math.max(0,position.top-home.getHeight()/2));
+            anchor.performClick();
+            android.widget.PopupWindow popup=(android.widget.PopupWindow)field("modeInfoPopup");
+            android.graphics.Rect frame=new android.graphics.Rect();
+            anchor.getWindowVisibleDisplayFrame(frame);
+            assertNotNull("Popover for "+names[i]+" in "+frame,popup);assertFalse(popup.isFocusable());
+            assertNotNull(text(popup.getContentView(),names[i]));
+            assertTrue(textContains(popup.getContentView(),descriptions[i]));
+            assertEquals("HOME",field("screen").toString());
+        }
+        View anchor=(View)field("modeInfoAnchor");anchor.performClick();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
+        assertNull(field("modeInfoPopup"));
+    }
+
+    private boolean textContains(View view,String snippet){
+        if(view instanceof TextView&&((TextView)view).getText().toString().contains(snippet))return true;
+        if(view instanceof android.view.ViewGroup){
+            android.view.ViewGroup group=(android.view.ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++)if(textContains(group.getChildAt(i),snippet))return true;
+        }
+        return false;
     }
 
 }
