@@ -3231,7 +3231,7 @@ public final class MainActivity extends Activity {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private float openness=0f;
         private ValueAnimator eyelidsAnimator;
-        EyeButton(){super(MainActivity.this);}
+        EyeButton(){super(MainActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
         void setOpen(boolean open,boolean animate){
             if(eyelidsAnimator!=null)eyelidsAnimator.cancel();
             float target=open?1f:0f;
@@ -3248,60 +3248,33 @@ public final class MainActivity extends Activity {
         }
         @Override protected void onDraw(Canvas c){
             super.onDraw(c);
-            float cx=getWidth()/2f,cy=getHeight()/2f;
-            float r=Math.min(dp(15),Math.min(getWidth()/2f-dp(2),getHeight()/2f-dp(2)));
-            if(r<=0f)return;
-            // A symmetric almond-shaped eye remains legible even before reveal.
+            float cx=getWidth()/2f,cy=getHeight()/2f,r=dp(15);
             float open=Math.max(0f,Math.min(1f,openness));
-            float arc=dp(8)+dp(3)*open;
-            paint.setColor(0xFF536C3E);
+            paint.setColor(0xFF9B5E41);paint.setStrokeWidth(dp(2.5f));
+            paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(2.2f));
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setStrokeJoin(Paint.Join.ROUND);
-            Path outline=new Path();
-            outline.moveTo(cx-r,cy);
-            outline.cubicTo(cx-r*.5f,cy-arc,cx+r*.5f,cy-arc,cx+r,cy);
-            outline.cubicTo(cx+r*.5f,cy+arc,cx-r*.5f,cy+arc,cx-r,cy);
-            outline.close();
-            c.drawPath(outline,paint);
-            paint.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx,cy,dp(4),paint);
+            // At t=0 the lids meet in one curved closed-eye line;
+            // at t=1 they frame a fully open, almond-shaped eye.
+            float closedArc=dp(3);
+            float arc=closedArc+(r*.82f-closedArc)*open;
+            Path upper=new Path();upper.moveTo(cx-r,cy);
+            upper.cubicTo(cx-r*.55f,cy-arc,cx+r*.55f,cy-arc,cx+r,cy);
+            Path lower=new Path();lower.moveTo(cx-r,cy);
+            lower.cubicTo(cx-r*.55f,cy-closedArc+(arc+closedArc)*open,
+                cx+r*.55f,cy-closedArc+(arc+closedArc)*open,cx+r,cy);
+            c.drawPath(upper,paint);
+            if(open>0.003f)c.drawPath(lower,paint);
+            if(open>0.003f){
+                paint.setStyle(Paint.Style.FILL);
+                paint.setAlpha(Math.round(255f*open));
+                c.drawCircle(cx,cy,dp(4)*open,paint);
+                paint.setAlpha(255);
+            }
         }
         @Override protected void onDetachedFromWindow(){
             if(eyelidsAnimator!=null)eyelidsAnimator.cancel();
             super.onDetachedFromWindow();
         }
-    }
-    private final class CardLeafDivider extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        CardLeafDivider(){super(MainActivity.this);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
-        @Override protected void onDraw(Canvas canvas){
-            float cx=getWidth()/2f,cy=getHeight()/2f;
-            paint.setColor(0xFFB6BE96);paint.setStrokeWidth(dp(1));
-            canvas.drawLine(dp(12),cy,cx-dp(30),cy,paint);
-            canvas.drawLine(cx+dp(30),cy,getWidth()-dp(12),cy,paint);
-            paint.setColor(0xFF91A273);paint.setStyle(Paint.Style.FILL);
-            Path left=new Path();left.moveTo(cx-dp(2),cy+dp(5));
-            left.cubicTo(cx-dp(18),cy+dp(1),cx-dp(18),cy-dp(7),cx-dp(19),cy-dp(13));
-            left.cubicTo(cx-dp(5),cy-dp(12),cx-dp(3),cy-dp(5),cx-dp(2),cy+dp(5));
-            canvas.drawPath(left,paint);
-            Path right=new Path();right.moveTo(cx+dp(1),cy+dp(5));
-            right.cubicTo(cx+dp(17),cy+dp(1),cx+dp(18),cy-dp(8),cx+dp(19),cy-dp(14));
-            right.cubicTo(cx+dp(5),cy-dp(12),cx+dp(3),cy-dp(5),cx+dp(1),cy+dp(5));
-            canvas.drawPath(right,paint);
-            paint.setColor(0xFF7D9166);paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(1));
-            canvas.drawLine(cx,cy+dp(7),cx,cy-dp(3),paint);
-        }
-    }
-    private TextView cardReference(String reference){
-        TextView label=displayText(reference,25);
-        label.setTextColor(0xFF425A38);label.setGravity(Gravity.CENTER);
-        label.setPadding(dp(17),dp(8),dp(17),dp(8));
-        label.setBackground(outlined(0xFFE9EBCF,24,0xFFD3DAB8));
-        label.setMaxLines(Integer.MAX_VALUE);label.setEllipsize(null);
-        return label;
     }
     private void renderCardSession(){
         List<LocalStore.Flashcard> items=store.flashcards(selectedDeck);
@@ -3310,91 +3283,67 @@ public final class MainActivity extends Activity {
             if(f.id==cardSequence.get(Math.min(cardIndex,cardSequence.size()-1))){current=f;break;}
         if(current==null){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
         root=column();root.setBackground(pageBackground());
-        // The card measures its content; the page scrolls only when a passage needs more room.
-        ScrollView pageScroll=new ScrollView(this);
-        pageScroll.setFillViewport(false);
-        pageScroll.setVerticalScrollBarEnabled(false);
-        pageScroll.setClipToPadding(false);
-        root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout header=column();header.setPadding(dp(16),dp(16),dp(16),dp(7));
+        LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
+        TextView deckHeading=displayText(deck==null?"Карточки":deck.title,22);
+        deckHeading.setGravity(Gravity.CENTER);
+        header.addView(deckHeading,new LinearLayout.LayoutParams(-1,dp(45)));
+        root.addView(header,new LinearLayout.LayoutParams(-1,-2));
         SwipeCardLayout swipe=new SwipeCardLayout();
-        swipe.setBackground(outlined(0xFFFFF9F1,30,0xFFFFFFFF));
+        swipe.setBackground(outlined(CARD,26,BORDER));
         swipe.setClipToOutline(true);
-        swipe.setMinimumHeight(dp(510));
-        FrameLayout.LayoutParams swipeParams=new FrameLayout.LayoutParams(-1,-2);
-        swipeParams.setMargins(dp(18),dp(16),dp(18),dp(28));
-        pageScroll.addView(swipe,swipeParams);
         ImageView scenicCard=new ImageView(this);
-        scenicCard.setImageResource(R.drawable.hero_valley);
+        scenicCard.setImageResource(landscapeFor(selectedDeck));
         scenicCard.setScaleType(ImageView.ScaleType.CENTER_CROP);
         scenicCard.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        swipe.addView(scenicCard,new FrameLayout.LayoutParams(-1,dp(178),Gravity.BOTTOM));
-        View landscapeTint=new View(this);
-        landscapeTint.setBackgroundColor(0x6695A86B);
-        landscapeTint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        swipe.addView(landscapeTint,new FrameLayout.LayoutParams(-1,dp(178),Gravity.BOTTOM));
+        FrameLayout.LayoutParams sceneryP=new FrameLayout.LayoutParams(-1,dp(158),Gravity.BOTTOM);
+        swipe.addView(scenicCard,sceneryP);
         View readableOverlay=new View(this);
         readableOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0xFFFFF9F1,0xFFFFF9F1,0xFFFFF9F1,0xEFFFF8EC,0x00FFF8EC}));
-        readableOverlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            new int[]{0xFFFFFCF8,0xFFFFFAF5,0xFAFFF6EE,0xDDFFF3E6,0x44FFF3E6}));
         swipe.addView(readableOverlay,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout vertical=column();vertical.setGravity(Gravity.CENTER_HORIZONTAL);
-        vertical.setPadding(dp(24),dp(23),dp(24),0);
-        swipe.addView(vertical,new FrameLayout.LayoutParams(-1,-2));
-        TextView counter=txt((cardIndex+1)+" / "+cardSequence.size(),16,0xFF826D50,false);
-        counter.setGravity(Gravity.RIGHT);add(vertical,counter,0);
-        LinearLayout.LayoutParams dividerParams=new LinearLayout.LayoutParams(-1,dp(30));
-        dividerParams.topMargin=dp(14);vertical.addView(new CardLeafDivider(),dividerParams);
-        TextView initial=cardShowReference?cardReference(current.reference):prose(current.content,25);
-        initial.setGravity(Gravity.CENTER);
-        if(!cardShowReference)initial.setTextColor(0xFF374534);
-        LinearLayout.LayoutParams firstParams=new LinearLayout.LayoutParams(-1,-2);
-        firstParams.topMargin=dp(22);vertical.addView(initial,firstParams);
-        TextView answer=cardShowReference?prose(current.content,24):cardReference(current.reference);
-        answer.setGravity(Gravity.CENTER);answer.setTextColor(0xFF374534);
+        LinearLayout.LayoutParams swipeParams=new LinearLayout.LayoutParams(-1,0,1);
+        swipeParams.setMargins(dp(17),dp(16),dp(17),dp(24));root.addView(swipe,swipeParams);
+        ScrollView scrolling=new ScrollView(this);scrolling.setFillViewport(true);
+        swipe.addView(scrolling,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout vertical=column();vertical.setGravity(Gravity.CENTER);
+        vertical.setPadding(dp(22),dp(22),dp(22),dp(22));scrolling.addView(vertical);
+        TextView initial=txt(cardShowReference?current.reference:current.content,
+            cardShowReference?27:20,0xFF3C422E,cardShowReference);
+        initial.setTypeface(Typeface.create("serif",cardShowReference?Typeface.BOLD:Typeface.NORMAL));
+        initial.setGravity(Gravity.CENTER);add(vertical,initial,0);
+        TextView answer=txt(cardShowReference?current.content:current.reference,
+            cardShowReference?20:25,0xFF694F3F,!cardShowReference);
+        answer.setTypeface(Typeface.create("serif",cardShowReference?Typeface.NORMAL:Typeface.BOLD));
+        // Reserve an answer area so opening the eye never shifts the original citation/text.
+        answer.setGravity(Gravity.CENTER);
         answer.setAlpha(cardRevealed?1f:0f);
-        answer.setVisibility(cardRevealed?View.VISIBLE:View.GONE);
         answer.setImportantForAccessibility(cardRevealed?
             View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        LinearLayout.LayoutParams answerParams=new LinearLayout.LayoutParams(-1,-2);
-        answerParams.topMargin=dp(18);vertical.addView(answer,answerParams);
+        ScrollView answerScroll=new ScrollView(this);
+        answerScroll.setFillViewport(true);
+        answerScroll.setVerticalScrollBarEnabled(false);
+        answerScroll.addView(answer,new ScrollView.LayoutParams(-1,-2));
+        int answerHeight=Math.min(dp(230),Math.max(dp(100),
+            getResources().getDisplayMetrics().heightPixels*32/100));
+        LinearLayout.LayoutParams answerArea=new LinearLayout.LayoutParams(-1,answerHeight);
+        answerArea.topMargin=dp(10);vertical.addView(answerScroll,answerArea);
         EyeButton eye=new EyeButton();
         eye.setOpen(cardRevealed,false);
-        eye.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout reveal=row();reveal.setGravity(Gravity.CENTER);
-        reveal.setPadding(dp(11),0,dp(16),0);
-        reveal.setBackground(outlined(0xFFEBEED5,27,0xFFABB88C));
-        reveal.setElevation(dp(1));reveal.setClickable(true);reveal.setFocusable(true);
-        reveal.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
-        reveal.addView(eye,new LinearLayout.LayoutParams(dp(45),dp(45)));
-        TextView revealLabel=txt(cardRevealed?"Скрыть ответ":"Показать ответ",17,0xFF4B653B,true);
-        LinearLayout.LayoutParams labelParams=new LinearLayout.LayoutParams(-2,-2);
-        labelParams.leftMargin=dp(7);reveal.addView(revealLabel,labelParams);
-        LinearLayout.LayoutParams revealParams=new LinearLayout.LayoutParams(-2,dp(54));
-        revealParams.gravity=Gravity.CENTER_HORIZONTAL;revealParams.topMargin=dp(16);
-        vertical.addView(reveal,revealParams);
-        // Keep the scenic footer clear of the action without stretching the reading area.
-        gap(vertical,190);
-        reveal.setOnClickListener(v->{
+        eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
+        eye.setBackground(outlined(0xFFF0F2E7,14,0xFFC9D5C4));
+        LinearLayout.LayoutParams eyeParams=new LinearLayout.LayoutParams(dp(60),dp(60));
+        eyeParams.gravity=Gravity.CENTER_HORIZONTAL;eyeParams.topMargin=dp(24);
+        vertical.addView(eye,eyeParams);
+        eye.setOnClickListener(v->{
             cardRevealed=!cardRevealed;
             eye.setOpen(cardRevealed,true);
             answer.animate().cancel();
-            if(cardRevealed){
-                answer.setVisibility(View.VISIBLE);
-                answer.setAlpha(0f);
-                if(ValueAnimator.areAnimatorsEnabled())
-                    answer.animate().alpha(1f).setDuration(180L).start();
-                else answer.setAlpha(1f);
-            }else if(ValueAnimator.areAnimatorsEnabled()){
-                answer.animate().alpha(0f).setDuration(140L).withEndAction(()->{
-                    if(!cardRevealed)answer.setVisibility(View.GONE);
-                }).start();
-            }else{
-                answer.setAlpha(0f);answer.setVisibility(View.GONE);
-            }
+            answer.animate().alpha(cardRevealed?1f:0f)
+                .setDuration(ValueAnimator.areAnimatorsEnabled()?250L:0L).start();
             answer.setImportantForAccessibility(cardRevealed?
                 View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-            revealLabel.setText(cardRevealed?"Скрыть ответ":"Показать ответ");
-            reveal.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
+            eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
         });
         setContentView(root);
     }
