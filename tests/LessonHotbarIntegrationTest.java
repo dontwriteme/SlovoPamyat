@@ -38,29 +38,31 @@ public class LessonHotbarIntegrationTest {
     }
     @After public void close()throws Exception{waitLoader();if(lifecycle!=null)lifecycle.pause().stop().destroy();}
     @Test public void onlyCurrentPhaseNameIsVisibleWithoutRedundantCounters()throws Exception{
-        View intro=(View)get("root");
-        assertEquals("Читай",((TextView)intro.findViewWithTag("lesson-progress-current-phase")).getText().toString());
-        assertNull(text(intro,"Собери"));
-        assertNull(text(intro,"Напиши"));
-        assertNull(intro.findViewWithTag("lesson-progress-count"));
-        assertNotNull(intro.findViewWithTag("lesson-progress-strip"));
-
+        assertActivePhaseLabels("Читай",0);
         store.finishExercise(id,0,1);invoke("render");
-        View build=(View)get("root");
-        assertEquals("Собери",((TextView)build.findViewWithTag("lesson-progress-current-phase")).getText().toString());
-        assertNull(text(build,"Читай"));
-        assertNull(text(build,"Напиши"));
-        assertNull(build.findViewWithTag("lesson-progress-count"));
-        assertFalse(visibleText(build).contains(" слов"));
-        assertNotNull(build.findViewWithTag("lesson-progress-strip"));
-
+        assertActivePhaseLabels("Собери",1);
+        assertFalse(visibleText((View)get("root")).contains(" слов"));
         store.finishExercise(id,0,3);invoke("render");
-        View writing=(View)get("root");
-        assertEquals("Напиши",((TextView)writing.findViewWithTag("lesson-progress-current-phase")).getText().toString());
-        assertNull(text(writing,"Читай"));
-        assertNull(text(writing,"Собери"));
-        assertNull(writing.findViewWithTag("lesson-progress-count"));
-        assertNotNull(writing.findViewWithTag("lesson-progress-strip"));
+        assertActivePhaseLabels("Напиши",2);
+    }
+
+    private void assertActivePhaseLabels(String expected,int activeIndex)throws Exception{
+        View root=(View)get("root");
+        View strip=root.findViewWithTag("lesson-progress-strip");
+        assertNotNull(strip);
+        TextView count=root.findViewWithTag("lesson-progress-count");
+        assertNotNull(count);
+        assertEquals(View.INVISIBLE,count.getVisibility());
+        for(int i=0;i<3;i++){
+            TextView label=root.findViewWithTag("lesson-progress-label-"+i);
+            assertNotNull(label);
+            if(i==activeIndex){
+                assertEquals(View.VISIBLE,label.getVisibility());
+                assertEquals(expected,label.getText().toString());
+            }else{
+                assertNotEquals(View.VISIBLE,label.getVisibility());
+            }
+        }
     }
 
     @Test public void everyHideLevelLeavesIntroCurrentAndPreservesPassageView()throws Exception{

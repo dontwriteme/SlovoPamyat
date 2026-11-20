@@ -123,7 +123,8 @@ public final class MainActivity extends Activity {
     private int lessonBuildRequired=0;
     // Presentation only: one adaptive strip, independent of text/answer Views.
     private LessonSegmentedBar lessonHotbarStrip;
-    private TextView lessonHotbarPhaseLabel;
+    private final List<TextView> lessonHotbarLabels=new ArrayList<>();
+    private TextView lessonHotbarCounter;
 
     private int weakVerse=-1,weakTransitionFrom=-1;
     private int readerVerseNumber=1;
@@ -5353,21 +5354,35 @@ public final class MainActivity extends Activity {
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
             introDone,buildDone,lessonWriteVariant,writingOnly);
     }
-    /** Only the current phase is named above the unchanged segmented progress strip. */
+    /** Minimal phase labels and one responsive, non-scrolling task strip. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
-                                     LocalStore.Entry e){
+                                    LocalStore.Entry e){
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
         LinearLayout bar=column();bar.setTag("lesson-progress");
+        LinearLayout labels=row();lessonHotbarLabels.clear();
         String[] names={"Читай","Собери","Напиши"};
-        lessonHotbarPhaseLabel=txt(names[model.activePhase],12,0xFF355E43,true);
-        lessonHotbarPhaseLabel.setGravity(Gravity.CENTER);
-        lessonHotbarPhaseLabel.setSingleLine(true);
-        lessonHotbarPhaseLabel.setTag("lesson-progress-current-phase");
-        bar.addView(lessonHotbarPhaseLabel,new LinearLayout.LayoutParams(-1,dp(28)));
+        for(int group=0;group<3;group++){
+            TextView label=txt(names[group],12,MUTED,false);
+            label.setGravity(Gravity.CENTER);label.setSingleLine(true);
+            label.setTag("lesson-progress-label-"+group);
+            label.setVisibility(model.totals[group]==0?View.GONE:
+                (group==model.activePhase?View.VISIBLE:View.INVISIBLE));
+            labels.addView(label,new LinearLayout.LayoutParams(0,dp(28),1));
+            lessonHotbarLabels.add(label);
+        }
+        bar.addView(labels,new LinearLayout.LayoutParams(-1,-2));
         lessonHotbarStrip=new LessonSegmentedBar(model);
         lessonHotbarStrip.setTag("lesson-progress-strip");
         LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(7));stripP.topMargin=dp(3);
         bar.addView(lessonHotbarStrip,stripP);
+        lessonHotbarCounter=txt("",11,MUTED,false);
+        lessonHotbarCounter.setTag("lesson-progress-count");
+        lessonHotbarCounter.setGravity(Gravity.END);lessonHotbarCounter.setSingleLine(true);
+        // The strip exposes the complete stage/count description to TalkBack.
+        lessonHotbarCounter.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        lessonHotbarCounter.setVisibility(View.INVISIBLE);
+        LinearLayout.LayoutParams counterP=new LinearLayout.LayoutParams(-1,-2);counterP.topMargin=dp(5);
+        bar.addView(lessonHotbarCounter,counterP);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(3);
         top.addView(bar,lp);
         refreshLessonPhaseProgress(phase,e);
@@ -5416,11 +5431,19 @@ public final class MainActivity extends Activity {
     }
     /** Update progress only; the answer, word tiles and passage keep their Views. */
     private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
-        if(lessonHotbarStrip==null||lessonHotbarPhaseLabel==null)return;
+        if(lessonHotbarStrip==null||lessonHotbarCounter==null)return;
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
-        String[] names={"Читай","Собери","Напиши"};
-        lessonHotbarPhaseLabel.setText(names[model.activePhase]);
+        lessonHotbarCounter.setText(model.completedCount+" из "+model.total+" выполнено");
         lessonHotbarStrip.setModel(model);
+        for(int group=0;group<lessonHotbarLabels.size();group++){
+            TextView label=lessonHotbarLabels.get(group);boolean active=group==model.activePhase;
+            label.setVisibility(model.totals[group]==0?View.GONE:
+                (active?View.VISIBLE:View.INVISIBLE));
+            label.setTextColor(active?0xFF355E43:MUTED);
+            label.setTypeface(null,active?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
+            label.setPaintFlags(active?label.getPaintFlags()|Paint.UNDERLINE_TEXT_FLAG:
+                label.getPaintFlags()&~Paint.UNDERLINE_TEXT_FLAG);
+        }
     }
     private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
         if(groupMode)return !groupIntroDone?LessonCurriculumLogic.Phase.INTRO:
