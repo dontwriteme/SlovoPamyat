@@ -123,8 +123,6 @@ public final class MainActivity extends Activity {
     private int lessonBuildRequired=0;
     // Presentation only: one adaptive strip, independent of text/answer Views.
     private LessonSegmentedBar lessonHotbarStrip;
-    private final List<TextView> lessonHotbarLabels=new ArrayList<>();
-    private TextView lessonHotbarCounter;
 
     private int weakVerse=-1,weakTransitionFrom=-1;
     private int readerVerseNumber=1;
@@ -5339,9 +5337,8 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(passage)).size()).size());
         int buildTotal=chunks*variants;
         int currentBuild=Math.max(0,lessonVariant*chunks+lessonChunk);
+        // The next segment advances only after Continue changes the active build task.
         int buildDone=currentBuild;
-        if(phase==LessonCurriculumLogic.Phase.BUILD && lessonBuildRequired>0 &&
-            lessonPicked>=lessonBuildRequired)buildDone++;
         int writingTotal=Math.max(1,writingVariants(e).size());
         // In a scheduled review the lesson legitimately starts at writing.
         boolean previouslyLearned=executingCollectionQueue &&
@@ -5354,38 +5351,19 @@ public final class MainActivity extends Activity {
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
             introDone,buildDone,lessonWriteVariant,writingOnly);
     }
-    /** Minimal phase labels and one responsive, non-scrolling task strip. */
+    /** Keep only the original segmented progress bar, without visible captions. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
-                                    LocalStore.Entry e){
+                                     LocalStore.Entry e){
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
         LinearLayout bar=column();bar.setTag("lesson-progress");
-        LinearLayout labels=row();lessonHotbarLabels.clear();
-        String[] names={"Читай","Собери","Напиши"};
-        for(int group=0;group<3;group++){
-            TextView label=txt(names[group],12,MUTED,false);
-            label.setGravity(Gravity.CENTER);label.setSingleLine(true);
-            label.setTag("lesson-progress-label-"+group);
-            label.setVisibility(model.totals[group]==0?View.GONE:
-                (group==model.activePhase?View.VISIBLE:View.INVISIBLE));
-            labels.addView(label,new LinearLayout.LayoutParams(0,dp(28),1));
-            lessonHotbarLabels.add(label);
-        }
-        bar.addView(labels,new LinearLayout.LayoutParams(-1,-2));
         lessonHotbarStrip=new LessonSegmentedBar(model);
         lessonHotbarStrip.setTag("lesson-progress-strip");
-        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(7));stripP.topMargin=dp(3);
+        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(7));
+        stripP.topMargin=dp(3);
         bar.addView(lessonHotbarStrip,stripP);
-        lessonHotbarCounter=txt("",11,MUTED,false);
-        lessonHotbarCounter.setTag("lesson-progress-count");
-        lessonHotbarCounter.setGravity(Gravity.END);lessonHotbarCounter.setSingleLine(true);
-        // The strip exposes the complete stage/count description to TalkBack.
-        lessonHotbarCounter.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        lessonHotbarCounter.setVisibility(View.INVISIBLE);
-        LinearLayout.LayoutParams counterP=new LinearLayout.LayoutParams(-1,-2);counterP.topMargin=dp(5);
-        bar.addView(lessonHotbarCounter,counterP);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(3);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
+        lp.topMargin=dp(3);
         top.addView(bar,lp);
-        refreshLessonPhaseProgress(phase,e);
     }
 
     /** All logical tasks remain represented, even when the gaps must shrink. */
@@ -5429,21 +5407,10 @@ public final class MainActivity extends Activity {
         float radius=Math.min(dp(3.5f),Math.min(height/2f,(right-left)/2f));
         canvas.drawRoundRect(left,0,right,height,radius,radius,paint);
     }
-    /** Update progress only; the answer, word tiles and passage keep their Views. */
+    /** Refresh progress without changing exercise state or rendering captions. */
     private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
-        if(lessonHotbarStrip==null||lessonHotbarCounter==null)return;
-        LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
-        lessonHotbarCounter.setText(model.completedCount+" из "+model.total+" выполнено");
-        lessonHotbarStrip.setModel(model);
-        for(int group=0;group<lessonHotbarLabels.size();group++){
-            TextView label=lessonHotbarLabels.get(group);boolean active=group==model.activePhase;
-            label.setVisibility(model.totals[group]==0?View.GONE:
-                (active?View.VISIBLE:View.INVISIBLE));
-            label.setTextColor(active?0xFF355E43:MUTED);
-            label.setTypeface(null,active?android.graphics.Typeface.BOLD:android.graphics.Typeface.NORMAL);
-            label.setPaintFlags(active?label.getPaintFlags()|Paint.UNDERLINE_TEXT_FLAG:
-                label.getPaintFlags()&~Paint.UNDERLINE_TEXT_FLAG);
-        }
+        if(lessonHotbarStrip==null)return;
+        lessonHotbarStrip.setModel(lessonHotbarModel(phase,e));
     }
     private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
         if(groupMode)return !groupIntroDone?LessonCurriculumLogic.Phase.INTRO:

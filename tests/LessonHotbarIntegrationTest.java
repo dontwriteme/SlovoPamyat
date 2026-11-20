@@ -37,32 +37,53 @@ public class LessonHotbarIntegrationTest {
         call("openTraining",new Class<?>[]{long.class},id);
     }
     @After public void close()throws Exception{waitLoader();if(lifecycle!=null)lifecycle.pause().stop().destroy();}
-    @Test public void onlyCurrentPhaseNameIsVisibleWithoutRedundantCounters()throws Exception{
-        assertActivePhaseLabels("Читай",0);
+    @Test public void progressStripRemainsWithoutAnyVisibleCaptions()throws Exception{
+        assertOnlyStrip(LessonCurriculumLogic.Phase.INTRO);
         store.finishExercise(id,0,1);invoke("render");
-        assertActivePhaseLabels("Собери",1);
+        assertOnlyStrip(LessonCurriculumLogic.Phase.BUILD);
         assertFalse(visibleText((View)get("root")).contains(" слов"));
         store.finishExercise(id,0,3);invoke("render");
-        assertActivePhaseLabels("Напиши",2);
+        assertOnlyStrip(LessonCurriculumLogic.Phase.WRITE);
     }
-
-    private void assertActivePhaseLabels(String expected,int activeIndex)throws Exception{
+    private void assertOnlyStrip(LessonCurriculumLogic.Phase phase)throws Exception{
         View root=(View)get("root");
+        ViewGroup bar=root.findViewWithTag("lesson-progress");
         View strip=root.findViewWithTag("lesson-progress-strip");
-        assertNotNull(strip);
-        TextView count=root.findViewWithTag("lesson-progress-count");
-        assertNotNull(count);
-        assertEquals(View.INVISIBLE,count.getVisibility());
-        for(int i=0;i<3;i++){
-            TextView label=root.findViewWithTag("lesson-progress-label-"+i);
-            assertNotNull(label);
-            if(i==activeIndex){
-                assertEquals(View.VISIBLE,label.getVisibility());
-                assertEquals(expected,label.getText().toString());
-            }else{
-                assertNotEquals(View.VISIBLE,label.getVisibility());
-            }
-        }
+        assertNotNull(bar);assertNotNull(strip);
+        assertEquals(1,bar.getChildCount());
+        assertSame(strip,bar.getChildAt(0));
+        assertNull(root.findViewWithTag("lesson-progress-count"));
+        assertNull(root.findViewWithTag("lesson-progress-current-phase"));
+        for(int i=0;i<3;i++)assertNull(root.findViewWithTag("lesson-progress-label-"+i));
+        assertTrue(strip.getContentDescription().toString().contains(
+            new String[]{"Читай","Собери","Напиши"}[phase.ordinal()]));
+    }
+    @Test public void buildProgressWaitsUntilContinueIsPressed()throws Exception{
+        TextView intro=text((View)get("root"),"Продолжить");
+        assertNotNull(intro);intro.performClick();
+        LessonHotbarLogic.Model before=model(LessonCurriculumLogic.Phase.BUILD);
+        assertTrue(before.totals[1]>0);
+        int required=(Integer)get("lessonBuildRequired");
+        assertTrue(required>0);
+        set("lessonPicked",required);
+        call("refreshLessonPhaseProgress",
+            new Class<?>[]{LessonCurriculumLogic.Phase.class,LocalStore.Entry.class},
+            LessonCurriculumLogic.Phase.BUILD,store.entry(id));
+        LessonHotbarLogic.Model waiting=model(LessonCurriculumLogic.Phase.BUILD);
+        assertEquals(before.completedCount,waiting.completedCount);
+        assertEquals(before.currentNumber,waiting.currentNumber);
+        assertEquals(LessonHotbarLogic.CURRENT,waiting.visual(1,0));
+        if(waiting.totals[1]>1)assertEquals(LessonHotbarLogic.UPCOMING,waiting.visual(1,1));
+        TextView buildContinue=(TextView)get("lessonBuildAction");
+        assertNotNull(buildContinue);
+        // The real tile callback enables the button; the fixture directly sets completed words.
+        buildContinue.setEnabled(true);
+        buildContinue.performClick();
+        LessonCurriculumLogic.Phase next=(LessonCurriculumLogic.Phase)call(
+            "lessonPhase",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        LessonHotbarLogic.Model after=model(next);
+        assertEquals(before.completedCount+1,after.completedCount);
+        assertEquals(LessonHotbarLogic.DONE,after.visual(1,0));
     }
 
     @Test public void everyHideLevelLeavesIntroCurrentAndPreservesPassageView()throws Exception{
