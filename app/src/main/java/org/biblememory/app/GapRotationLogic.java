@@ -28,6 +28,17 @@ public final class GapRotationLogic {
         Arrays.sort(selected);
         return selected;
     }
+    /** Balance only actual answer targets while retaining legacy source-indexed history. */
+    public static int[] balancedWordPositions(String[] tokens,int[] counts,long seed){
+        int[] all=new int[tokens.length];for(int i=0;i<all.length;i++)all[i]=i;
+        int[] valid=InlineGapLogic.wordPositions(tokens,all);
+        int[] lexicalCounts=new int[valid.length];
+        for(int i=0;i<valid.length;i++)lexicalCounts[i]=counts[valid[i]];
+        int[] chosen=balancedPositions(lexicalCounts,amount(valid.length),seed);
+        for(int i=0;i<valid.length;i++)counts[valid[i]]=lexicalCounts[i];
+        for(int i=0;i<chosen.length;i++)chosen[i]=valid[chosen[i]];
+        return chosen;
+    }
     public static String identity(String[] words){
         // Full text identity avoids combining different passages with the same word count.
         try{

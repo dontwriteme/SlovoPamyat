@@ -22,8 +22,8 @@ public final class WordOrderLogic {
             // Standalone punctuation (e.g. an em dash) is not a separate word tile.
             List<String> tokens = new ArrayList<>();
             String pendingPrefix = "";
-            for (String part : verse.trim().split("\\s+")) {
-                if (comparable(part).isEmpty()) {
+            for (String part : ExerciseTextLogic.tokens(verse)) {
+                if (!ExerciseTextLogic.isWord(part)) {
                     if (part.equals("—") || part.equals("–") || part.equals("-") || tokens.isEmpty())
                         pendingPrefix += part + " ";
                     else tokens.set(tokens.size()-1,tokens.get(tokens.size()-1)+" "+part);

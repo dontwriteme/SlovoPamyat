@@ -5489,7 +5489,9 @@ public final class MainActivity extends Activity {
             int start=sb.length();sb.append(tokens[i]);
             int at=Arrays.binarySearch(missing,i);
             if(at>=count && at>=0)
-                sb.setSpan(new HiddenWordSpan(),start,sb.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                for(int[] range:ReviewLogic.blurRanges(tokens[i],100,0))
+                    sb.setSpan(new HiddenWordSpan(),start+range[0],start+range[1],
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return sb;
     }
@@ -5539,8 +5541,7 @@ public final class MainActivity extends Activity {
         }
         android.content.SharedPreferences prefs=getSharedPreferences("gap_rotation",MODE_PRIVATE);
         int[] counts=GapRotationLogic.decodeCounts(prefs.getString(historyKey,""),tokens.length);
-        int amount=GapRotationLogic.amount(tokens.length);
-        int[] positions=GapRotationLogic.balancedPositions(counts,amount,lessonSeed);
+        int[] positions=GapRotationLogic.balancedWordPositions(tokens,counts,lessonSeed);
         prefs.edit().putString(historyKey,GapRotationLogic.encodeCounts(counts)).apply();
         rotationExerciseKey=exerciseKey;rotationExerciseSeed=lessonSeed;
         rotationMask=GapRotationLogic.encodeMask(positions);
@@ -5560,7 +5561,7 @@ public final class MainActivity extends Activity {
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
         // The exercise itself illustrates the task. Omit redundant task/fragment captions.
-        int[] missing=lessonMissingPositions(tokens,kind);
+        int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
         if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
             lessonPicked=0;lessonUsedTiles.clear();
@@ -5621,8 +5622,8 @@ public final class MainActivity extends Activity {
         String original=texts(e.lines().subList(activeStep.start,activeStep.end));
         if(practiceWeakFragment)return weakFragmentText;
         if(variant==LessonCurriculumLogic.Variant.FULL)return original;
-        String[] tokens=original.trim().split("\\s+");
-        int[] gaps=lessonMissingPositions(tokens,variant);
+        String[] tokens=ExerciseTextLogic.tokens(original);
+        int[] gaps=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,variant));
         StringBuilder response=new StringBuilder();
         for(int position:gaps){if(response.length()>0)response.append(' ');response.append(tokens[position]);}
         return response.toString();
@@ -5660,10 +5661,11 @@ public final class MainActivity extends Activity {
     }
     private void renderInlineGapInputs(LessonCurriculumLogic.Variant variant){
         String source=texts(activeEntry.lines().subList(activeStep.start,activeStep.end));
-        String[] tokens=source.trim().split("\\s+");
-        int[] missing=lessonMissingPositions(tokens,variant);
+        String[] tokens=ExerciseTextLogic.tokens(source);
+        int[] originalPositions=lessonMissingPositions(tokens,variant);
+        int[] missing=InlineGapLogic.wordPositions(tokens,originalPositions);
         // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
-        inlineDrafts=InlineGapLogic.restore(draft,missing.length);
+        inlineDrafts=InlineGapLogic.restore(draft,tokens,originalPositions);
         WrapLayout inline=new WrapLayout(this,dp(6));
         inline.setPadding(0,dp(12),0,dp(12));
         int maxWidth=getResources().getDisplayMetrics().widthPixels-dp(58);
@@ -5680,6 +5682,11 @@ public final class MainActivity extends Activity {
             final int gapIndex=match;
             final String expected=InlineGapLogic.core(token);
             inlineExpected.add(expected);
+            String prefix=InlineGapLogic.prefix(token);
+            if(!prefix.isEmpty()){
+                TextView punctuation=txt(prefix,19,WHITE,false);
+                punctuation.setPadding(0,dp(8),0,dp(8));inline.addView(punctuation);
+            }
             EditText field=new EditText(this);
             field.setTextColor(WHITE);field.setHintTextColor(MUTED);field.setTextSize(19);
             field.setSingleLine(true);forbidKeyboardHints(field,false);
@@ -5884,7 +5891,8 @@ public final class MainActivity extends Activity {
         List<String> refs=new ArrayList<>();
         for(Bible.Verse line:e.lines().subList(activeStep.start,activeStep.end))refs.add(line.ref);
         boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
-        boolean exact=AcceptedTextLogic.exact(original,entered,special);
+        boolean exact=AcceptedTextLogic.exact(original,entered,special)
+            && (full || InlineGapLogic.complete(inlineExpected,inlineDrafts,special));
         if(!exact&&special)original=AcceptedTextLogic.bestExpected(original,entered,true);
         int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
         if(practiceWeakFragment){

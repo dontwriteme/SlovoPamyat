@@ -8,14 +8,9 @@ public final class ReviewLogic {
     private ReviewLogic() {}
 
     public static List<String> words(String s) {
-        if (s==null) return Collections.emptyList();
-        String normalized=Normalizer.normalize(s,Normalizer.Form.NFKC)
-           .toLowerCase(Locale.ROOT).replace('ё','е');
-        String[] split=normalized.split("[^\\p{L}\\p{N}]+",-1);
-        List<String> result=new ArrayList<>();
-        for(String w:split) if(!w.isEmpty()) result.add(w);
-        return result;
+        return ExerciseTextLogic.words(s);
     }
+
     public static int accuracy(String expected,String actual) {
         List<String> a=words(expected), b=words(actual);
         int m=Math.max(a.size(),b.size());
