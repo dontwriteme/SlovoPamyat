@@ -5517,6 +5517,10 @@ public final class MainActivity extends Activity {
         if(lessonBuildAction!=null){
             boolean done=lessonPicked==missing.length;
             lessonBuildAction.setText(done?"Продолжить":"Сначала собери фразу");
+            if(lessonBuildAction.isEnabled()!=done){
+                lessonBuildAction.setBackground(done?softAccent():outlined(CARD_ALT,18,BORDER));
+                lessonBuildAction.setTextColor(done?PRIMARY_ON:WHITE);
+            }
             lessonBuildAction.setEnabled(done);lessonBuildAction.setAlpha(done?1f:0.5f);
         }
     }

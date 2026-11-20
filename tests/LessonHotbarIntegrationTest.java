@@ -86,6 +86,37 @@ public class LessonHotbarIntegrationTest {
         assertEquals(LessonHotbarLogic.DONE,after.visual(1,0));
     }
 
+    @Test public void completedBuildSwitchesFooterToPrimaryGradient()throws Exception{
+        TextView intro=text((View)get("root"),"Продолжить");
+        assertNotNull(intro);intro.performClick();
+        TextView action=(TextView)get("lessonBuildAction");
+        assertNotNull(action);
+        assertFalse(action.isEnabled());
+        assertEquals("Сначала собери фразу",action.getText().toString());
+
+        int required=(Integer)get("lessonBuildRequired");
+        assertTrue(required>0);
+        String[] words=new String[required];Arrays.fill(words,"Слово");
+        int[] missing=new int[required];
+        for(int i=0;i<required;i++)missing[i]=i;
+        set("lessonPicked",required);
+        call("updateLessonBuildView",new Class<?>[]{String[].class,int[].class},
+            (Object)words,(Object)missing);
+        assertTrue(action.isEnabled());
+        assertEquals("Продолжить",action.getText().toString());
+        assertEquals(0xFFFFFFFF,action.getCurrentTextColor());
+        assertEquals(1f,action.getAlpha(),0f);
+        assertArrayEquals(new int[]{0xFFDB8C6C,0xFFB8583F},
+            ((android.graphics.drawable.GradientDrawable)action.getBackground()).getColors());
+
+        set("lessonPicked",0);
+        call("updateLessonBuildView",new Class<?>[]{String[].class,int[].class},
+            (Object)words,(Object)missing);
+        assertFalse(action.isEnabled());
+        assertEquals("Сначала собери фразу",action.getText().toString());
+        assertEquals(0xFF27372D,action.getCurrentTextColor());
+    }
+
     @Test public void everyHideLevelLeavesIntroCurrentAndPreservesPassageView()throws Exception{
         View root=(View)get("root"),passage=(View)get("activePassage"),strip=root.findViewWithTag("lesson-progress-strip");
         TextView hide=text(root,"Скрыть 25% слов");assertNotNull(hide);
