@@ -29,6 +29,33 @@ public final class LocalStore extends SQLiteOpenHelper {
             return out;
         }
     }
+    private final java.util.concurrent.atomic.AtomicLong readQueries=new java.util.concurrent.atomic.AtomicLong();
+    long readQueryCount(){return readQueries.get();}
+    Cursor readQuery(String sql,String[] args){
+        readQueries.incrementAndGet();
+        return getReadableDatabase().rawQuery(sql,args);
+    }
+    private CollectionProgressSnapshot progressSnapshot;
+    private long snapshotChanges=-1,snapshotDataVersion=-1;
+    /** The transaction pins the primary connection: total_changes is connection-local.
+     * data_version additionally invalidates writes made through another helper/connection.
+     * Do not retain a snapshot built inside a writer's uncommitted transaction. */
+    public CollectionProgressSnapshot collectionProgress(){
+        SQLiteDatabase db=getReadableDatabase();
+        boolean nested=db.inTransaction();
+        db.beginTransactionNonExclusive();
+        try{ synchronized(this){
+            long changes,version;
+            try(Cursor c=readQuery("SELECT total_changes()",null)){changes=c.moveToFirst()?c.getLong(0):-1;}
+            try(Cursor c=readQuery("PRAGMA data_version",null)){version=c.moveToFirst()?c.getLong(0):-1;}
+            if(nested||changes<0||version<0||progressSnapshot==null||changes!=snapshotChanges||version!=snapshotDataVersion){
+                CollectionProgressSnapshot loaded=CollectionProgressSnapshot.load(this);
+                if(nested){db.setTransactionSuccessful();return loaded;}
+                progressSnapshot=loaded;snapshotChanges=changes;snapshotDataVersion=version;
+            }
+            db.setTransactionSuccessful();return progressSnapshot;
+        }}finally{db.endTransaction();}
+    }
     public LocalStore(Context context) { super(context,"slovo_pamyat.db",null,8); }
     @Override public void onConfigure(SQLiteDatabase db){ db.setForeignKeyConstraintsEnabled(true); }
     @Override public void onCreate(SQLiteDatabase db) {
@@ -105,7 +132,7 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public List<UnifiedCollection> unifiedCollections(){
         List<UnifiedCollection> result=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT u.id,u.title,u.group_id,u.deck_id,u.origin,"+
             "(SELECT COUNT(*) FROM entries e WHERE e.group_id=u.group_id),"+
             "(SELECT COUNT(*) FROM card_deck_members m WHERE m.deck_id=u.deck_id) "+
@@ -182,7 +209,7 @@ public final class LocalStore extends SQLiteOpenHelper {
         }finally{db.endTransaction();}
     }
     public boolean containsEntry(long groupId,long entryId){
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM entries WHERE group_id=? AND id=? LIMIT 1",
+        try(Cursor c=readQuery("SELECT 1 FROM entries WHERE group_id=? AND id=? LIMIT 1",
             new String[]{String.valueOf(groupId),String.valueOf(entryId)})){return c.moveToFirst();}
     }
     /** A due verse can belong to this collection through an identical Bible passage
@@ -222,16 +249,26 @@ public final class LocalStore extends SQLiteOpenHelper {
     public void syncUnifiedCollection(long collectionId,Bible bible){
         UnifiedCollection u=unifiedCollection(collectionId);
         if(u==null)return;
+        Set<Long> mappedCards=new HashSet<>();
+        Set<String> mappedVerses=new HashSet<>();
+        try(Cursor c=readQuery("SELECT card_id FROM unified_card_entries WHERE collection_id=?",
+            new String[]{String.valueOf(collectionId)})){while(c.moveToNext())mappedCards.add(c.getLong(0));}
+        try(Cursor c=readQuery("SELECT x.entry_id,x.verse_position FROM unified_entry_cards x "+
+            "JOIN card_deck_members m ON m.card_id=x.card_id AND m.deck_id=? WHERE x.collection_id=?",
+            new String[]{String.valueOf(u.deckId),String.valueOf(collectionId)})){
+            while(c.moveToNext())mappedVerses.add(c.getLong(0)+":"+c.getInt(1));}
+        List<Entry> groupEntries=entries(u.groupId);
+        List<Flashcard> deckCards=flashcards(u.deckId);
         // Legacy decks previously had no study entries. Preserve their original card records.
-        for(Flashcard card:flashcards(u.deckId)){
-            if(mappedCardEntry(collectionId,card.id))continue;
+        for(Flashcard card:deckCards){
+            if(mappedCards.contains(card.id))continue;
             List<Bible.Verse> verses;
             try{
                 if(card.bookId>0){if(bible==null||!bible.isReady())continue;
                     verses=bible.passage(card.bookId,card.firstChapter,card.firstVerse,card.lastChapter,card.lastVerse);
                 }else verses=Collections.singletonList(new Bible.Verse("1:1",card.content));
                 long entryId=-1;
-                for(Entry old:entries(u.groupId)){
+                for(Entry old:groupEntries){
                     if(old.reference.equals(card.reference)&&old.lines().size()==verses.size()){
                         boolean identical=true;List<Bible.Verse> prior=old.lines();
                         for(int i=0;i<prior.size();i++)if(!prior.get(i).ref.equals(verses.get(i).ref)||
@@ -239,28 +276,29 @@ public final class LocalStore extends SQLiteOpenHelper {
                         if(identical){entryId=old.id;break;}
                     }
                 }
-                if(entryId<0)entryId=add(u.groupId,card.reference,card.reference,verses);
+                if(entryId<0){entryId=add(u.groupId,card.reference,card.reference,verses);groupEntries.add(entry(entryId));}
                 mapCardEntry(collectionId,card.id,entryId);
                 // A pre-existing single-verse/custom card already supplies this entry.
                 // Do not manufacture a duplicate when syncing study entries below.
-                if(verses.size()==1)mapEntryCard(collectionId,entryId,0,card.id);
-            }catch(Exception ignored){ /* Do not destroy inaccessible legacy data. */ }
+                if(verses.size()==1){mapEntryCard(collectionId,entryId,0,card.id);mappedVerses.add(entryId+":0");}
+            }catch(Exception error){android.util.Log.e("LocalStore","Unable to synchronize legacy card "+card.id,error);}
         }
         // Study passages automatically supply one flashcard per canonical verse.
-        for(Entry entry:entries(u.groupId)){
+        for(Entry entry:groupEntries){
             int book=bibleBookFromReference(entry.reference);
             List<Bible.Verse> verses=entry.lines();
             for(int i=0;i<verses.size();i++){
-                if(mappedEntryCard(collectionId,entry.id,i))continue;
+                if(mappedVerses.contains(entry.id+":"+i))continue;
                 Bible.Verse line=verses.get(i);
                 int[] ref=verseNumbers(line.ref);
                 long cardId=-1;
                 if(book>0&&ref!=null){
                     addFlashcard(u.deckId,book,ref[0],ref[1],ref[0],ref[1],
                         Bible.reference(book,ref[0],ref[1],ref[0],ref[1]),line.text);
-                    for(Flashcard fc:flashcards(u.deckId))if(fc.bookId==book&&
-                        fc.firstChapter==ref[0]&&fc.firstVerse==ref[1]&&
-                        fc.lastChapter==ref[0]&&fc.lastVerse==ref[1]){cardId=fc.id;break;}
+                    try(Cursor c=readQuery("SELECT id FROM flashcards WHERE book_id=? AND first_chapter=? AND first_verse=? AND last_chapter=? AND last_verse=?",
+                        new String[]{String.valueOf(book),String.valueOf(ref[0]),String.valueOf(ref[1]),String.valueOf(ref[0]),String.valueOf(ref[1])})){
+                        if(c.moveToFirst())cardId=c.getLong(0);
+                    }
                 }else{
                     cardId=addCustomFlashcard(u.deckId,entry.reference,line.text);
                 }
@@ -272,11 +310,11 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
     }
     private boolean mappedCardEntry(long collection,long card){
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM unified_card_entries WHERE collection_id=? AND card_id=? LIMIT 1",
+        try(Cursor c=readQuery("SELECT 1 FROM unified_card_entries WHERE collection_id=? AND card_id=? LIMIT 1",
             new String[]{String.valueOf(collection),String.valueOf(card)})){return c.moveToFirst();}
     }
     private boolean mappedEntryCard(long collection,long entry,int pos){
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT 1 FROM unified_entry_cards x JOIN unified_collections u ON u.id=x.collection_id "+
             "JOIN card_deck_members m ON m.deck_id=u.deck_id AND m.card_id=x.card_id "+
             "WHERE x.collection_id=? AND x.entry_id=? AND x.verse_position=? LIMIT 1",
@@ -305,7 +343,7 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public List<CardDeck> cardDecks(){
         List<CardDeck> list=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT d.id,d.title,COUNT(m.card_id) FROM card_decks d LEFT JOIN card_deck_members m ON m.deck_id=d.id GROUP BY d.id ORDER BY d.id",null)){
+        try(Cursor c=readQuery("SELECT d.id,d.title,COUNT(m.card_id) FROM card_decks d LEFT JOIN card_deck_members m ON m.deck_id=d.id GROUP BY d.id ORDER BY d.id",null)){
             while(c.moveToNext()){
                 CardDeck d=new CardDeck();d.id=c.getLong(0);d.title=c.getString(1);d.count=c.getInt(2);list.add(d);
             }
@@ -364,7 +402,7 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public List<Flashcard> flashcards(long deckId){
         List<Flashcard> result=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT f.id,f.book_id,f.first_chapter,f.first_verse,f.last_chapter,f.last_verse,f.reference,f.content FROM flashcards f JOIN card_deck_members m ON m.card_id=f.id LEFT JOIN card_order o ON o.deck_id=m.deck_id AND o.card_id=f.id WHERE m.deck_id=? ORDER BY COALESCE(o.position,1000000),f.book_id,f.first_chapter,f.first_verse",
             new String[]{String.valueOf(deckId)})){
             while(c.moveToNext()){
@@ -413,43 +451,17 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
     }
     private List<long[]> matchingVerseLocations(long id,int position){
-        List<long[]> matches=new ArrayList<>();
-        Entry original=entry(id);
-        if(original==null)return matches;
-        List<Bible.Verse> lines=original.lines();
-        if(position<0||position>=lines.size())return matches;
-        Bible.Verse verse=lines.get(position);
-        // User-authored verses never inherit unrelated canonical-Bible milestones.
-        boolean canonical=false;
-        for(String book:Bible.NAMES){
-            if(original.reference.startsWith(book+" ")){canonical=true;break;}
-        }
-        if(!canonical)return matches;
-        for(Entry candidate:allEntries()){
-            if(candidate.id==id)continue;
-            boolean fromBible=false;
-            for(String book:Bible.NAMES){
-                if(candidate.reference.startsWith(book+" ")){fromBible=true;break;}
-            }
-            if(!fromBible)continue;
-            List<Bible.Verse> other=candidate.lines();
-            for(int i=0;i<other.size();i++){
-                if(verse.ref.equals(other.get(i).ref)&&verse.text.equals(other.get(i).text)){
-                    matches.add(new long[]{candidate.id,i});
-                }
-            }
-        }
-        return matches;
+        return collectionProgress().matches(id,position);
     }
     private int sharedVerseCompletion(long entryId,int position){
         int completed=0;
         for(long[] match:matchingVerseLocations(entryId,position)){
-            try(Cursor c=getReadableDatabase().rawQuery(
+            try(Cursor c=readQuery(
                 "SELECT completed FROM lesson_progress WHERE entry_id=? AND position=?",
                 new String[]{String.valueOf(match[0]),String.valueOf(match[1])})){
                 if(c.moveToFirst())completed=Math.max(completed,c.getInt(0));
             }
-            try(Cursor c=getReadableDatabase().rawQuery(
+            try(Cursor c=readQuery(
                 "SELECT 1 FROM verse_progress WHERE entry_id=? AND position=?",
                 new String[]{String.valueOf(match[0]),String.valueOf(match[1])})){
                 if(c.moveToFirst())completed=Math.max(completed,5);
@@ -460,7 +472,7 @@ public final class LocalStore extends SQLiteOpenHelper {
 
     public int exerciseDone(long id,int position) {
         int direct=0;
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT completed FROM lesson_progress WHERE entry_id=? AND position=?",
+        try(Cursor c=readQuery("SELECT completed FROM lesson_progress WHERE entry_id=? AND position=?",
             new String[]{String.valueOf(id),String.valueOf(position)})){
             if(c.moveToFirst())direct=c.getInt(0);
         }
@@ -470,13 +482,13 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public int unlockedPosition(long id,int count) {
         if(count==0)return 0;
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT MAX(position) FROM lesson_progress WHERE entry_id=? AND completed>=5",
             new String[]{String.valueOf(id)})){
             if(c.moveToFirst() && !c.isNull(0))return Math.min(count-1,c.getInt(0)+1);
         }
         // Old mastered verses with sparse positions: preserve their accessibility too.
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT MAX(position) FROM verse_progress WHERE entry_id=?",
+        try(Cursor c=readQuery("SELECT MAX(position) FROM verse_progress WHERE entry_id=?",
             new String[]{String.valueOf(id)})){
             if(c.moveToFirst() && !c.isNull(0))return Math.min(count-1,c.getInt(0)+1);
         }
@@ -518,7 +530,7 @@ public final class LocalStore extends SQLiteOpenHelper {
     /** Each due verse/group is independent. Never include unmastered, new material. */
     public List<DueItem> dueItems(long now) {
         List<DueItem> items=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT r.entry_id,r.stage,r.first_line,r.last_line,r.due FROM review_schedule r WHERE r.due<=? AND " +
             "(EXISTS(SELECT 1 FROM stage_progress s WHERE s.entry_id=r.entry_id AND s.stage=r.stage AND s.first_line=r.first_line AND s.last_line=r.last_line) OR " +
             "(r.stage='VERSE' AND EXISTS(SELECT 1 FROM verse_progress v WHERE v.entry_id=r.entry_id AND v.position=r.first_line))) ORDER BY r.due ASC",
@@ -564,42 +576,20 @@ public final class LocalStore extends SQLiteOpenHelper {
         if(from<8){createUnifiedTables(db);migrateLegacyCollections(db);}
     }
     public int masteredLinkedSegments(long entryId){
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT COUNT(*) FROM stage_progress WHERE entry_id=? AND stage<>'VERSE'",
             new String[]{String.valueOf(entryId)})){
             return c.moveToFirst()?c.getInt(0):0;
         }
     }
-    public int masteryCount(long entryId){
-        Entry entry=entry(entryId);
-        if(entry==null)return 0;
-        int total=0;
-        for(int p=0;p<entry.lines().size();p++){
-            if(isStepMastered(entryId,"VERSE",p,p+1))total++;
-        }
-        return total;
-    }
+    public int masteryCount(long entryId){return collectionProgress().masteryCount(entryId);}
     public int firstUnmastered(long entryId,int length){
         for(int i=0;i<length;i++)if(!isStepMastered(entryId,"VERSE",i,i+1))return i;
         return 0;
     }
     public boolean isStepMastered(long entryId,String stage,int start,int end){
-        if("VERSE".equals(stage)&&end==start+1){
-            try(Cursor c=getReadableDatabase().rawQuery(
-                "SELECT 1 FROM verse_progress WHERE entry_id=? AND position=? LIMIT 1",
-                new String[]{String.valueOf(entryId),String.valueOf(start)})){
-                if(c.moveToFirst())return true;
-            }
-            for(long[] match:matchingVerseLocations(entryId,start)){
-                try(Cursor c=getReadableDatabase().rawQuery(
-                    "SELECT 1 FROM verse_progress WHERE entry_id=? AND position=? LIMIT 1",
-                    new String[]{String.valueOf(match[0]),String.valueOf(match[1])})){
-                    if(c.moveToFirst())return true;
-                }
-            }
-            return false;
-        }
-        try(Cursor c=getReadableDatabase().rawQuery(
+        if("VERSE".equals(stage)&&end==start+1)return collectionProgress().mastered(entryId,start);
+        try(Cursor c=readQuery(
             "SELECT 1 FROM stage_progress WHERE entry_id=? AND stage=? AND first_line=? AND last_line=? LIMIT 1",
             new String[]{String.valueOf(entryId),stage,String.valueOf(start),String.valueOf(end)})){
             return c.moveToFirst();
@@ -646,14 +636,14 @@ public final class LocalStore extends SQLiteOpenHelper {
         } finally{db.endTransaction();}
     }
     public int recentFailures(long id,String stage,int start,int end) {
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
             new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})) {
             return c.moveToFirst()?c.getInt(0):0;
         }
     }
     private boolean consolidatedLocal(long id,String stage,int start,int end) {
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT first_success,last_success,success_count,fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
             new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})) {
             return c.moveToFirst() && c.getLong(0)>0 &&
@@ -669,7 +659,7 @@ public final class LocalStore extends SQLiteOpenHelper {
         return false;
     }
     public boolean recallDue(long id,String stage,int start,int end,long now) {
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT last_success,success_count FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
             new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})) {
             if(!c.moveToFirst() || c.getLong(0)<=0)return false;
@@ -696,7 +686,7 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public List<Group> groups() {
         List<Group> list=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id WHERE g.title!='__slovo_cards_study_library__' GROUP BY g.id ORDER BY g.id",null)) {
+        try(Cursor c=readQuery("SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id WHERE g.title!='__slovo_cards_study_library__' GROUP BY g.id ORDER BY g.id",null)) {
             while(c.moveToNext()) { Group g=new Group();g.id=c.getLong(0);g.title=c.getString(1);g.count=c.getInt(2);list.add(g); }
         }
         return list;
@@ -720,28 +710,9 @@ public final class LocalStore extends SQLiteOpenHelper {
     /** Return a previously saved copy of this same Scripture passage when possible.
      * Shared progress must never be inferred from an unrelated passage or text variant.
      */
-    public long canonicalStudyEntryId(long entryId){
-        Entry selected=entry(entryId);if(selected==null)return entryId;
-        // Only canonical Bible references share study history, not user-authored titles.
-        boolean bibleReference=false;
-        for(String book:Bible.NAMES){
-            if(selected.reference.startsWith(book+" ")){bibleReference=true;break;}
-        }
-        if(!bibleReference)return entryId;
-        long best=entryId;int score=-1;
-        try(Cursor c=getReadableDatabase().rawQuery(
-            "SELECT id FROM entries WHERE reference=? AND lines=? ORDER BY id",
-            new String[]{selected.reference,selected.linesJson})){
-            while(c.moveToNext()){
-                long id=c.getLong(0);
-                int current=masteryCount(id)*10+completedExerciseCount(id);
-                if(current>score){score=current;best=id;}
-            }
-        }
-        return best;
-    }
+    public long canonicalStudyEntryId(long entryId){return collectionProgress().canonicalId(entryId);}
     private int completedExerciseCount(long id){
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT COALESCE(SUM(completed),0) FROM lesson_progress WHERE entry_id=?",
             new String[]{String.valueOf(id)})){
             return c.moveToFirst()?c.getInt(0):0;
@@ -1007,20 +978,20 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     private static final String FIELDS="id,group_id,title,reference,lines,learned,repetitions,days,ease,due,last_score";
     public Entry entry(long id) {
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT "+FIELDS+" FROM entries WHERE id=?",new String[]{String.valueOf(id)})) {
+        try(Cursor c=readQuery("SELECT "+FIELDS+" FROM entries WHERE id=?",new String[]{String.valueOf(id)})) {
             return c.moveToFirst()?readEntry(c):null;
         }
     }
     public List<Entry> entries(long groupId) {
         List<Entry> out=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT entries.id,entries.group_id,entries.title,entries.reference,entries.lines,entries.learned,entries.repetitions,entries.days,entries.ease,entries.due,entries.last_score FROM entries LEFT JOIN study_order o ON o.entry_id=entries.id WHERE entries.group_id=? ORDER BY COALESCE(o.position,1000000),entries.id DESC",new String[]{String.valueOf(groupId)})) {
+        try(Cursor c=readQuery("SELECT entries.id,entries.group_id,entries.title,entries.reference,entries.lines,entries.learned,entries.repetitions,entries.days,entries.ease,entries.due,entries.last_score FROM entries LEFT JOIN study_order o ON o.entry_id=entries.id WHERE entries.group_id=? ORDER BY COALESCE(o.position,1000000),entries.id DESC",new String[]{String.valueOf(groupId)})) {
             while(c.moveToNext()) out.add(readEntry(c));
         }
         return out;
     }
     public List<Entry> allEntries() {
         List<Entry> out=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery("SELECT "+FIELDS+" FROM entries ORDER BY id DESC",null)) {
+        try(Cursor c=readQuery("SELECT "+FIELDS+" FROM entries ORDER BY id DESC",null)) {
             while(c.moveToNext()) out.add(readEntry(c));
         }
         return out;
@@ -1040,15 +1011,7 @@ public final class LocalStore extends SQLiteOpenHelper {
         v.put("last_score",score);
         getWritableDatabase().update("entries",v,"id=?",new String[]{String.valueOf(e.id)});
     }
-    public int consolidatedVerseCount(long entryId){
-        Entry entry=entry(entryId);
-        if(entry==null)return 0;
-        int total=0;
-        for(int i=0;i<entry.lines().size();i++){
-            if(consolidated(entryId,"VERSE",i,i+1))total++;
-        }
-        return total;
-    }
+    public int consolidatedVerseCount(long entryId){return collectionProgress().consolidatedCount(entryId);}
     /** Cross-collection verse state. Reading alone never marks a verse learned. */
     public static final class VerseStatus {
         public String state="Не изучен";
@@ -1080,12 +1043,12 @@ public final class LocalStore extends SQLiteOpenHelper {
                     "Первоначально освоен":candidate.rank==1?"В процессе":"Не изучен";
                 String[] args={String.valueOf(e.id),String.valueOf(i),String.valueOf(i+1)};
                 long firstSuccess=0;
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT first_success,last_success FROM recall_activity WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=?",args)){
                     if(c.moveToFirst()){firstSuccess=c.getLong(0);candidate.last=c.getLong(1);}
                 }
                 if(firstSuccess>0){
-                    try(Cursor c=getReadableDatabase().rawQuery(
+                    try(Cursor c=readQuery(
                         "SELECT COUNT(DISTINCT attempted_at / 86400000) AS total,"+
                         "COUNT(DISTINCT CASE WHEN accuracy=100 THEN attempted_at / 86400000 END) AS good "+
                         "FROM review_attempts WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=? "+
@@ -1093,7 +1056,7 @@ public final class LocalStore extends SQLiteOpenHelper {
                         if(c.moveToFirst()){candidate.repetitions=c.getInt(0);candidate.successful=c.getInt(1);}
                     }
                 }
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT due FROM review_schedule WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=?",args)){
                     if(c.moveToFirst())candidate.nextDue=c.getLong(0);
                 }
@@ -1117,7 +1080,7 @@ public final class LocalStore extends SQLiteOpenHelper {
 
     private List<Group> groupsForBackup(){
         List<Group> list=new ArrayList<>();
-        try(Cursor c=getReadableDatabase().rawQuery(
+        try(Cursor c=readQuery(
             "SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id GROUP BY g.id ORDER BY g.id",null)){
             while(c.moveToNext()){
                 Group g=new Group();g.id=c.getLong(0);g.title=c.getString(1);g.count=c.getInt(2);list.add(g);
@@ -1137,13 +1100,13 @@ public final class LocalStore extends SQLiteOpenHelper {
                     .put("learned",e.learned).put("repetitions",e.repetitions)
                     .put("days",e.days).put("ease",e.ease).put("due",e.due).put("last_score",e.lastScore);
                 JSONArray mastered=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT position FROM verse_progress WHERE entry_id=? ORDER BY position",
                     new String[]{String.valueOf(e.id)})) {
                     while(c.moveToNext())mastered.put(c.getInt(0));
                 }
                 JSONArray stages=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT stage,first_line,last_line,best_score FROM stage_progress WHERE entry_id=?",
                     new String[]{String.valueOf(e.id)})) {
                     while(c.moveToNext())stages.put(new JSONObject()
@@ -1151,7 +1114,7 @@ public final class LocalStore extends SQLiteOpenHelper {
                         .put("end",c.getInt(2)).put("score",c.getInt(3)));
                 }
                 JSONArray recalls=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT stage,first_line,last_line,last_attempt,first_success,last_success,success_count,fail_streak,last_score FROM recall_activity WHERE entry_id=?",
                     new String[]{String.valueOf(e.id)})) {
                     while(c.moveToNext())recalls.put(new JSONObject()
@@ -1162,13 +1125,13 @@ public final class LocalStore extends SQLiteOpenHelper {
                         .put("last_score",c.getInt(8)));
                 }
                 JSONArray lessons=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT position,completed FROM lesson_progress WHERE entry_id=?",
                     new String[]{String.valueOf(e.id)})){
                     while(c.moveToNext()) lessons.put(new JSONObject().put("position",c.getInt(0)).put("completed",c.getInt(1)));
                 }
                 JSONArray schedules=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT stage,first_line,last_line,level,due,last_score FROM review_schedule WHERE entry_id=?",
                     new String[]{String.valueOf(e.id)})){
                     while(c.moveToNext())schedules.put(new JSONObject().put("stage",c.getString(0))
@@ -1176,7 +1139,7 @@ public final class LocalStore extends SQLiteOpenHelper {
                         .put("due",c.getLong(4)).put("score",c.getInt(5)));
                 }
                 JSONArray attempts=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT stage,first_line,last_line,attempted_at,accuracy,assisted FROM review_attempts WHERE entry_id=?",
                     new String[]{String.valueOf(e.id)})){
                     while(c.moveToNext())attempts.put(new JSONObject().put("stage",c.getString(0))
@@ -1184,7 +1147,7 @@ public final class LocalStore extends SQLiteOpenHelper {
                         .put("score",c.getInt(4)).put("assisted",c.getInt(5)));
                 }
                 JSONArray transitions=new JSONArray();
-                try(Cursor c=getReadableDatabase().rawQuery(
+                try(Cursor c=readQuery(
                     "SELECT from_position,to_position,failures,last_failed FROM transition_issues WHERE entry_id=?",
                     new String[]{String.valueOf(e.id)})){
                     while(c.moveToNext())transitions.put(new JSONObject()

@@ -407,12 +407,21 @@ public final class MainActivity extends Activity {
 
 
 
+    private final java.util.concurrent.ExecutorService collectionExecutor=
+        java.util.concurrent.Executors.newSingleThreadExecutor(r->new Thread(r,"CollectionProgress"));
+    private final Handler collectionHandler=new Handler(android.os.Looper.getMainLooper());
+    private java.util.concurrent.Future<?> collectionTask;
+    private LocalStore collectionStore;
+    private long collectionGeneration;
+    private boolean collectionDetailLoading;
+
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(CARD);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         store=new LocalStore(this);
+        collectionStore=new LocalStore(getApplicationContext());
         activeUnifiedId=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).getLong("active",-1);
         ensureActiveUnified();
         restoreCollectionQueue();
@@ -1027,6 +1036,10 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        boolean collectionWasLoading=collectionDetailLoading;
+        collectionDetailLoading=false;
+        collectionGeneration++;
+        if(collectionTask!=null){collectionTask.cancel(false);collectionTask=null;}
         dismissModeInfo(false);
         getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN?0xFFF8E5D9:CARD);
         CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
@@ -1040,7 +1053,8 @@ public final class MainActivity extends Activity {
         tabWarmGeneration++;
         readyTabs.clear();
         rememberHomeScroll();
-        if(currentScroller!=null && lastRenderedScreen!=null && lastRenderedScreen!=Screen.HOME){
+        if(currentScroller!=null && lastRenderedScreen!=null && lastRenderedScreen!=Screen.HOME
+            && !(lastRenderedScreen==Screen.COLLECTION_DETAIL&&collectionWasLoading)){
             savedScrollY.put(lastRenderedScreen,currentScroller.getScrollY());
         }
         if(collectionAnimator!=null){collectionAnimator.cancel();collectionAnimator=null;}
@@ -2224,10 +2238,13 @@ public final class MainActivity extends Activity {
         openTraining(collectionQueue.get(collectionQueueCursor));
     }
     private String studyProgressFor(long groupId){
+        return studyProgressFor(groupId,store.collectionProgress());
+    }
+    private String studyProgressFor(long groupId,CollectionProgressSnapshot progress){
         int all=0,mastered=0;
-        for(LocalStore.Entry e:store.entries(groupId)){
-            all+=e.lines().size();
-            mastered+=store.masteryCount(store.canonicalStudyEntryId(e.id));
+        for(LocalStore.Entry e:progress.entries(groupId)){
+            all+=progress.verseCount(e.id);
+            mastered+=progress.masteryCount(progress.canonicalId(e.id));
         }
         return mastered+" из "+all+" стихов";
     }
@@ -4303,11 +4320,14 @@ public final class MainActivity extends Activity {
             }).show();
     }
     private void entryCard(LocalStore.Entry e) {
-        long source=store.canonicalStudyEntryId(e.id);
-        int total=e.lines().size(),learned=store.masteryCount(source);
-        int established=store.consolidatedVerseCount(source);
+        entryCard(e,store.collectionProgress());
+    }
+    private void entryCard(LocalStore.Entry e,CollectionProgressSnapshot snapshot){
+        long source=snapshot.canonicalId(e.id);
+        int learned=snapshot.masteryCount(source);
+        int established=snapshot.consolidatedCount(source);
         String progress=established+" выучено · "+Math.max(0,learned-established)+" освоено";
-        String detail=e.reference+" · "+progress+" · Связок: "+store.masteredLinkedSegments(source);
+        String detail=e.reference+" · "+progress+" · Связок: "+snapshot.linkedCount(source);
         LinearLayout c=card(content);c.setBackground(homeSurface());
         LinearLayout row=row();
         LinearLayout body=column();
@@ -6412,7 +6432,32 @@ public final class MainActivity extends Activity {
         heading.setGravity(Gravity.CENTER);heading.setMaxLines(2);
         add(content,heading,5);
         showUnifiedCollectionSettings(u);
-        helper(content,"Освоено: "+studyProgressFor(u.groupId));
+        final LinearLayout target=content;
+        final long generation=collectionGeneration;
+        final int restoreScroll=savedScrollY.getOrDefault(Screen.COLLECTION_DETAIL,0);
+        collectionDetailLoading=true;
+        collectionTask=collectionExecutor.submit(()->{
+            try{
+                CollectionProgressSnapshot snapshot=collectionStore.collectionProgress();
+                if(Thread.currentThread().isInterrupted())return;
+                collectionHandler.post(()->{
+                    if(isDestroyed()||isFinishing()||generation!=collectionGeneration||
+                        screen!=Screen.COLLECTION_DETAIL||openUnifiedId!=u.id||content!=target)return;
+                    populateCollectionDetail(u,snapshot,generation,restoreScroll);
+                });
+            }catch(RuntimeException error){
+                android.util.Log.e("CollectionProgress","Unable to read collection progress",error);
+                collectionHandler.post(()->{
+                    if(!isDestroyed()&&generation==collectionGeneration&&content==target){
+                        collectionDetailLoading=false;
+                        toast("Не удалось загрузить коллекцию. Открой её ещё раз.");
+                    }
+                });
+            }
+        });
+    }
+    private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionProgressSnapshot snapshot,long generation,int restoreScroll){
+        helper(content,"Освоено: "+studyProgressFor(u.groupId,snapshot));
         try{
             JSONArray history=new JSONArray(getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE)
                 .getString("run_history_"+u.id,"[]"));
@@ -6420,9 +6465,24 @@ public final class MainActivity extends Activity {
                 helper(content,"Последняя проверка памяти: "+last.optInt("correct")+
                     " из "+last.optInt("total")+" без ошибок");}
         }catch(JSONException ignored){}
-        List<LocalStore.Entry> entries=store.entries(u.groupId);
+        List<LocalStore.Entry> entries=snapshot.entries(u.groupId);
         if(entries.isEmpty())helper(content,"Добавь первый стих или отрывок.");
-        for(LocalStore.Entry entry:entries)entryCard(entry);
+        appendCollectionEntries(entries,snapshot,0,generation,restoreScroll);
+    }
+    private void appendCollectionEntries(List<LocalStore.Entry> entries,CollectionProgressSnapshot snapshot,
+                                         int from,long generation,int restoreScroll){
+        if(isDestroyed()||generation!=collectionGeneration||screen!=Screen.COLLECTION_DETAIL)return;
+        int end=Math.min(entries.size(),from+12);
+        for(int i=from;i<end;i++)entryCard(entries.get(i),snapshot);
+        if(end<entries.size()){
+            content.postOnAnimation(()->appendCollectionEntries(entries,snapshot,end,generation,restoreScroll));
+        }else{
+            collectionDetailLoading=false;
+            final ScrollView scroller=currentScroller;
+            if(scroller!=null)scroller.post(()->{
+                if(generation==collectionGeneration&&currentScroller==scroller)scroller.scrollTo(0,restoreScroll);
+            });
+        }
     }
 
     /** Fixed bottom actions, independent of the scrolling collection list. */
@@ -6665,6 +6725,12 @@ public final class MainActivity extends Activity {
             .setMessage(ex.getMessage()).setPositiveButton("OK",null).show();}
     }
     @Override protected void onDestroy(){
+        collectionGeneration++;
+        if(collectionTask!=null)collectionTask.cancel(false);
+        collectionHandler.removeCallbacksAndMessages(null);
+        // Queue close behind any running read, never close its database mid-query.
+        collectionExecutor.execute(()->{if(collectionStore!=null)collectionStore.close();});
+        collectionExecutor.shutdown();
         dismissModeInfo(false);
         settleBibleIcons();
         settleHomeIcons();
