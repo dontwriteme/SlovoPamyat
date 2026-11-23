@@ -2255,7 +2255,10 @@ public final class MainActivity extends Activity {
     }
     private void startStudyCollection(long groupId){
         List<LocalStore.Entry> entries=store.entries(groupId);
-        if(entries.isEmpty()){clearCollectionQueue();toast("Коллекция пока пустая");return;}
+        if(entries.isEmpty()){
+            if(collectionQueueGroup==groupId)clearCollectionQueue();
+            toast("Коллекция пока пустая");return;
+        }
         cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
         if(collectionQueueMatches(groupId,entries)){
             executingCollectionQueue=true;
