@@ -6078,17 +6078,7 @@ public final class MainActivity extends Activity {
             choice.setOnClickListener(v->{dialog.dismiss();activateUnified(collection.id);render();});
             add(choices,choice,4);
         }
-        if(!collections.isEmpty()){
-            View separator=new View(this);
-            separator.setBackgroundColor(BORDER);
-            LinearLayout.LayoutParams line=new LinearLayout.LayoutParams(-1,dp(1));
-            line.topMargin=dp(10);
-            panel.addView(separator,line);
-        }else scroll.setVisibility(View.GONE);
-        action(panel,"＋  Создать коллекцию",false,()->{
-            dialog.dismiss();
-            newUnifiedCollection(u->{activateUnified(u.id);screen=Screen.HOME;render();});
-        });
+        if(collections.isEmpty())scroll.setVisibility(View.GONE);
         action(panel,"Отмена",false,dialog::dismiss);
         dialog.setCanceledOnTouchOutside(true);
         styledDialog(dialog);
