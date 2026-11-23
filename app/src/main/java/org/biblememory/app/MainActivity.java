@@ -6047,7 +6047,15 @@ public final class MainActivity extends Activity {
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
         LinearLayout panel=column();
         panel.setPadding(dp(20),dp(20),dp(20),dp(12));
-        add(panel,displayText("Выбрать коллекцию",23),0);
+        LinearLayout header=row();
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(displayText("Выбрать коллекцию",23),new LinearLayout.LayoutParams(0,-2,1));
+        TextView close=txt("×",28,MUTED,false);
+        close.setGravity(Gravity.CENTER);
+        close.setContentDescription("Закрыть выбор коллекции");
+        close.setFocusable(true);
+        header.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        add(panel,header,0);
         int visibleHeight=Math.min(dp(320),getResources().getDisplayMetrics().heightPixels/2);
         ScrollView scroll=new ScrollView(this){
             @Override protected void onMeasure(int widthSpec,int heightSpec){
@@ -6060,6 +6068,7 @@ public final class MainActivity extends Activity {
         scroll.addView(choices);
         add(panel,scroll,12);
         AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setView(panel).create();
+        close.setOnClickListener(v->dialog.dismiss());
         for(LocalStore.UnifiedCollection collection:collections){
             boolean selected=collection.id==activeUnifiedId;
             LinearLayout choice=row();
@@ -6079,7 +6088,6 @@ public final class MainActivity extends Activity {
             add(choices,choice,4);
         }
         if(collections.isEmpty())scroll.setVisibility(View.GONE);
-        action(panel,"Отмена",false,dialog::dismiss);
         dialog.setCanceledOnTouchOutside(true);
         styledDialog(dialog);
     }
