@@ -5347,12 +5347,16 @@ public final class MainActivity extends Activity {
     }
     private void checkAnswer(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered) {
         String expected=texts(e.lines().subList(step.start,step.end));
-        int accuracy=ReviewLogic.accuracy(expected,draft);
+        List<String> refs=new ArrayList<>();
+        for(Bible.Verse line:e.lines().subList(step.start,step.end))refs.add(line.ref);
+        boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
+        String closest=AcceptedTextLogic.bestExpected(expected,draft,special);
+        int accuracy=ReviewLogic.accuracy(closest,draft);
         boolean finalStage=!reviewMode&&!groupMode && studyStage==StudyPlanLogic.Stage.VERSE &&
             store.exerciseDone(e.id,step.start)==4;
         boolean independent=reviewMode||groupMode||finalStage;
-        passed=LessonCurriculumLogic.exact(expected,draft) && (!independent||!testAssisted);
-        lastAccuracy=accuracy;lastExpected=expected;lastTestRef=step.title;
+        passed=AcceptedTextLogic.exact(expected,draft,special) && (!independent||!testAssisted);
+        lastAccuracy=accuracy;lastExpected=closest;lastTestRef=step.title;
         lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
         long now=System.currentTimeMillis();
         store.recordRecall(e.id,studyStage.name(),step.start,step.end,accuracy,
@@ -7436,7 +7440,8 @@ public final class MainActivity extends Activity {
             add(content,txt(runPassed?"✓ Без ошибок":"Обнаружены ошибки",20,
                 runPassed?SUCCESS:RED,true),16);
             if(!runPassed){
-                add(content,typedFeedback(line.text,runDraft),9);
+                add(content,typedFeedback(AcceptedTextLogic.bestExpected(
+                    line.text,runDraft,AcceptedTextLogic.matthew513Verse(line.reference)),runDraft),9);
                 label(content,"Правильный текст");add(content,prose(line.text,17),8);
             }
         }
@@ -7444,7 +7449,8 @@ public final class MainActivity extends Activity {
         TextView go=button(runChecked?"Следующий стих": "Проверить",true,()->{
             if(runChecked){finishRunLine();return;}
             if(runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}
-            runPassed=AcceptedTextLogic.exact(line.text,runDraft,false);
+            runPassed=AcceptedTextLogic.exact(line.text,runDraft,
+                AcceptedTextLogic.matthew513Verse(line.reference));
             runChecked=true;saveRunSession();render();
         });
         animateLessonPress(go);
