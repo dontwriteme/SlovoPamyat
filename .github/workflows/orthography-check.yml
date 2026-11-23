@@ -1,0 +1,32 @@
+name: Orthography consistency
+
+on:
+  push:
+    branches: [work]
+    paths:
+      - 'app/src/main/java/org/biblememory/app/ExerciseTextLogic.java'
+      - 'app/src/main/java/org/biblememory/app/AcceptedTextLogic.java'
+      - 'app/src/main/java/org/biblememory/app/ReviewLogic.java'
+      - 'app/src/main/java/org/biblememory/app/AnswerReviewLogic.java'
+      - 'app/src/main/java/org/biblememory/app/LessonCurriculumLogic.java'
+      - 'app/src/main/assets/synodal.json'
+      - 'tests/OrthographyCorpusAudit.java'
+      - 'tests/audit_orthography.py'
+      - '.github/workflows/orthography-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orthography:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Check all Bible verses and adjacent pairs
+        run: python3 tests/audit_orthography.py
