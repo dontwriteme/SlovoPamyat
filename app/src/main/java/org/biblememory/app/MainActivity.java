@@ -6009,8 +6009,12 @@ public final class MainActivity extends Activity {
         float availableBank=Math.max(190f,widthDp-52f);
         // Reserve the header, progress, reference, bottom action and safe insets.
         float availableHeight=Math.max(205f,heightDp-285f);
-        List<String[]> fallback=WordOrderLogic.chunksForBudget(lines,6);
-        for(int budget=limit;budget>=6;budget--){
+        List<String[]> best=null;
+        // Search the usable budget in O(log N) fragment evaluations instead of
+        // measuring every candidate. This matters for long verses like Esther 8:9.
+        int low=6,high=limit;
+        while(low<=high){
+            int budget=(low+high)/2;
             List<String[]> chunks=WordOrderLogic.chunksForBudget(lines,budget);
             boolean fits=true;
             for(String[] chunk:chunks){
@@ -6019,14 +6023,13 @@ public final class MainActivity extends Activity {
                     fits=false;break;
                 }
             }
-            if(fits){
-                lessonChunkCache.put(kind,chunks);
-                return chunks;
-            }
+            if(fits){best=chunks;low=budget+1;}
+            else high=budget-1;
         }
         // On very small devices, the existing ScrollView remains the safety net.
-        lessonChunkCache.put(kind,fallback);
-        return fallback;
+        if(best==null)best=WordOrderLogic.chunksForBudget(lines,6);
+        lessonChunkCache.put(kind,best);
+        return best;
     }
     private boolean assemblyChunkFits(String[] words,LessonCurriculumLogic.Variant kind,
             Paint font,float density,float answerWidth,float bankWidth,
