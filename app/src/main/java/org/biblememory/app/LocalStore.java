@@ -236,12 +236,12 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
         return false;
     }
-    private static int bibleBookFromReference(String reference){
+    static int bibleBookFromReference(String reference){
         if(reference==null)return 0;
         for(int i=0;i<Bible.NAMES.length;i++)if(reference.startsWith(Bible.NAMES[i]+" "))return i+1;
         return 0;
     }
-    private static int[] verseNumbers(String ref){
+    static int[] verseNumbers(String ref){
         try{String[] parts=ref.split(":",2);return new int[]{Integer.parseInt(parts[0]),Integer.parseInt(parts[1])};}
         catch(Exception ignored){return null;}
     }

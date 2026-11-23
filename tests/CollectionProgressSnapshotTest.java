@@ -66,4 +66,17 @@ public class CollectionProgressSnapshotTest {
   assertEquals(2,store.flashcards(u.deckId).size());assertEquals(1,store.masteryCount(a));
  }
 
+
+ @Test public void collectionCountDeduplicatesBibleCoordinatesButCountsEveryCustomLine(){
+  add(group,"Галатам 1:1–2","один","два");
+  store.add(group,"overlap","Галатам 1:2–3",Arrays.asList(
+      new Bible.Verse("1:2","два"),new Bible.Verse("1:3","три")));
+  add(group,"Иакова 1:1","один");
+  add(group,"Свой текст","строка","строка");
+  assertEquals(6,store.collectionProgress().uniqueVerseCount(group));
+  assertEquals("21 стих",MainActivity.countedRussian(21,"стих","стиха","стихов"));
+  assertEquals("111 стихов",MainActivity.countedRussian(111,"стих","стиха","стихов"));
+  assertEquals("22 отрывка",MainActivity.countedRussian(22,"отрывок","отрывка","отрывков"));
+  assertEquals("14 отрывков",MainActivity.countedRussian(14,"отрывок","отрывка","отрывков"));
+ }
 }

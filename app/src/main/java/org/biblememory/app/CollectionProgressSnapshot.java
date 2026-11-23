@@ -20,6 +20,7 @@ public final class CollectionProgressSnapshot {
     private final Map<List<String>,Long> canonicalEntries=new HashMap<>();
     private final Map<Long,Integer> mastery=new HashMap<>(),consolidated=new HashMap<>();
     private final Map<Long,List<LocalStore.Entry>> groups=new HashMap<>();
+    private final Map<Long,Integer> uniqueVerseCounts=new HashMap<>();
     static boolean isCanonical(String reference){for(String book:Bible.NAMES)if(reference.startsWith(book+" "))return true;return false;}
     private static List<String> key(Bible.Verse v){return Arrays.asList(v.ref,v.text);}
     private static List<String> passage(LocalStore.Entry e){return Arrays.asList(e.reference,e.linesJson);}
@@ -65,6 +66,19 @@ public final class CollectionProgressSnapshot {
         for(List<LocalStore.Entry> group:result.groups.values())group.sort((a,b)->{
             int cmp=Integer.compare(result.states.get(a.id).order,result.states.get(b.id).order);
             return cmp==0?Long.compare(b.id,a.id):cmp;});
+        for(Map.Entry<Long,List<LocalStore.Entry>> group:result.groups.entrySet()){
+            Set<String> canonicalVerses=new HashSet<>();
+            int customLines=0;
+            for(LocalStore.Entry entry:group.getValue()){
+                State state=result.states.get(entry.id);
+                int book=LocalStore.bibleBookFromReference(entry.reference);
+                for(Bible.Verse verse:state.lines){
+                    if(book>0&&LocalStore.verseNumbers(verse.ref)!=null)canonicalVerses.add(book+"/"+verse.ref);
+                    else customLines++;
+                }
+            }
+            result.uniqueVerseCounts.put(group.getKey(),canonicalVerses.size()+customLines);
+        }
         return result;
     }
     private boolean shared(State s,int pos,Map<List<String>,Set<Long>> owners){
@@ -74,6 +88,7 @@ public final class CollectionProgressSnapshot {
     public int masteryCount(long id){return mastery.getOrDefault(id,0);}
     public int consolidatedCount(long id){return consolidated.getOrDefault(id,0);}
     public int linkedCount(long id){State s=states.get(id);return s==null?0:s.linked;}
+    public int uniqueVerseCount(long group){return uniqueVerseCounts.getOrDefault(group,0);}
     public int verseCount(long id){State s=states.get(id);return s==null?0:s.lines.size();}
     public boolean mastered(long id,int pos){State s=states.get(id);return s!=null&&pos>=0&&pos<s.lines.size()&&(s.mastered[pos]||shared(s,pos,masteredOwners));}
     public long canonicalId(long id){State s=states.get(id);return s==null||!s.canonical?id:canonicalEntries.getOrDefault(passage(s.entry),id);}

@@ -313,6 +313,21 @@ public class LessonHotbarIntegrationTest {
         assertEquals(2,((ViewGroup)get("content")).getChildCount());
     }
 
+    @Test public void reenteringWritingPreservesOnlyUncheckedDraft()throws Exception{
+        openWritingFixture();
+        edit((View)get("root")).setText("Непроверенный черновик");
+        activity.onBackPressed();
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertEquals("Непроверенный черновик",edit((View)get("root")).getText().toString());
+        submit("Ошибочный ответ");
+        assertNotNull(text((View)get("root"),"Твой ответ"));
+        assertEquals("Ошибочный ответ",get("draft"));
+        activity.onBackPressed();
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertEquals("",edit((View)get("root")).getText().toString());
+        assertNull(text((View)get("root"),"Правильный ответ"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
     private void openWritingFixture()throws Exception{
         lifecycle.visible();
         store.finishExercise(id,0,3);

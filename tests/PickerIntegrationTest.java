@@ -138,6 +138,27 @@ public class PickerIntegrationTest {
         invoke("savePickerRange");assertEquals(1,store.entries(group).size());
         assertEquals(176,store.entries(group).get(0).lines().size());
     }
+    @Test public void pickerStartsAtTopAndRestoresPreviousGridOnBack()throws Exception {
+        controller.visible();
+        set("selectedBook",19);set("selectedChapter",118);
+        set("screen",option("Screen","PICKER_CHAPTERS"));invoke("render");
+        layoutReader();
+        ScrollView chapterGrid=(ScrollView)field("currentScroller");
+        assertEquals(0,chapterGrid.getScrollY());
+        chapterGrid.scrollTo(0,400);
+        int saved=chapterGrid.getScrollY();
+        assertTrue(saved>0);
+        for(int verse:new int[]{1,88,176}){
+            text("118").performClick();layoutReader();
+            assertEquals(0,((ScrollView)field("currentScroller")).getScrollY());
+            text(Integer.toString(verse)).performClick();layoutReader();
+            assertNotNull(text("Псалтирь 118"));
+            assertEquals(0,((ScrollView)field("currentScroller")).getScrollY());
+            activity.onBackPressed();layoutReader();
+            activity.onBackPressed();layoutReader();
+            assertEquals(saved,((ScrollView)field("currentScroller")).getScrollY());
+        }
+    }
     @Test public void backCancelsOnlyPendingBoundaryAndKeepsQuickChapter()throws Exception {
         invoke("openPickerRange");choose(false,5,3);choose(true,7,29);
         call("beginPickerBoundary",new Class<?>[]{boolean.class},false);

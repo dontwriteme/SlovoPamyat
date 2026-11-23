@@ -71,6 +71,7 @@ public final class MainActivity extends Activity {
     private volatile String bibleError="";
     private int selectedBook=40,selectedChapter=5, mask=0,stepCursor=0;
     private int focusVerse=-1;
+    private boolean focusPickerSearchHit;
     private StudyPlanLogic.Stage studyStage=StudyPlanLogic.Stage.VERSE;
     private long selectedGroup=1,selectedEntry=0;
     private long customTargetGroupId=-1; // A text created via a collection menu belongs to that collection.
@@ -571,10 +572,10 @@ public final class MainActivity extends Activity {
                 customTargetGroupId=-1;screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
                 if(u!=null)openUnifiedId=u.id;render();break;}
             case TRAIN:
-                answerReview=null;
                 executingCollectionQueue=false;
                 cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                 saveTrainingSession();
+                answerReview=null;
                 reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
                 reviewQueue.clear();reviewPointer=0;
                 // The lesson is an isolated activity: every exit goes to HOME.
@@ -1121,6 +1122,10 @@ public final class MainActivity extends Activity {
             screen==Screen.COLLECTION_DETAIL) addUnifiedCollectionFooter();
         if(screen!=Screen.CUSTOM && screen!=Screen.RUN_SUMMARY) addNav(root);
 
+        if(isPickerScreen(screen)){
+            scroll.setFocusableInTouchMode(true);
+            scroll.requestFocus();
+        }
         setContentView(root);
         lastRenderedScreen = screen;
 
@@ -1148,7 +1153,9 @@ public final class MainActivity extends Activity {
             !(screen==Screen.PICKER_BOOKS&&bibleSearchActive) &&
             screen!=Screen.PICKER_TEXT){
             int y=savedScrollY.get(screen);
-            scroll.post(()->{if(currentScroller==scroll)scroll.scrollTo(0,y);});
+            Runnable restore=()->{if(currentScroller==scroll)scroll.scrollTo(0,y);};
+            if(isPickerScreen(screen))afterPickerLayout(content,restore);
+            else scroll.post(restore);
         }
         if(screen==Screen.HOME){
             homeScrollRestored=false;
@@ -1555,6 +1562,8 @@ public final class MainActivity extends Activity {
                     bibleSearchHits = new ArrayList<>();
 
                     if (inPicker) {
+                        focusPickerSearchHit=true;
+                        pickerRestoredScroll=-1;
                         screen = Screen.PICKER_TEXT;
                     } else {
                         chapterFromVerseGrid = false;
@@ -2827,11 +2836,6 @@ public final class MainActivity extends Activity {
             }
         });
     }
-    private void scrollPickerGridTo(View row,Screen destination){
-        ScrollView scroller=currentScroller;
-        afterPickerLayout(row,()->{if(screen==destination&&currentScroller==scroller)
-            scroller.scrollTo(0,Math.max(0,row.getTop()-dp(8)));});
-    }
     /** Four-column number grid, identical to the chapters grid. */
     private void renderPickerVerseGrid(){renderVerseGrid(false);}
     private void renderVerseGrid(boolean reader){
@@ -2858,7 +2862,13 @@ public final class MainActivity extends Activity {
                     }else if(passageSelection.active){
                         passageSelection.setBoundary(pickerChooseEnd,selectedChapter,verse);
                         screen=Screen.BIBLE_PICKER;
-                    }else{pickerVerseNumber=verse;focusVerse=verse;screen=Screen.PICKER_TEXT;}
+                    }else{
+                        pickerVerseNumber=verse;
+                        focusVerse=verse;
+                        pickerRestoredScroll=-1;
+                        focusPickerSearchHit=false;
+                        screen=Screen.PICKER_TEXT;
+                    }
                     render();
                 });
                 b.setPadding(dp(4),dp(4),dp(4),dp(4));
@@ -2868,11 +2878,7 @@ public final class MainActivity extends Activity {
                 p.setMargins(dp(3),dp(4),dp(3),dp(4));r.addView(b,p);
             }
             add(content,r,2);
-            if(!reader&&passageSelection.active){
-                int c=pickerChooseEnd?passageSelection.endChapter:passageSelection.startChapter;
-                int v=pickerChooseEnd?passageSelection.endVerse:passageSelection.startVerse;
-                if(selectedChapter==c&&v>=base&&v<base+4)scrollPickerGridTo(r,Screen.PICKER_VERSES);
-            }
+
         }
     }
     /** Shared Bible data and catalog; only this insertion screen owns selection controls. */
@@ -2894,6 +2900,8 @@ public final class MainActivity extends Activity {
         action(content,"Задать диапазон",false,this::openPickerRange);
         final ScrollView scroller=currentScroller;
         final int targetVerse=focusVerse;focusVerse=-1;
+        final boolean scrollToSearchHit=focusPickerSearchHit&&pickerRestoredScroll<0;
+        focusPickerSearchHit=false;
         final Set<String> present=new HashSet<>(),included=new HashSet<>();
         if(pickerTarget==BibleTarget.STUDY_GROUP){
             for(LocalStore.Entry entry:store.entries(pickerTargetId)){
@@ -2929,16 +2937,14 @@ public final class MainActivity extends Activity {
             if(targetVerse==number){
                 afterPickerLayout(line,()->{
                     if(currentScroller!=scroller)return;
-                    scroller.scrollTo(0,Math.max(0,line.getTop()-dp(16)));
+                    if(scrollToSearchHit)
+                        scroller.scrollTo(0,Math.max(0,line.getTop()-dp(16)));
                     line.setBackground(outlined(0xFFFFE8B5,20,BORDER));
                     line.postDelayed(()->{if(currentScroller==scroller)line.setBackground(outlined(CARD,20,BORDER));},1100);
                 });
             }
         }
-        if(targetVerse<1&&pickerRestoredScroll>=0){
-            int y=pickerRestoredScroll;pickerRestoredScroll=-1;
-            afterPickerLayout(content,()->{if(currentScroller==scroller)scroller.scrollTo(0,y);});
-        }
+
     }
     private void savePickerRange(){
         if(!passageSelection.active||!passageSelection.valid()||!pickerSaveButton.isEnabled())return;
@@ -3595,6 +3601,9 @@ public final class MainActivity extends Activity {
                     boolean rangeActive=passageSelection.active;
                     passageSelection.openBook(book);passageSelection.active=rangeActive;
                     pickerHasAnchor=false;
+                    savedScrollY.remove(Screen.PICKER_CHAPTERS);
+                    savedScrollY.remove(Screen.PICKER_VERSES);
+                    pickerRestoredScroll=-1;
                     screen=Screen.PICKER_CHAPTERS;
                 }else {selectingPassage=false;clearPassageSelection();readerVerseNumber=1;
                     savedScrollY.remove(Screen.VERSES);screen=Screen.CHAPTERS;}
@@ -3637,7 +3646,11 @@ public final class MainActivity extends Activity {
                 TextView b=button(String.valueOf(k),c==selected,()->{
                     if(screen==Screen.PICKER_CHAPTERS&&!passageSelection.active&&selectedChapter!=c)pickerVerseNumber=1;
                     selectedChapter=c;
-                    if(screen==Screen.PICKER_CHAPTERS)screen=Screen.PICKER_VERSES;
+                    if(screen==Screen.PICKER_CHAPTERS){
+                        savedScrollY.remove(Screen.PICKER_VERSES);
+                        pickerRestoredScroll=-1;
+                        screen=Screen.PICKER_VERSES;
+                    }
                     else{openReaderVerseGrid(c);return;}
                     render();
                 });
@@ -3649,8 +3662,6 @@ public final class MainActivity extends Activity {
                 p.setMargins(dp(3),dp(4),dp(3),dp(4));r.addView(b,p);
             }
             add(content,r,2);
-            if(screen==Screen.PICKER_CHAPTERS&&selected>=base&&selected<base+4)
-                scrollPickerGridTo(r,Screen.PICKER_CHAPTERS);
         }
     }
     private void clearPassageSelection(){
@@ -4429,8 +4440,8 @@ public final class MainActivity extends Activity {
             old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end;
         openReview(first);
         if(restore){
-            draft=old.getString("review_draft","");
-            lessonWriteHadFeedback=old.getBoolean("review_lesson_had_feedback",false);
+            draft=resumableWritingDraft(old.getString("review_draft",""),
+                old.getBoolean("review_lesson_had_feedback",false));
             render();
         }
     }
@@ -4481,13 +4492,16 @@ public final class MainActivity extends Activity {
         }catch(JSONException ex){ /* Corrupt metadata must not block the app. */ }
         return ids;
     }
+    private static String resumableWritingDraft(String draft,boolean checkedWithErrors){
+        return checkedWithErrors||draft==null?"":draft;
+    }
     private void saveTrainingSession() {
         if(selectedEntry<=0 || (reviewMode&&checked&&passed))return;
         String key=reviewMode?"review_":(groupMode?"linked_":"entry_")+selectedEntry+"_";
         getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
             .putLong("entry",selectedEntry).putString(key+"stage",studyStage.name())
             .putInt(key+"step",stepCursor).putString(key+"mode",trainingMode.name())
-            .putInt(key+"mask",mask).putString(key+"draft",draft)
+            .putInt(key+"mask",mask).putString(key+"draft",resumableWritingDraft(draft,answerReview!=null||lessonWriteHadFeedback))
             .putInt(key+"blur_seed",blurSeed)
             .putInt(key+"lesson_variant",lessonVariant).putInt(key+"lesson_chunk",lessonChunk)
             .putInt(key+"lesson_picked",lessonPicked).putLong(key+"lesson_seed",lessonSeed)
@@ -4495,7 +4509,7 @@ public final class MainActivity extends Activity {
             .putLong(key+"rotation_exercise_seed",rotationExerciseSeed)
             .putString(key+"rotation_mask",rotationMask)
             .putString(key+"lesson_tiles",lessonUsedTiles.toString())
-            .putBoolean(key+"lesson_had_feedback",lessonWriteHadFeedback)
+            .putBoolean(key+"lesson_had_feedback",false)
             .putInt(key+"write_variant",lessonWriteVariant)
             .putBoolean(key+"group_intro_done",groupIntroDone)
             .putBoolean(key+"group_build_done",groupBuildDone)
@@ -4521,8 +4535,8 @@ public final class MainActivity extends Activity {
         stepCursor=Math.max(0,pref.getInt(key+"step",0));
         mask=trainingMode==TrainingMode.HIDE?Math.max(0,Math.min(100,pref.getInt(key+"mask",0))):0;
         blurSeed=pref.getInt(key+"blur_seed",new Random().nextInt());
-        draft=pref.getString(key+"draft","");
-        if(draft==null)draft="";
+        draft=resumableWritingDraft(pref.getString(key+"draft",""),
+            pref.getBoolean(key+"lesson_had_feedback",false));
         lessonVariant=Math.max(0,pref.getInt(key+"lesson_variant",0));
         lessonChunk=Math.max(0,pref.getInt(key+"lesson_chunk",0));
         lessonPicked=Math.max(0,pref.getInt(key+"lesson_picked",0));
@@ -4531,7 +4545,7 @@ public final class MainActivity extends Activity {
         rotationExerciseSeed=pref.getLong(key+"rotation_exercise_seed",0L);
         rotationMask=pref.getString(key+"rotation_mask","");
         lessonUsedTiles.clear();lessonWrongTile=-1;lessonPracticeAgain=false;
-        lessonWriteHadFeedback=pref.getBoolean(key+"lesson_had_feedback",false);
+        lessonWriteHadFeedback=false;
         lessonWriteVariant=Math.max(0,pref.getInt(key+"write_variant",0));
         if(linked)groupIntroDone=pref.getBoolean(key+"group_intro_done",false);
         if(linked)groupBuildDone=pref.getBoolean(key+"group_build_done",false);
@@ -4548,9 +4562,9 @@ public final class MainActivity extends Activity {
         orderBankOrder=new int[0];usedWordTiles.clear();orderCompleted=false;
     }
     private void openTraining(long id) {
+        if(screen==Screen.TRAIN)saveTrainingSession();
         answerReview=null;
         reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
-        if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)saveCardSession();
         selectedEntry=store.canonicalStudyEntryId(id);
         id=selectedEntry;
@@ -4757,9 +4771,8 @@ public final class MainActivity extends Activity {
         activePassage.setContentDescription(percentage>0?
             "Скрыто "+percentage+" процентов слов. Попробуйте их вспомнить.":text.toString());
         if(activeStatus!=null)activeStatus.setText(percentage==0?
-            "Прочитай стих, затем проверь себя по памяти.":percentage==100?
-            "Ещё одно нажатие — и слова откроются":
-            "Размыто "+percentage+"% слов. Удерживай скрытое слово, чтобы посмотреть его.");
+            "Прочитай стих, затем проверь себя по памяти.":
+            "Удерживай скрытое слово, чтобы посмотреть его.");
     }
     /** Immediate reveal held until the ORIGINAL finger lifts, even when it moves away. */
     private void installTemporaryReveal(TextView view) {
@@ -5229,7 +5242,7 @@ public final class MainActivity extends Activity {
     }
     /** Celebratory page: the approved crown/check composition in the same warm scenic UI. */
     private void renderCompletion(LocalStore.Entry e){
-        root=column();root.setBackground(pageBackground());
+        root=column();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         FrameLayout scenery=new FrameLayout(this);
         ImageView image=new ImageView(this);
@@ -5243,8 +5256,7 @@ public final class MainActivity extends Activity {
         scenery.addView(haze,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout central=column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
         central.setPadding(dp(16),dp(16),dp(16),dp(12));
-        scenery.addView(central,new FrameLayout.LayoutParams(-1,-1));
-        root.addView(scenery,new LinearLayout.LayoutParams(-1,0,1));
+        root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
         TextView crown=txt("👑",34,GOLD,true);crown.setGravity(Gravity.CENTER);
         central.addView(crown,new LinearLayout.LayoutParams(dp(75),dp(65)));
         TextView reference=displayText(lessonFullReference(e),21);
@@ -5267,7 +5279,8 @@ public final class MainActivity extends Activity {
         continueButton.setTextSize(20);
         footer.addView(continueButton,new LinearLayout.LayoutParams(-1,dp(61)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
-        setContentView(root);
+        scenery.addView(root,new FrameLayout.LayoutParams(-1,-1));
+        setContentView(scenery);
         reference.setAlpha(0f);heading.setAlpha(0f);
         if(ValueAnimator.areAnimatorsEnabled()){
             reference.animate().alpha(1f).setDuration(170).start();
@@ -5793,6 +5806,7 @@ public final class MainActivity extends Activity {
 
     private void openAnswerReview(String expected,String actual,boolean special){
         answerReview=new AnswerReview(expected,actual,special);
+        saveTrainingSession();
         View focused=getCurrentFocus();
         if(focused!=null){
             android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
@@ -6030,17 +6044,53 @@ public final class MainActivity extends Activity {
     }
     private void showUnifiedSelector(){
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
-        String[] items=new String[collections.size()+1];
-        for(int i=0;i<collections.size();i++)items[i]=
-            (collections.get(i).id==activeUnifiedId?"✓  ":"")+collections.get(i).title;
-        items[collections.size()]="＋ Создать коллекцию";
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Выбрать коллекцию").setItems(items,(dialog,which)->{
-                if(which==collections.size())newUnifiedCollection(u->{
-                    activateUnified(u.id);screen=Screen.HOME;render();
-                });
-                else{activateUnified(collections.get(which).id);render();}
-            }).setNegativeButton("Отмена",null).create());
+        LinearLayout panel=column();
+        panel.setPadding(dp(20),dp(20),dp(20),dp(12));
+        add(panel,displayText("Выбрать коллекцию",23),0);
+        int visibleHeight=Math.min(dp(320),getResources().getDisplayMetrics().heightPixels/2);
+        ScrollView scroll=new ScrollView(this){
+            @Override protected void onMeasure(int widthSpec,int heightSpec){
+                int maximum=MeasureSpec.getMode(heightSpec)==MeasureSpec.UNSPECIFIED?visibleHeight:
+                    Math.min(visibleHeight,MeasureSpec.getSize(heightSpec));
+                super.onMeasure(widthSpec,MeasureSpec.makeMeasureSpec(maximum,MeasureSpec.AT_MOST));
+            }
+        };
+        LinearLayout choices=column();
+        scroll.addView(choices);
+        add(panel,scroll,12);
+        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setView(panel).create();
+        for(LocalStore.UnifiedCollection collection:collections){
+            boolean selected=collection.id==activeUnifiedId;
+            LinearLayout choice=row();
+            choice.setGravity(Gravity.CENTER_VERTICAL);
+            choice.setMinimumHeight(dp(52));
+            choice.setPadding(dp(12),dp(8),dp(12),dp(8));
+            choice.setBackground(selected?outlined(CARD_ALT,14,BORDER):shape(CARD,14));
+            choice.addView(txt(collection.title,17,WHITE,selected),new LinearLayout.LayoutParams(0,-2,1));
+            if(selected){
+                TextView check=txt("✓",20,GREEN,true);
+                check.setGravity(Gravity.CENTER);
+                choice.addView(check,new LinearLayout.LayoutParams(dp(32),-2));
+            }
+            choice.setSelected(selected);
+            choice.setFocusable(true);
+            choice.setOnClickListener(v->{dialog.dismiss();activateUnified(collection.id);render();});
+            add(choices,choice,4);
+        }
+        if(!collections.isEmpty()){
+            View separator=new View(this);
+            separator.setBackgroundColor(BORDER);
+            LinearLayout.LayoutParams line=new LinearLayout.LayoutParams(-1,dp(1));
+            line.topMargin=dp(10);
+            panel.addView(separator,line);
+        }else scroll.setVisibility(View.GONE);
+        action(panel,"＋  Создать коллекцию",false,()->{
+            dialog.dismiss();
+            newUnifiedCollection(u->{activateUnified(u.id);screen=Screen.HOME;render();});
+        });
+        action(panel,"Отмена",false,dialog::dismiss);
+        dialog.setCanceledOnTouchOutside(true);
+        styledDialog(dialog);
     }
     private void renderUnifiedHomePanel(){
         LinearLayout panel=card(content);panel.setBackground(homeSurface());
@@ -6319,19 +6369,27 @@ public final class MainActivity extends Activity {
         clear.setOnClickListener(v->search.setText(""));
         add(content,searchBar,2);
         LinearLayout results=column();add(content,results,12);
-        renderUnifiedCollectionRows(results,"");
+        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
+        CollectionProgressSnapshot snapshot=collections.isEmpty()?null:store.collectionProgress();
+        renderUnifiedCollectionRows(results,"",collections,snapshot);
         search.addTextChangedListener(new TextWatcher(){
             public void beforeTextChanged(CharSequence s,int start,int count,int after){}
             public void onTextChanged(CharSequence s,int start,int before,int count){
                 clear.setVisibility(s.length()==0?View.GONE:View.VISIBLE);
-                results.removeAllViews();renderUnifiedCollectionRows(results,s.toString());
+                results.removeAllViews();renderUnifiedCollectionRows(results,s.toString(),collections,snapshot);
             }
             public void afterTextChanged(Editable s){}
         });
     }
-    private void renderUnifiedCollectionRows(LinearLayout into,String search){
+    static String countedRussian(int count,String one,String few,String many){
+        int last=count%10, lastTwo=count%100;
+        String noun=lastTwo>=11&&lastTwo<=14?many:last==1?one:last>=2&&last<=4?few:many;
+        return count+" "+noun;
+    }
+    private void renderUnifiedCollectionRows(LinearLayout into,String search,
+            List<LocalStore.UnifiedCollection> collections,CollectionProgressSnapshot snapshot){
         boolean found=false;
-        for(LocalStore.UnifiedCollection u:store.unifiedCollections()){
+        for(LocalStore.UnifiedCollection u:collections){
             if(!u.title.toLowerCase(Locale.ROOT).contains(search.trim().toLowerCase(Locale.ROOT)))continue;
             found=true;
             LinearLayout row=row();row.setPadding(dp(13),dp(14),dp(13),dp(14));
@@ -6340,7 +6398,9 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(dp(59),dp(61));
             imageP.rightMargin=dp(13);row.addView(thumb,imageP);
             LinearLayout details=column();add(details,displayText(u.title,17),0);
-            add(details,txt(u.entries+" отрывков · "+u.cards+" карточек",13,MUTED,false),5);
+            String passages=countedRussian(u.entries,"отрывок","отрывка","отрывков");
+            String verses=countedRussian(snapshot.uniqueVerseCount(u.groupId),"стих","стиха","стихов");
+            add(details,txt(passages+" · "+verses,13,MUTED,false),5);
             if(u.id==activeUnifiedId)add(details,txt("●  Выбрана на главной",12,GREEN,true),4);
             row.addView(details,new LinearLayout.LayoutParams(0,-2,1));
             TextView arrow=txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
