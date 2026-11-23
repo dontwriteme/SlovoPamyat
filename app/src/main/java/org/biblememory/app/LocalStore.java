@@ -58,6 +58,27 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public LocalStore(Context context) { super(context,"slovo_pamyat.db",null,9);setWriteAheadLoggingEnabled(true); }
     @Override public void onConfigure(SQLiteDatabase db){ db.setForeignKeyConstraintsEnabled(true); }
+
+    /** Reset study/recall history without deleting any collections, saved Bible
+     * passages, custom texts, book memberships or flashcards. Atomic on failure. */
+    public void resetLearningProgress(){
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try{
+            for(String table:new String[]{
+                "review_attempts","review_schedule","recall_activity","transition_issues",
+                "lesson_progress","stage_progress","verse_progress"
+            })db.delete(table,null,null);
+            db.execSQL("UPDATE entries SET learned=0,repetitions=0,days=0,"+
+                "ease=2.5,due=0,last_score=-1");
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+        synchronized(this){
+            progressSnapshot=null;
+            snapshotChanges=-1;
+            snapshotDataVersion=-1;
+        }
+    }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE groups_ (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)");
         db.execSQL("CREATE TABLE entries (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER NOT NULL REFERENCES groups_(id) ON DELETE CASCADE, title TEXT NOT NULL, reference TEXT NOT NULL, lines TEXT NOT NULL, learned INTEGER NOT NULL DEFAULT 0, repetitions INTEGER NOT NULL DEFAULT 0, days INTEGER NOT NULL DEFAULT 0, ease REAL NOT NULL DEFAULT 2.5, due INTEGER NOT NULL DEFAULT 0, last_score INTEGER NOT NULL DEFAULT -1)");
