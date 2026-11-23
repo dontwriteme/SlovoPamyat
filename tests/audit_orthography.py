@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ASSET = ROOT / "app/src/main/assets/synodal.json"
 CLASSES = [
     "ExerciseTextLogic", "ReviewLogic", "LessonCurriculumLogic",
-    "AcceptedTextLogic", "AnswerReviewLogic",
+    "AcceptedTextLogic", "AnswerReviewLogic", "InlineGapLogic", "TypingDiffLogic",
 ]
 JAVA = ROOT / "app/src/main/java/org/biblememory/app"
 DATA = json.loads(ASSET.read_text(encoding="utf-8"))
