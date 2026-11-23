@@ -20,9 +20,13 @@ public final class TypingDiffLogic {
     }
     /** Input punctuation is never an error; normalize separators, retain typed spelling/case. */
     private static String withoutPunctuation(String s){
+        // Use the same Unicode normalization as the acceptance checker.
+        // A stress mark must not turn one correct word into two red fragments.
+        s=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFKC);
         StringBuilder out=new StringBuilder();boolean space=false;
         for(int at=0;at<s.length();){
             int cp=s.codePointAt(at);at+=Character.charCount(cp);
+            if(cp==0x0301)continue; // optional Russian stress accent
             if(Character.isLetterOrDigit(cp)){
                 if(space && out.length()>0)out.append(' ');
                 out.appendCodePoint(cp);space=false;
