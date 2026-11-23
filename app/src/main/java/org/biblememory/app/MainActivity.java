@@ -3795,7 +3795,6 @@ public final class MainActivity extends Activity {
     private void stylePickerChapter(int chapter,TextView button){
         boolean selected=selectedPickerChapters.contains(chapter);
         boolean highlighted=selectedPickerChapters.isEmpty()&&chapter==selectedChapter;
-        button.setText(chapter+(selected?" ✓":""));
         button.setContentDescription("Глава "+chapter+(selected?", выделена":highlighted?", выбрана":""));
         button.setTextColor(selected?BULK_INK:highlighted?PRIMARY_ON:WHITE);
         button.setBackground(selected?outlined(BULK_SELECTED,18,0xFFABC5A7):

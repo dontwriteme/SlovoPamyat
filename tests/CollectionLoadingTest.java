@@ -99,7 +99,9 @@ public class CollectionLoadingTest {
   current("2",false).performClick();
   current("Добавить главы 1–2",false);
   current("3",false).performClick();
-  current("2 ✓",false).performClick();
+  View selectedChapter=current("Глава 2, выделена",true);
+  assertSame(selectedChapter,current("2",false));
+  selectedChapter.performClick();
   current("Добавить главы (2)",false);
   assertSame(scroller,field("currentScroller"));
   activity.onBackPressed();
