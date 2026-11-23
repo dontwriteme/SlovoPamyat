@@ -5657,14 +5657,18 @@ public final class MainActivity extends Activity {
         List<Bible.Verse> passage=e.lines().subList(activeStep.start,activeStep.end);
         List<String> source=new ArrayList<>();
         for(Bible.Verse line:passage)source.add(line.text);
-        int chunks=Math.max(1,lessonChunks(source).size());
-        int variants=Math.max(1,LessonCurriculumLogic.variants(
-            ReviewLogic.words(texts(passage)).size()).size());
-        int buildTotal=chunks*variants;
-        int currentBuild=Math.max(0,lessonVariant*chunks+lessonChunk);
+        List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
+            ReviewLogic.words(texts(passage)).size());
+        int buildTotal=0,buildDone=0;
         boolean assembled=phase==LessonCurriculumLogic.Phase.BUILD&&
             lessonBuildRequired>0&&lessonPicked==lessonBuildRequired;
-        int buildDone=currentBuild+(assembled?1:0);
+        for(int i=0;i<variants.size();i++){
+            int count=Math.max(1,lessonChunks(source,variants.get(i)).size());
+            buildTotal+=count;
+            if(i<lessonVariant)buildDone+=count;
+            else if(i==lessonVariant)
+                buildDone+=Math.min(lessonChunk,count-1)+(assembled?1:0);
+        }
         int writingTotal=Math.max(1,writingVariants(e).size());
         // In a scheduled review the lesson legitimately starts at writing.
         boolean previouslyLearned=executingCollectionQueue &&
@@ -5968,20 +5972,88 @@ public final class MainActivity extends Activity {
         };
     }
 
-    private int lessonMaxTiles(){
+    /** Allow longer fragments where only a few words must be chosen. The answer
+     * and the entire word bank are estimated together, not by word count alone. */
+    private List<String[]> lessonChunks(List<String> lines,LessonCurriculumLogic.Variant kind){
         android.util.DisplayMetrics d=getResources().getDisplayMetrics();
         float widthDp=d.widthPixels/d.density;
-        float heightDp=d.heightPixels/d.density;
+        int viewport=getWindow().getDecorView().getHeight();
+        float heightDp=(viewport>0?viewport:d.heightPixels)/d.density;
         float fontScale=Math.max(1f,getResources().getConfiguration().fontScale);
-        // Balance a larger assembly fragment against the space for both the
-        // answer card and the word bank. Adapt to shorter screens and larger text.
-        int byWidth=(int)Math.floor(Math.max(280f,widthDp)/28f);
-        int byHeight=(int)Math.floor(Math.max(500f,heightDp)/60f);
-        int largeFontPenalty=(int)Math.ceil((fontScale-1f)*4f);
-        return Math.max(8,Math.min(14,Math.min(byWidth,byHeight)-largeFontPenalty));
+        int maximum=kind==LessonCurriculumLogic.Variant.GAPS?26:
+            kind==LessonCurriculumLogic.Variant.ENDING?22:18;
+        // A short or narrow display needs fewer words; on larger phones keep the
+        // approved caps (26 gaps / 22 partial / 18 full) if the text itself fits.
+        float scale=Math.min(1f,Math.min(widthDp/360f,heightDp/780f))/fontScale;
+        int limit=Math.max(6,Math.min(maximum,Math.round(maximum*scale)));
+        Paint font=new Paint(Paint.ANTI_ALIAS_FLAG);
+        font.setTypeface(Typeface.create("serif",Typeface.BOLD));
+        font.setTextSize(18f*d.scaledDensity);
+        float availableAnswer=Math.max(190f,widthDp-68f);
+        float availableBank=Math.max(190f,widthDp-52f);
+        // Reserve the header, progress, reference, bottom action and safe insets.
+        float availableHeight=Math.max(205f,heightDp-285f);
+        List<String[]> fallback=WordOrderLogic.chunksForBudget(lines,6);
+        for(int budget=limit;budget>=6;budget--){
+            List<String[]> chunks=WordOrderLogic.chunksForBudget(lines,budget);
+            boolean fits=true;
+            for(String[] chunk:chunks){
+                if(!assemblyChunkFits(chunk,kind,font,d.density,availableAnswer,
+                    availableBank,availableHeight,fontScale)){
+                    fits=false;break;
+                }
+            }
+            if(fits)return chunks;
+        }
+        // On very small devices, the existing ScrollView remains the safety net.
+        return fallback;
     }
-    private List<String[]> lessonChunks(List<String> lines){
-        return WordOrderLogic.chunksForBudget(lines,lessonMaxTiles());
+    private boolean assemblyChunkFits(String[] words,LessonCurriculumLogic.Variant kind,
+            Paint font,float density,float answerWidth,float bankWidth,
+            float heightBudget,float fontScale){
+        int n=words.length;
+        if(n==0)return true;
+        float[] textWidths=new float[n];
+        for(int i=0;i<n;i++)textWidths[i]=font.measureText(words[i])/density;
+        int selections=kind==LessonCurriculumLogic.Variant.FULL?n:
+            kind==LessonCurriculumLogic.Variant.ENDING?(n+1)/2:
+                Math.max(1,(int)Math.ceil(n*.4));
+        // In gap exercises the words missing at each attempt rotate, so budget
+        // for a representative spread of gaps and a conservative word bank.
+        boolean[] missing=new boolean[n];
+        if(kind==LessonCurriculumLogic.Variant.FULL){
+            Arrays.fill(missing,true);
+        }else if(kind==LessonCurriculumLogic.Variant.GAPS){
+            for(int i=0;i<selections;i++)missing[i*n/selections]=true;
+        }else{
+            boolean start=(lessonSeed&1L)==0L;
+            for(int i=0;i<n;i++)missing[i<(n/2)==start]=true;
+        }
+        float[] answer=new float[n],bank=new float[selections];
+        for(int i=0;i<n;i++)
+            answer[i]=missing[i]?Math.max(56f,textWidths[i]+20f):textWidths[i]+8f;
+        if(kind==LessonCurriculumLogic.Variant.GAPS){
+            float[] longest=textWidths.clone();
+            Arrays.sort(longest);
+            for(int i=0;i<selections;i++)bank[i]=longest[n-1-i]+24f;
+        }else{
+            int index=0;
+            for(int i=0;i<n;i++)if(missing[i]&&index<bank.length)
+                bank[index++]=textWidths[i]+24f;
+        }
+        float lineHeight=Math.max(43f,24f*fontScale+18f);
+        float answerHeight=assemblyRows(answer,answerWidth,7f)* (lineHeight+7f)+27f;
+        float bankHeight=assemblyRows(bank,bankWidth,8f)*(lineHeight+8f)+6f;
+        // Leave spare room for the inter-card gap and slightly different actual font metrics.
+        return answerHeight+bankHeight+32f<=heightBudget;
+    }
+    private static int assemblyRows(float[] widths,float available,float gap){
+        int rows=1;float used=0f;
+        for(float width:widths){
+            if(used>0f&&used+gap+width>available){rows++;used=0f;}
+            used+=(used==0f?0f:gap)+width;
+        }
+        return rows;
     }
     private void updateLessonBuildView(){
         for(int i=0;i<lessonBuildSlots.size();i++){
@@ -6027,14 +6099,14 @@ public final class MainActivity extends Activity {
         lessonBuildTiles.clear();lessonBuildSlots.clear();
         List<String> src=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))src.add(v.text);
-        List<String[]> chunks=lessonChunks(src);
-        if(chunks.isEmpty())return true;
-        lessonChunk=Math.min(lessonChunk,chunks.size()-1);
-        String[] tokens=chunks.get(lessonChunk);
         List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
+        List<String[]> chunks=lessonChunks(src,kind);
+        if(chunks.isEmpty())return true;
+        lessonChunk=Math.min(lessonChunk,chunks.size()-1);
+        String[] tokens=chunks.get(lessonChunk);
         // The assembly tiles and answer slots show the task directly;
         // do not add an instruction card for any assembly variant.
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
@@ -6096,9 +6168,10 @@ public final class MainActivity extends Activity {
     private void advanceLessonBuild(LocalStore.Entry e){
         List<String> source=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))source.add(v.text);
-        int chunkCount=lessonChunks(source).size();
-        int variants=LessonCurriculumLogic.variants(ReviewLogic.words(texts(
-            e.lines().subList(activeStep.start,activeStep.end))).size()).size();
+        List<LessonCurriculumLogic.Variant> kinds=LessonCurriculumLogic.variants(
+            ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
+        int chunkCount=lessonChunks(source,kinds.get(Math.min(lessonVariant,kinds.size()-1))).size();
+        int variants=kinds.size();
         if(lessonChunk+1<chunkCount){lessonChunk++;resetLessonTiles();}
         else if(lessonVariant+1<variants){
             if(!groupMode)store.finishExercise(e.id,activeStep.start,2);
