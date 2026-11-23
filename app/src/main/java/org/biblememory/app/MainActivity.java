@@ -48,7 +48,7 @@ public final class MainActivity extends Activity {
     private static final int SUCCESS=0xFF4D815C, GOLD=0xFFD8A75C;
     private static final int PRIMARY_ON=0xFFFFFFFF;
     private static final int EXPORT=10,IMPORT=11;
-    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,RUN,RUN_SUMMARY}
+    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY}
     private Screen screen=Screen.HOME;
     private static final String UNIFIED_PREFS="unified_library_ui";
     private long activeUnifiedId=-1,openUnifiedId=-1;
@@ -199,7 +199,8 @@ public final class MainActivity extends Activity {
     private boolean isMainTab(Screen s) {
         return s == Screen.HOME
                 || s == Screen.BOOKS
-                || s == Screen.COLLECTIONS;
+                || s == Screen.COLLECTIONS
+                || s == Screen.SETTINGS;
     }
 
     private void prepareOtherTabs() {
@@ -213,7 +214,8 @@ public final class MainActivity extends Activity {
         final Screen[] order = {
                 Screen.HOME,
                 Screen.BOOKS,
-                Screen.COLLECTIONS
+                Screen.COLLECTIONS,
+                Screen.SETTINGS
         };
 
         int delay = 75;
@@ -298,9 +300,11 @@ public final class MainActivity extends Activity {
                     currentScroller = null;
                 }
 
-            } else {
+            } else if(destination==Screen.COLLECTIONS) {
                 renderUnifiedCollections();
                 addUnifiedCollectionFooter();
+            } else {
+                renderSettings();
             }
 
             addNav(root);
@@ -342,7 +346,7 @@ public final class MainActivity extends Activity {
         bar.post(() -> {
             if (indicator.getParent() != bar) return;
 
-            int slot = (bar.getWidth() - dp(14)) / 3;
+            int slot = (bar.getWidth() - dp(14)) / 4;
             if (slot <= 0) return;
 
             FrameLayout.LayoutParams params =
@@ -374,6 +378,7 @@ public final class MainActivity extends Activity {
     private LinearLayout tabSwitchLeaving,tabSwitchEntering;
     private boolean tabSwitchInProgress=false;
     private final String COLLECTION_PREFS="collection_study_queue";
+    private boolean resetInProgress=false;
     private float swipeStartX,swipeStartY;
     private boolean swipeIntercepted=false;
     private int lastNavIndex=0;
@@ -551,10 +556,11 @@ public final class MainActivity extends Activity {
         if(rerender&&screen==Screen.HOME&&homeIndex!=old)render();
     }
     @Override public void onBackPressed() {
+        if(resetInProgress)return;
         if(dismissModeInfo(true))return;
         switch(screen) {
             case HOME: super.onBackPressed(); break;
-            case BOOKS:case DUE:case CARDS:case COLLECTIONS:screen=Screen.HOME;render();break;
+            case BOOKS:case DUE:case CARDS:case COLLECTIONS:case SETTINGS:screen=Screen.HOME;render();break;
             case COLLECTION_DETAIL:screen=Screen.COLLECTIONS;render();break;
             case COLLECTION_BOOK:
                 openedCollectionBook=null;openedBookProgress=null;
@@ -1107,6 +1113,7 @@ public final class MainActivity extends Activity {
             case TRAIN: renderTraining();break;
             case CARDS: renderUnifiedCollections();break;
             case COLLECTIONS:renderUnifiedCollections();break;
+            case SETTINGS:renderSettings();break;
             case COLLECTION_DETAIL:renderUnifiedCollectionDetail();break;
             case COLLECTION_BOOK:renderCollectionBook();break;
             case COLLECTION_CHAPTER:renderCollectionChapter();break;
@@ -1670,6 +1677,15 @@ public final class MainActivity extends Activity {
                 path.cubicTo(-5,9,-8,6,-9,2);
                 path.moveTo(-4,2);path.lineTo(-9,2);path.lineTo(-9,7);
                 canvas.drawPath(path,pen);
+            }else if(kind.equals("settings")){
+                // Crisp outlined gear with eight spokes, independent of system emoji.
+                canvas.drawCircle(0,0,7.5f,pen);
+                canvas.drawCircle(0,0,3.1f,pen);
+                for(int spoke=0;spoke<8;spoke++){
+                    canvas.save();canvas.rotate(spoke*45f);
+                    canvas.drawLine(0,-8f,0,-11f,pen);
+                    canvas.restore();
+                }
             }else if(kind.equals("search")){
                 // Magnifying glass, sized to match the collection search bar.
                 canvas.drawCircle(-2,-2,6.5f,pen);
@@ -1761,11 +1777,10 @@ public final class MainActivity extends Activity {
         }
     }
     private int collectionsIconCycle=1;
-    /** A raised pill, with an indicator that travels between all three destinations. */
+    /** A raised four-destination navigation pill. */
     private void addNav(LinearLayout parent){
-        final Screen[] destinations={Screen.HOME,Screen.BOOKS,Screen.COLLECTIONS};
-        final String[] names={"Главная","Библия","Коллекции"};
-        final String[] glyphs={"home","book","cards"};
+        final Screen[] destinations={Screen.HOME,Screen.BOOKS,Screen.COLLECTIONS,Screen.SETTINGS};
+        final String[] names={"Главная","Библия","Коллекции","Настройки"};
         final int current=mainTabIndex();
         LinearLayout outer=column();outer.setPadding(dp(16),dp(4),dp(16),dp(12));
         FrameLayout floating=new FrameLayout(this);
@@ -1776,14 +1791,15 @@ public final class MainActivity extends Activity {
         indicator.setBackground(shape(0xFFF7DED0,29));
         floating.addView(indicator,new FrameLayout.LayoutParams(dp(80),dp(57),Gravity.TOP|Gravity.LEFT));
         LinearLayout row=row();row.setPadding(dp(7),dp(7),dp(7),dp(7));
-        for(int i=0;i<3;i++){
+        for(int i=0;i<destinations.length;i++){
             final int index=i;
             int ink=i==current?0xFFB7553D:MUTED;
             LinearLayout tab=column();tab.setGravity(Gravity.CENTER);
             tab.setPadding(dp(5),dp(3),dp(5),dp(3));
             View symbol=i==0 ? new HomeNavigationIcon(this,ink,current==0)
                     : i==1 ? new BookNavigationIcon(this,ink,current==1)
-                    : new CollectionsNavigationIcon(this,ink,current==2,collectionsIconCycle);
+                    : i==2 ? new CollectionsNavigationIcon(this,ink,current==2,collectionsIconCycle)
+                    : new NavigationGlyph("settings",ink);
             LinearLayout.LayoutParams glyph=new LinearLayout.LayoutParams(dp(27),dp(27));
             glyph.gravity=Gravity.CENTER_HORIZONTAL;tab.addView(symbol,glyph);
             TextView name=txt(names[i],12,ink,i==current);
@@ -1812,7 +1828,7 @@ public final class MainActivity extends Activity {
         parent.addView(outer,new LinearLayout.LayoutParams(-1,-2));
         final int from=lastNavIndex;
         floating.post(()->{
-            int slot=(floating.getWidth()-dp(14))/3;
+            int slot=(floating.getWidth()-dp(14))/destinations.length;
             if(slot<=0)return;
             FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)indicator.getLayoutParams();
             p.width=slot;p.height=dp(57);p.leftMargin=dp(7);p.topMargin=dp(7);
@@ -1867,8 +1883,10 @@ public final class MainActivity extends Activity {
     private int mainTabIndex(){
         switch(screen){
             case BOOKS:case CHAPTERS:case VERSES:case CHAPTER:return 1;
-            case COLLECTIONS:case COLLECTION_DETAIL:case ENTRIES:case REORDER_STUDY:
+            case COLLECTIONS:case COLLECTION_DETAIL:case COLLECTION_BOOK:case COLLECTION_CHAPTER:
+            case ENTRIES:case REORDER_STUDY:
             case CARDS:case CARD_DECK:case CARD_PICK:case CARD_SESSION:case REORDER_CARDS:return 2;
+            case SETTINGS:return 3;
             case BIBLE_PICKER:case PICKER_BOOKS:case PICKER_CHAPTERS:
             case PICKER_VERSES:case PICKER_TEXT:
                 return pickerTarget==BibleTarget.STUDY_GROUP &&
@@ -1922,7 +1940,7 @@ public final class MainActivity extends Activity {
     /** One continuous two-page slide; the bottom bar is never moved or blanked. */
 
     private void goToMainTab(int index) {
-        if (index < 0 || index > 2 || tabSwitchInProgress) {
+        if (index < 0 || index > 3 || tabSwitchInProgress || resetInProgress) {
             return;
         }
 
@@ -1934,7 +1952,8 @@ public final class MainActivity extends Activity {
         final Screen destination =
                 index == 0 ? Screen.HOME :
                         index == 1 ? Screen.BOOKS :
-                                Screen.COLLECTIONS;
+                        index == 2 ? Screen.COLLECTIONS :
+                                Screen.SETTINGS;
 
         if (screen == destination) return;
         dismissModeInfo(false);
@@ -6834,6 +6853,78 @@ public final class MainActivity extends Activity {
             }
             public void afterTextChanged(Editable s){}
         });
+    }
+    /** Keep settings in the same warm-card style as the existing collection screens. */
+    private void renderSettings(){
+        TextView heading=displayText("Настройки",28);
+        heading.setGravity(Gravity.CENTER);
+        add(content,heading,18);
+        LinearLayout section=column();
+        section.setPadding(dp(18),dp(18),dp(18),dp(18));
+        section.setBackground(homeSurface());
+        section.setElevation(dp(2));
+        TextView title=displayText("Прогресс изучения",20);
+        add(section,title,9);
+        TextView explanation=txt(
+            "Сбросить освоение стихов, историю проверок и расписание повторений. "+
+            "Коллекции, книги, карточки и сохранённые тексты останутся.",14,MUTED,false);
+        explanation.setLineSpacing(dp(3),1.1f);
+        add(section,explanation,14);
+        TextView reset=button("Сбросить прогресс",false,this::confirmResetProgress);
+        reset.setTextColor(0xFFAC523F);
+        reset.setContentDescription("Сбросить весь прогресс изучения");
+        add(section,reset,0);
+        add(content,section,16);
+    }
+    private void confirmResetProgress(){
+        if(resetInProgress)return;
+        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            .setTitle("Сбросить весь прогресс?")
+            .setMessage("Будут безвозвратно удалены отметки об освоении стихов, "+
+                "история проверок, незавершённые уроки и расписание повторений "+
+                "во всех коллекциях.\\n\\nСами коллекции, книги, карточки и тексты сохранятся.")
+            .setPositiveButton("Сбросить",(dialog,which)->resetAllLearningProgress())
+            .setNegativeButton("Отмена",null).create());
+    }
+    private void resetAllLearningProgress(){
+        if(resetInProgress)return;
+        resetInProgress=true;
+        new Thread(()->{
+            try{
+                store.resetLearningProgress();
+                // Clear only learning sessions and test results, not saved content/UI preferences.
+                getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().clear().commit();
+                getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE).edit().clear().commit();
+                getSharedPreferences("gap_rotation",MODE_PRIVATE).edit().clear().commit();
+                getSharedPreferences("card_sessions",MODE_PRIVATE).edit().clear().commit();
+                android.content.SharedPreferences unified=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
+                android.content.SharedPreferences.Editor editor=unified.edit();
+                for(String key:unified.getAll().keySet())
+                    if(key.startsWith("run_history_"))editor.remove(key);
+                editor.commit();
+                runOnUiThread(()->{
+                    if(isDestroyed())return;
+                    collectionQueue.clear();collectionQueueCursor=-1;collectionQueueGroup=-1;
+                    executingCollectionQueue=false;collectionQueueNewStep=false;
+                    cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
+                    reviewQueue.clear();reviewPointer=0;reviewMode=false;
+                    runLines.clear();runMistakes.clear();runCursor=0;runCorrect=0;
+                    runDraft="";runChecked=false;runPassed=false;
+                    draft="";checked=false;passed=false;answerReview=null;
+                    lessonWriteHadFeedback=false;lessonPracticeAgain=false;
+                    readyTabs.clear();savedScrollY.clear();
+                    resetInProgress=false;
+                    screen=Screen.SETTINGS;render();
+                    toast("Прогресс изучения сброшен");
+                });
+            }catch(Exception error){
+                android.util.Log.e("Settings","Unable to reset learning progress",error);
+                runOnUiThread(()->{
+                    resetInProgress=false;
+                    if(!isDestroyed())toast("Не удалось сбросить прогресс");
+                });
+            }
+        },"ResetLearningProgress").start();
     }
     static String countedRussian(int count,String one,String few,String many){
         int last=count%10, lastTwo=count%100;
