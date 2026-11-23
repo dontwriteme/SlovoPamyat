@@ -5998,8 +5998,9 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
-        assemblyInstruction(kind==LessonCurriculumLogic.Variant.FULL?
-            LearningHelp.BUILD_PROMPT:"Восстанови пропущенные слова в правильном порядке.");
+        // Filling gaps is self-explanatory; reserve instruction space for full word-order assembly.
+        if(kind==LessonCurriculumLogic.Variant.FULL)
+            assemblyInstruction(LearningHelp.BUILD_PROMPT);
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
         if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
