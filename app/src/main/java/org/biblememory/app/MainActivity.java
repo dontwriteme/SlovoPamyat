@@ -120,7 +120,7 @@ public final class MainActivity extends Activity {
     private Runnable revealCleanup=()->{};
     private final List<LocalStore.DueItem> reviewQueue=new ArrayList<>();
     private int reviewPointer=0;
-    private TextView lessonBuildError,lessonBuildAction;
+    private TextView lessonBuildAction;
     private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
     private static final int BUILD_INK=0xFF553722;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
@@ -5237,7 +5237,6 @@ public final class MainActivity extends Activity {
                 options.addView(tile);
             }
             add(card,options,8);
-            if(orderWrongTile!=-1)add(card,txt("Не то слово. Попробуй ещё раз.",13,RED,false),10);
         } else {
             add(card,txt("✓  Фрагмент собран правильно",16,GREEN,true),12);
             if(orderChunk<chunks.size()-1)
@@ -5989,8 +5988,6 @@ public final class MainActivity extends Activity {
             BuildSlot slot=lessonBuildSlots.get(i);
             if(slot.filled!=(i<lessonPicked))slot.showWord(i<lessonPicked);
         }
-        if(lessonBuildError!=null)lessonBuildError.setText(lessonWrongTile>=0?
-            LearningHelp.BUILD_ERROR:"");
         for(int i=0;i<lessonBuildTiles.size();i++){
             TextView tile=lessonBuildTiles.get(i);
             int idx=(Integer)tile.getTag();
@@ -6026,7 +6023,7 @@ public final class MainActivity extends Activity {
         return positions;
     }
     private boolean renderLessonBuild(LocalStore.Entry e){
-        lessonBuildAction=null;lessonBuildError=null;lessonBuildRequired=0;
+        lessonBuildAction=null;lessonBuildRequired=0;
         lessonBuildTiles.clear();lessonBuildSlots.clear();
         List<String> src=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))src.add(v.text);
@@ -6093,7 +6090,6 @@ public final class MainActivity extends Activity {
             tile.setTag(index);lessonBuildTiles.add(tile);choices.addView(tile);
         }
         add(content,choices,14);
-        lessonBuildError=txt("",14,0xFF923C37,false);add(content,lessonBuildError,6);
         updateLessonBuildView();
         return lessonPicked==missing.length;
     }
