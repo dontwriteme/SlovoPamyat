@@ -5940,12 +5940,12 @@ public final class MainActivity extends Activity {
         float widthDp=d.widthPixels/d.density;
         float heightDp=d.heightPixels/d.density;
         float fontScale=Math.max(1f,getResources().getConfiguration().fontScale);
-        // Both the assembled answer and its word bank must fit on a phone at once.
-        // A width-only budget produced 18-28 tiles, forcing repeated vertical scrolling.
-        int byWidth=(int)Math.floor(Math.max(280f,widthDp)/44f);
-        int byHeight=(int)Math.floor(Math.max(480f,heightDp)/92f);
-        int largeFontPenalty=(int)Math.ceil((fontScale-1f)*3f);
-        return Math.max(6,Math.min(9,Math.min(byWidth,byHeight)-largeFontPenalty));
+        // Balance a larger assembly fragment against the space for both the
+        // answer card and the word bank. Adapt to shorter screens and larger text.
+        int byWidth=(int)Math.floor(Math.max(280f,widthDp)/28f);
+        int byHeight=(int)Math.floor(Math.max(500f,heightDp)/60f);
+        int largeFontPenalty=(int)Math.ceil((fontScale-1f)*4f);
+        return Math.max(8,Math.min(14,Math.min(byWidth,byHeight)-largeFontPenalty));
     }
     private List<String[]> lessonChunks(List<String> lines){
         return WordOrderLogic.chunksForBudget(lines,lessonMaxTiles());
@@ -6004,9 +6004,8 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
-        // Filling gaps is self-explanatory; reserve instruction space for full word-order assembly.
-        if(kind==LessonCurriculumLogic.Variant.FULL)
-            assemblyInstruction(LearningHelp.BUILD_PROMPT);
+        // The assembly tiles and answer slots show the task directly;
+        // do not add an instruction card for any assembly variant.
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
         if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
