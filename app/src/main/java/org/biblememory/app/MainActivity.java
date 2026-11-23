@@ -3336,7 +3336,7 @@ public final class MainActivity extends Activity {
         LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
         TextView deckHeading=displayText(deck==null?"Карточки":deck.title,22);
         deckHeading.setGravity(Gravity.CENTER);
-        header.addView(deckHeading,new LinearLayout.LayoutParams(-1,dp(45)));
+        addHelpLabel(header,deckHeading,LearningHelp.CARDS,0);
         root.addView(header,new LinearLayout.LayoutParams(-1,-2));
         SwipeCardLayout swipe=new SwipeCardLayout();
         swipe.setBackground(outlined(CARD,26,BORDER));
@@ -3938,7 +3938,8 @@ public final class MainActivity extends Activity {
             {
                 int color=stat==null?MUTED:stat.rank==3?SUCCESS:
                     stat.rank==2?0xFF517993:stat.rank==1?0xFF99723D:MUTED;
-                String label=stat==null?"Не изучен":stat.state;
+                String label=stat==null?"Не изучен":stat.rank==3?"Закреплён":
+                    stat.rank==2?"Предварительно освоен":stat.rank==1?"Изучается":"Не изучен";
                 int rep=stat==null?0:stat.repetitions;
                 add(c,txt("● "+label+"   ·   Повторений: "+rep,12,color,true),12);
                 if(stat!=null && stat.nextDue>0 && stat.rank>0)
@@ -4545,7 +4546,7 @@ public final class MainActivity extends Activity {
         long source=snapshot.canonicalId(e.id);
         int learned=snapshot.masteryCount(source);
         int established=snapshot.consolidatedCount(source);
-        String progress=established+" выучено · "+Math.max(0,learned-established)+" освоено";
+        String progress=established+" закреплено · "+Math.max(0,learned-established)+" предварительно освоено";
         String detail=e.reference+" · "+progress+" · Связок: "+snapshot.linkedCount(source);
         LinearLayout c=card(content);c.setBackground(homeSurface());
         LinearLayout row=row();
@@ -4654,10 +4655,12 @@ public final class MainActivity extends Activity {
         }
     }
     private void renderDue() {
-        title("Повторить изученное","Повторения запускаются автоматически по расписанию.");
+        LearningHelp help=reviewCollectionGroup>0?LearningHelp.REVIEW:LearningHelp.ALL_REVIEWS;
+        title(help.title,null);
         LinearLayout c=headerCard(content);
-        add(c,txt("На данный момент повторений нет ✓",21,WHITE,true),0);
-        helper(c,"Новые стихи не добавляются в повторение до освоения.");
+        addHelpLabel(c,txt("Пока нет заданий на повторение",21,WHITE,true),help,0);
+        helper(c,reviewCollectionGroup>0?"В выбранной коллекции сейчас нет заданий, срок которых наступил.":
+            "Сейчас нет запланированных заданий, срок которых наступил.");
 
     }
     private void openReview(LocalStore.DueItem item){
@@ -4979,8 +4982,7 @@ public final class MainActivity extends Activity {
         activePassage.setContentDescription(percentage>0?
             "Скрыто "+percentage+" процентов слов. Попробуйте их вспомнить.":text.toString());
         if(activeStatus!=null)activeStatus.setText(percentage==0?
-            "Прочитай стих, затем проверь себя по памяти.":
-            "Удерживай скрытое слово, чтобы посмотреть его.");
+            LearningHelp.INTRO_READ:LearningHelp.INTRO_HOLD);
     }
     /** Immediate reveal held until the ORIGINAL finger lifts, even when it moves away. */
     private void installTemporaryReveal(TextView view) {
@@ -5225,8 +5227,8 @@ public final class MainActivity extends Activity {
         add(textCard,txt("КАРТОЧКА "+(stepCursor+1)+" ИЗ "+steps.size(),12,GREEN,true),0);
         add(textCard,txt(step.title+(mastered?"  ✓":""),18,WHITE,true),5);
         String status=store.consolidated(e.id,studyStage.name(),step.start,step.end)?"Закреплён":
-            mastered?"Предварительно выучен":"Изучается";
-        add(textCard,txt(status,13,mastered?GREEN:MUTED,true),8);
+            mastered?"Предварительно освоен":"Изучается";
+        addHelpLabel(textCard,txt(status,13,mastered?GREEN:MUTED,true),LearningHelp.PROGRESS,8);
         if(!checked) {
             activeTextArea=column();activeTextArea.setMinimumHeight(dp(92));
             add(textCard,activeTextArea,7);
@@ -5389,6 +5391,10 @@ public final class MainActivity extends Activity {
             });
             topRow.addView(devButton,new LinearLayout.LayoutParams(dp(48),dp(45)));
         }
+        LearningHelp lessonHelp=phase==LessonCurriculumLogic.Phase.INTRO?LearningHelp.INTRO:
+            phase==LessonCurriculumLogic.Phase.BUILD?LearningHelp.BUILD:LearningHelp.WRITE;
+        topRow.addView(helpIcon(lessonHelp,"Подсказка «"+lessonHelp.title+"»"),
+            new LinearLayout.LayoutParams(dp(48),dp(48)));
         top.addView(topRow);
         renderLessonHotbar(top,phase,e);
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
@@ -5748,7 +5754,7 @@ public final class MainActivity extends Activity {
     private void updateLessonBuildView(String[] words,int[] missing){
         if(lessonBuildPrompt!=null)lessonBuildPrompt.setText(buildPromptText(words,missing,lessonPicked));
         if(lessonBuildError!=null)lessonBuildError.setText(lessonWrongTile>=0?
-            "Неверное слово. Попробуй другое.":"");
+            LearningHelp.BUILD_ERROR:"");
         for(int i=0;i<lessonBuildTiles.size();i++){
             TextView tile=lessonBuildTiles.get(i);
             int idx=(Integer)tile.getTag();
@@ -5801,7 +5807,7 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
-        // The exercise itself illustrates the task. Omit redundant task/fragment captions.
+        helper(content,LearningHelp.BUILD_PROMPT);
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
         if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
@@ -5876,14 +5882,9 @@ public final class MainActivity extends Activity {
         LessonCurriculumLogic.Variant variant=variants.get(lessonWriteVariant);
         boolean full=variant==LessonCurriculumLogic.Variant.FULL;
 
-        // The writing step does not need a separate task-number label.
-        if(practiceWeakFragment){
-            // Weak-fragment practice remains separate from the final independent check.
-        }else if(full){
-            // The verse reference remains visible while the full text is hidden.
-        }else{
-            renderInlineGapInputs(variant);
-        }
+        helper(content,practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:
+            full?LearningHelp.WRITE_FULL:LearningHelp.WRITE_GAPS);
+        if(!practiceWeakFragment&&!full)renderInlineGapInputs(variant);
         if(full){
             EditText answer=input(practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
             forbidKeyboardHints(answer,true);
@@ -6336,26 +6337,26 @@ public final class MainActivity extends Activity {
                     store.exerciseDone(e.id,i)>=5)learned++;
             }
         }
-        add(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),8);
+        addHelpLabel(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
+            LearningHelp.PROGRESS,8);
         if(verses>0)progress(panel,learned,verses);
-        unifiedModeRow(panel,"Изучение стихов","mode-book",
-            "Изучай стихи и библейские отрывки шаг за шагом. Читай текст, собирай его из слов и воспроизводи по памяти. Прогресс сохраняется автоматически.",
-            this::startActiveStudy);
-        unifiedModeRow(panel,"Карточки","mode-cards",
-            "Тренируй память с помощью карточек. Вспоминай стих по ссылке или определяй ссылку по тексту. Этот режим не влияет на интервальные повторения.",
-            this::startActiveCards);
-        unifiedModeRow(panel,"Закрепление стихов","mode-brain",
-            "Повторяй изученные стихи из выбранной коллекции. Приложение определяет, какие стихи пора повторить, чтобы лучше сохранить их в памяти.",
-            ()->startActiveReview(false));
-        unifiedModeRow(panel,"Проверка знаний","mode-check",
-            "Проверь, насколько хорошо помнишь закреплённые стихи выбранной коллекции. Воспроизводи их самостоятельно и оценивай результат.",
-            this::startActiveRun);
-        unifiedModeRow(panel,"Общее повторение","mode-repeat",
-            "Повторяй изученные стихи из всех своих коллекций. Приложение подбирает задания по действующему расписанию повторений.",
-            ()->startActiveReview(true));
+        unifiedModeRow(panel,LearningHelp.STUDY,"mode-book",this::startActiveStudy);
+        unifiedModeRow(panel,LearningHelp.CARDS,"mode-cards",this::startActiveCards);
+        unifiedModeRow(panel,LearningHelp.REVIEW,"mode-brain",()->startActiveReview(false));
+        unifiedModeRow(panel,LearningHelp.MEMORY,"mode-check",this::startActiveRun);
+        unifiedModeRow(panel,LearningHelp.ALL_REVIEWS,"mode-repeat",()->startActiveReview(true));
     }
 
-    private void unifiedModeRow(LinearLayout panel,String name,String icon,String description,Runnable run){
+    private void addHelpLabel(LinearLayout parent,TextView label,LearningHelp help,int margin){
+        LinearLayout line=row();
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        line.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        line.addView(helpIcon(help,"Подсказка «"+help.title+"»"),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        add(parent,line,margin);
+    }
+
+    private void unifiedModeRow(LinearLayout panel,LearningHelp help,String icon,Runnable run){
+        String name=help.title;
         LinearLayout item=row();
         item.setGravity(Gravity.CENTER_VERTICAL);
         item.setPadding(dp(12),0,0,0);
@@ -6373,15 +6374,19 @@ public final class MainActivity extends Activity {
         launch.addView(txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
         item.addView(launch,new LinearLayout.LayoutParams(0,-2,1));
 
+        item.addView(helpIcon(help,"О режиме «"+name+"»"),new LinearLayout.LayoutParams(dp(48),dp(48)));
+        add(panel,item,9);
+    }
+
+    private View helpIcon(LearningHelp help,String description){
         View info=new NavigationGlyph("info",0xFF1976D2);
-        info.setContentDescription("О режиме «"+name+"»");
+        info.setContentDescription(description);
         info.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         info.setFocusable(true);
         info.setBackground(new android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(0x241976D2),null,shape(Color.WHITE,24)));
-        info.setOnClickListener(v->showModeInfo(v,name,description));
-        item.addView(info,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        add(panel,item,9);
+        info.setOnClickListener(v->showModeInfo(v,help));
+        return info;
     }
 
     private PopupWindow modeInfoPopup;
@@ -6399,7 +6404,7 @@ public final class MainActivity extends Activity {
         return true;
     }
 
-    private void showModeInfo(View anchor,String name,String description){
+    private void showModeInfo(View anchor,LearningHelp help){
         if(modeInfoAnchor==anchor){dismissModeInfo(true);return;}
         dismissModeInfo(false);
         if(!anchor.isAttachedToWindow())return;
@@ -6422,16 +6427,22 @@ public final class MainActivity extends Activity {
         card.setPadding(dp(16),dp(8),dp(8),dp(16));
         LinearLayout heading=row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
+        heading.addView(txt(help.title,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
         TextView close=txt("×",23,MUTED,false);
         close.setGravity(Gravity.CENTER);
         close.setContentDescription("Закрыть подсказку");
         close.setOnClickListener(v->dismissModeInfo(true));
         heading.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
         card.addView(heading);
-        TextView detail=txt(description,15,WHITE,false);
-        detail.setPadding(0,0,dp(8),0);
-        card.addView(detail);
+        for(int i=0;i<help.sectionCount();i++){
+            TextView subtitle=txt(help.heading(i),14,SUCCESS,true);
+            if(Build.VERSION.SDK_INT>=28)subtitle.setAccessibilityHeading(true);
+            add(card,subtitle,i==0?0:12);
+            TextView detail=txt(help.body(i),15,WHITE,false);
+            detail.setPadding(0,0,dp(8),0);
+            detail.setLineSpacing(dp(3),1f);
+            add(card,detail,4);
+        }
         card.measure(View.MeasureSpec.makeMeasureSpec(width-(opensLeft?caret:0),View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
 
@@ -6804,8 +6815,8 @@ public final class MainActivity extends Activity {
         for(int i=0;i<lines.size();i++){
             Bible.Verse verse=lines.get(i);
             LinearLayout item=card(content);
-            String status=openedBookProgress.verseConsolidated(id,i)?"выучен":
-                openedBookProgress.mastered(id,i)?"освоен":"не изучен";
+            String status=openedBookProgress.verseConsolidated(id,i)?"закреплён":
+                openedBookProgress.mastered(id,i)?"предварительно освоен":"не изучен";
             add(item,txt(verse.ref+" · "+status,14,GREEN,true),0);
             add(item,prose(verse.text,19),8);
         }
@@ -6952,6 +6963,8 @@ public final class MainActivity extends Activity {
         TextView count=txt((runCursor+1)+" из "+runLines.size(),15,MUTED,true);
         count.setGravity(Gravity.CENTER);
         top.addView(count,new LinearLayout.LayoutParams(0,dp(45),1));
+        top.addView(helpIcon(LearningHelp.MEMORY,"О режиме «Проверка памяти»"),
+            new LinearLayout.LayoutParams(dp(48),dp(48)));
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         content=column();content.setPadding(dp(21),dp(18),dp(21),dp(24));scroll.addView(content);
@@ -6959,7 +6972,10 @@ public final class MainActivity extends Activity {
         progress(content,runCursor,runLines.size());
         TextView heading=displayText(line.reference,24);heading.setGravity(Gravity.CENTER);
         add(content,heading,20);
-        TextView instruction=txt("Напиши весь стих по памяти",16,MUTED,false);
+        TextView instruction=txt(runChecked?
+            runPassed?"Нажми «Следующий стих», чтобы продолжить.":
+                "Сравни ответ с правильным текстом и перейди к следующему стиху.":
+            "Напиши стих по памяти и нажми «Проверить». Если стих не вспоминается, нажми «Пропустить стих».",16,MUTED,false);
         instruction.setGravity(Gravity.CENTER);add(content,instruction,12);
         EditText write=input("Начни писать стих…",true);
         forbidKeyboardHints(write,true);write.setMinLines(5);
@@ -7007,7 +7023,7 @@ public final class MainActivity extends Activity {
             label(content,"Требуют внимания");
             for(String ref:runMistakes)add(content,txt("• "+ref,16,RED,false),7);
         }else helper(content,"Все стихи воспроизведены без ошибок!");
-        helper(content,"Результат проверки памяти не меняет статусы изучения и расписание повторений.");
+        helper(content,"Итог сохранён в истории коллекции. Статусы освоения и расписание повторений остаются прежними.");
         action(content,"На главную",true,()->{screen=Screen.HOME;render();});
     }
 

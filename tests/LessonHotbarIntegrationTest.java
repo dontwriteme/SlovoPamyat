@@ -41,7 +41,9 @@ public class LessonHotbarIntegrationTest {
         assertOnlyStrip(LessonCurriculumLogic.Phase.INTRO);
         store.finishExercise(id,0,1);invoke("render");
         assertOnlyStrip(LessonCurriculumLogic.Phase.BUILD);
-        assertFalse(visibleText((View)get("root")).contains(" слов"));
+        assertNotNull(text((View)get("root"),LearningHelp.BUILD_PROMPT));
+        assertFalse(java.util.regex.Pattern.compile("\\d+\\s*/\\s*\\d+\\s+слов")
+            .matcher(visibleText((View)get("root"))).find());
         store.finishExercise(id,0,3);invoke("render");
         assertOnlyStrip(LessonCurriculumLogic.Phase.WRITE);
     }

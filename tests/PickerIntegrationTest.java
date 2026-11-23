@@ -407,8 +407,8 @@ public class PickerIntegrationTest {
             View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));
         decor.layout(0,0,1080,1920);
         View root=(View)field("root");
-        String[] names={"Изучение стихов","Карточки","Закрепление стихов","Проверка знаний","Общее повторение"};
-        String[] descriptions={"шаг за шагом","по ссылке","какие стихи пора","закреплённые стихи","из всех своих коллекций"};
+        String[] names={"Изучение стихов","Карточки","Повторение стихов","Проверка памяти","Повторить все коллекции"};
+        String[] descriptions={"без текста перед глазами","значок глаза","из выбранной коллекции","отсроченным повторением","из всех коллекций"};
         for(int i=0;i<names.length;i++){
             TextView label=text(root,names[i]);assertNotNull(label);
             android.view.ViewGroup row=(android.view.ViewGroup)((View)label.getParent()).getParent();
@@ -427,12 +427,23 @@ public class PickerIntegrationTest {
             anchor.getWindowVisibleDisplayFrame(frame);
             assertNotNull("Popover for "+names[i]+" in "+frame,popup);assertFalse(popup.isFocusable());
             assertNotNull(text(popup.getContentView(),names[i]));
+            assertNotNull(text(popup.getContentView(),"Зачем"));
             assertTrue(textContains(popup.getContentView(),descriptions[i]));
             assertEquals("HOME",field("screen").toString());
         }
         View anchor=(View)field("modeInfoAnchor");anchor.performClick();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
         assertNull(field("modeInfoPopup"));
+        TextView summary=text(root,"0 стихов · 0 предварительно освоено");
+        assertNotNull(summary);
+        ((android.view.ViewGroup)summary.getParent()).getChildAt(1).performClick();
+        android.widget.PopupWindow progress=(android.widget.PopupWindow)field("modeInfoPopup");
+        assertNotNull(progress);
+        assertTrue(textContains(progress.getContentView(),"24 часов"));
+        activity.onBackPressed();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
+        assertNull(field("modeInfoPopup"));
+        assertEquals("HOME",field("screen").toString());
     }
 
     private boolean textContains(View view,String snippet){
