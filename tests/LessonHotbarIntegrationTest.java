@@ -60,63 +60,89 @@ public class LessonHotbarIntegrationTest {
         assertTrue(strip.getContentDescription().toString().contains(
             new String[]{"Читай","Собери","Напиши"}[phase.ordinal()]));
     }
-    @Test public void buildProgressWaitsUntilContinueIsPressed()throws Exception{
-        TextView intro=text((View)get("root"),"Продолжить");
-        assertNotNull(intro);intro.performClick();
-        LessonHotbarLogic.Model before=model(LessonCurriculumLogic.Phase.BUILD);
-        assertTrue(before.totals[1]>0);
-        int required=(Integer)get("lessonBuildRequired");
-        assertTrue(required>0);
-        set("lessonPicked",required);
-        call("refreshLessonPhaseProgress",
-            new Class<?>[]{LessonCurriculumLogic.Phase.class,LocalStore.Entry.class},
-            LessonCurriculumLogic.Phase.BUILD,store.entry(id));
-        LessonHotbarLogic.Model waiting=model(LessonCurriculumLogic.Phase.BUILD);
-        assertEquals(before.completedCount,waiting.completedCount);
-        assertEquals(before.currentNumber,waiting.currentNumber);
-        assertEquals(LessonHotbarLogic.CURRENT,waiting.visual(1,0));
-        if(waiting.totals[1]>1)assertEquals(LessonHotbarLogic.UPCOMING,waiting.visual(1,1));
-        TextView buildContinue=(TextView)get("lessonBuildAction");
-        assertNotNull(buildContinue);
-        // The real tile callback enables the button; the fixture directly sets completed words.
-        buildContinue.setEnabled(true);
-        buildContinue.performClick();
-        LessonCurriculumLogic.Phase next=(LessonCurriculumLogic.Phase)call(
-            "lessonPhase",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
-        LessonHotbarLogic.Model after=model(next);
-        assertEquals(before.completedCount+1,after.completedCount);
-        assertEquals(LessonHotbarLogic.DONE,after.visual(1,0));
+    @SuppressWarnings("unchecked")
+    private List<TextView> assemblyTiles()throws Exception{
+        return (List<TextView>)get("lessonBuildTiles");
     }
 
-    @Test public void completedBuildSwitchesFooterToPrimaryGradient()throws Exception{
-        TextView intro=text((View)get("root"),"Продолжить");
-        assertNotNull(intro);intro.performClick();
+    @Test public void assemblyShowsWrongTileThenFillsProgressWithoutCommittingEarly()throws Exception{
+        text((View)get("root"),"Продолжить").performClick();
+        LessonHotbarLogic.Model before=model(LessonCurriculumLogic.Phase.BUILD);
         TextView action=(TextView)get("lessonBuildAction");
-        assertNotNull(action);
         assertFalse(action.isEnabled());
-        assertEquals("Сначала собери фразу",action.getText().toString());
-
-        int required=(Integer)get("lessonBuildRequired");
-        assertTrue(required>0);
-        String[] words=new String[required];Arrays.fill(words,"Слово");
-        int[] missing=new int[required];
-        for(int i=0;i<required;i++)missing[i]=i;
-        set("lessonPicked",required);
-        call("updateLessonBuildView",new Class<?>[]{String[].class,int[].class},
-            (Object)words,(Object)missing);
-        assertTrue(action.isEnabled());
         assertEquals("Продолжить",action.getText().toString());
+        View root=(View)get("root");
+        TextView wrong=assemblyTiles().stream().filter(tile->"живо".contentEquals(tile.getText())).findFirst().get();
+        wrong.performClick();
+        assertSame(root,get("root"));
+        assertEquals(0,get("lessonPicked"));
+        assertEquals(0xFF923C37,wrong.getCurrentTextColor());
+        assertNotNull(text(root,LearningHelp.BUILD_ERROR));
+        assertEquals(before.completedCount,model(LessonCurriculumLogic.Phase.BUILD).completedCount);
+        for(String word:new String[]{"Слово","истины","живо"}){
+            TextView tile=assemblyTiles().stream().filter(t->word.contentEquals(t.getText())).findFirst().get();
+            tile.performClick();
+            assertEquals(View.INVISIBLE,tile.getVisibility());
+        }
+        assertTrue(action.isEnabled());
         assertEquals(0xFFFFFFFF,action.getCurrentTextColor());
-        assertEquals(1f,action.getAlpha(),0f);
-        assertArrayEquals(new int[]{0xFFDB8C6C,0xFFB8583F},
+        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
             ((android.graphics.drawable.GradientDrawable)action.getBackground()).getColors());
+        LessonHotbarLogic.Model filled=model(LessonCurriculumLogic.Phase.BUILD);
+        assertEquals(before.completedCount+1,filled.completedCount);
+        assertEquals(LessonHotbarLogic.DONE,filled.visual(1,0));
+        assertEquals(1,store.exerciseDone(id,0));
+        activity.onBackPressed();
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertTrue(((TextView)get("lessonBuildAction")).isEnabled());
+        assertEquals(filled.completedCount,model(LessonCurriculumLogic.Phase.BUILD).completedCount);
+        ((TextView)get("lessonBuildAction")).performClick();
+        assertEquals(3,store.exerciseDone(id,0));
+    }
 
-        set("lessonPicked",0);
-        call("updateLessonBuildView",new Class<?>[]{String[].class,int[].class},
-            (Object)words,(Object)missing);
-        assertFalse(action.isEnabled());
-        assertEquals("Сначала собери фразу",action.getText().toString());
-        assertEquals(0xFF27372D,action.getCurrentTextColor());
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void assemblyKeepsPunctuationInAnswerAndWrapsLongLinkedText()throws Exception{
+        long group=store.entry(id).groupId;
+        id=store.add(group,"Текст","Свой текст",Arrays.asList(
+            new Bible.Verse("1:1","«Слово», — живо."),
+            new Bible.Verse("1:2","Необыкновенная последовательность демонстрирует многосложные "+
+                "словосочетания богословского повествования сопровождающие размышления путешественников. "+
+                "Продолжительное повествование дополнительно иллюстрирует последовательное запоминание "+
+                "необыкновенных многосложных формулировок.")));
+        call("openTraining",new Class<?>[]{long.class},id);
+        text((View)get("root"),"Продолжить").performClick();
+        ViewGroup answer=((View)get("root")).findViewWithTag("assembly-answer");
+        for(TextView tile:assemblyTiles())assertTrue(tile.getText().toString().matches("[\\p{L}\\p{M}\\p{N} ]+"));
+        for(String word:new String[]{"Слово","живо"})
+            assemblyTiles().stream().filter(t->word.contentEquals(t.getText())).findFirst().get().performClick();
+        assertEquals("«Слово»,",((TextView)answer.getChildAt(0)).getText().toString());
+        assertEquals("— живо.",((TextView)answer.getChildAt(1)).getText().toString());
+
+        call("openGroup",new Class<?>[]{GroupLearningLogic.Candidate.class},
+            GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
+        text((View)get("root"),"Продолжить").performClick();
+        assertNotNull(text((View)get("root"),"Восстанови пропущенные слова в правильном порядке."));
+        // Advance through the first short verse to the longer second fragment of the same group.
+        set("lessonPicked",get("lessonBuildRequired"));invoke("updateLessonBuildView");
+        ((TextView)get("lessonBuildAction")).performClick();
+        ViewGroup root=(ViewGroup)get("root");
+        ViewGroup bank=root.findViewWithTag("assembly-word-bank");
+        for(int i=0;i<bank.getChildCount();i++){
+            TextView tile=(TextView)bank.getChildAt(i);
+            tile.setTextSize(27);
+            tile.setMinWidth(150); // Model wider glyph measurements on a narrow screen.
+        }
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,560);
+        assertTrue(bank.getChildCount()>=2);
+        ViewGroup wrappedAnswer=root.findViewWithTag("assembly-answer");
+        assertTrue(wrappedAnswer.getChildAt(wrappedAnswer.getChildCount()-1).getTop()>
+            wrappedAnswer.getChildAt(0).getTop());
+        assertTrue(bank.getChildAt(bank.getChildCount()-1).getTop()>bank.getChildAt(0).getTop());
+        for(int i=0;i<bank.getChildCount();i++)assertTrue(bank.getChildAt(i).getRight()<=bank.getWidth());
+        assertEquals(560,root.getChildAt(root.getChildCount()-1).getBottom());
+        assertFalse(((TextView)get("lessonBuildAction")).isEnabled());
     }
 
     @Test public void everyHideLevelLeavesIntroCurrentAndPreservesPassageView()throws Exception{
@@ -214,8 +240,8 @@ public class LessonHotbarIntegrationTest {
     }
     @Test public void stripFitsNarrowScreenAndRetainsTalkBackCountsForManyTasks()throws Exception{
         Class<?> type=Class.forName("org.biblememory.app.MainActivity$LessonSegmentedBar");
-        Constructor<?> constructor=type.getDeclaredConstructor(MainActivity.class,LessonHotbarLogic.Model.class);constructor.setAccessible(true);
-        View strip=(View)constructor.newInstance(activity,LessonHotbarLogic.calculate(0,1,1000,3,0,0,0,false));
+        Constructor<?> constructor=type.getDeclaredConstructor(MainActivity.class,LessonHotbarLogic.Model.class,boolean.class);constructor.setAccessible(true);
+        View strip=(View)constructor.newInstance(activity,LessonHotbarLogic.calculate(0,1,1000,3,0,0,0,false),false);
         strip.measure(View.MeasureSpec.makeMeasureSpec(240,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(7,View.MeasureSpec.EXACTLY));strip.layout(0,0,240,7);
         assertEquals(240,strip.getWidth());assertEquals(7,strip.getHeight());assertTrue(strip.getContentDescription().toString().contains("1004"));
         ViewGroup progress=((View)get("root")).findViewWithTag("lesson-progress");

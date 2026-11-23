@@ -41,7 +41,7 @@ enum LearningHelp {
 
     static final String INTRO_READ = "Внимательно прочитай стих и постарайся понять его смысл. Затем постепенно скрывай слова и вспоминай их самостоятельно.";
     static final String INTRO_HOLD = "Удерживай скрытое слово, чтобы временно увидеть его. Отпусти палец — слово снова скроется.";
-    static final String BUILD_PROMPT = "Восстанови текст, выбирая слова в правильном порядке.";
+    static final String BUILD_PROMPT = "Собери стих, выбирая слова в правильном порядке.";
     static final String BUILD_ERROR = "Это слово сейчас не подходит. Попробуй выбрать другое.";
     static final String WRITE_GAPS = "Вспомни пропущенные слова и впиши их. Затем нажми «Проверить».";
     static final String WRITE_FULL = "Напиши весь текст по памяти и нажми «Проверить».";

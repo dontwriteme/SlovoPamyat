@@ -9,6 +9,7 @@ import android.graphics.BlurMaskFilter;
 import android.text.style.MaskFilterSpan;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
+import android.text.SpannableString;
 import android.text.style.ReplacementSpan;
 import android.text.style.StrikethroughSpan;
 import android.text.style.UnderlineSpan;
@@ -119,7 +120,9 @@ public final class MainActivity extends Activity {
     private Runnable revealCleanup=()->{};
     private final List<LocalStore.DueItem> reviewQueue=new ArrayList<>();
     private int reviewPointer=0;
-    private TextView lessonBuildPrompt,lessonBuildError,lessonBuildAction;
+    private TextView lessonBuildError,lessonBuildAction;
+    private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
+    private static final int BUILD_INK=0xFF553722;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
     private int lessonBuildRequired=0;
     // Presentation only: one adaptive strip, independent of text/answer Views.
@@ -1622,6 +1625,18 @@ public final class MainActivity extends Activity {
                 canvas.drawCircle(0,0,10,pen);
                 canvas.drawPoint(0,-4,pen);
                 canvas.drawLine(0,-0.8f,0,5,pen);
+            }else if(kind.equals("puzzle")){
+                canvas.rotate(-22f);
+                pen.setStyle(Paint.Style.FILL);
+                path.moveTo(-9,-9);path.lineTo(-3,-9);
+                path.cubicTo(-5,-15,5,-15,3,-9);
+                path.lineTo(9,-9);path.lineTo(9,-3);
+                path.cubicTo(3,-5,3,5,9,3);
+                path.lineTo(9,9);path.lineTo(3,9);
+                path.cubicTo(5,15,-5,15,-3,9);
+                path.lineTo(-9,9);path.lineTo(-9,3);
+                path.cubicTo(-3,5,-3,-5,-9,-3);
+                path.close();canvas.drawPath(path,pen);
             }else if(kind.equals("mode-cards")){
                 canvas.drawRoundRect(-10,-3,10,8,2,2,pen);
                 path.moveTo(-8,-6);path.lineTo(8,-6);
@@ -5103,7 +5118,11 @@ public final class MainActivity extends Activity {
     /** Lightweight wrapping container for word tiles; uses Android SDK only. */
     private static final class WrapLayout extends ViewGroup {
         private final int spacing;
-        WrapLayout(Context context,int spacing) {super(context);this.spacing=spacing;}
+        private final boolean centered;
+        WrapLayout(Context context,int spacing){this(context,spacing,false);}
+        WrapLayout(Context context,int spacing,boolean centered){
+            super(context);this.spacing=spacing;this.centered=centered;
+        }
         @Override protected void onMeasure(int ws,int hs) {
             int width=MeasureSpec.getSize(ws),available=Math.max(1,width-getPaddingLeft()-getPaddingRight());
             int x=0,y=0,lineHeight=0;
@@ -5118,13 +5137,29 @@ public final class MainActivity extends Activity {
         }
         @Override protected void onLayout(boolean changed,int left,int top,int right,int bottom) {
             int available=Math.max(1,right-left-getPaddingLeft()-getPaddingRight());
-            int x=0,y=getPaddingTop(),lineHeight=0;
-            for(int i=0;i<getChildCount();i++) {
-                View child=getChildAt(i);if(child.getVisibility()==GONE)continue;
-                int cw=child.getMeasuredWidth(),ch=child.getMeasuredHeight();
-                if(x>0&&x+cw>available){y+=lineHeight+spacing;x=0;lineHeight=0;}
-                child.layout(getPaddingLeft()+x,y,getPaddingLeft()+x+cw,y+ch);
-                x+=cw+spacing;lineHeight=Math.max(lineHeight,ch);
+            int y=getPaddingTop();
+            for(int start=0;start<getChildCount();){
+                int end=start,rowWidth=0,rowHeight=0;
+                while(end<getChildCount()){
+                    View child=getChildAt(end);
+                    if(child.getVisibility()==GONE){end++;continue;}
+                    int width=child.getMeasuredWidth();
+                    int nextWidth=rowWidth==0?width:rowWidth+spacing+width;
+                    if(rowWidth>0&&nextWidth>available)break;
+                    rowWidth=nextWidth;
+                    rowHeight=Math.max(rowHeight,child.getMeasuredHeight());
+                    end++;
+                }
+                int x=getPaddingLeft()+(centered?Math.max(0,(available-rowWidth)/2):0);
+                for(int i=start;i<end;i++){
+                    View child=getChildAt(i);
+                    if(child.getVisibility()==GONE)continue;
+                    int width=child.getMeasuredWidth();
+                    child.layout(x,y,x+width,y+child.getMeasuredHeight());
+                    x+=width+spacing;
+                }
+                y+=rowHeight+spacing;
+                start=end;
             }
         }
     }
@@ -5360,7 +5395,8 @@ public final class MainActivity extends Activity {
             LessonCurriculumLogic.Phase.COMPLETE:lessonPhase(e);
         if(phase!=LessonCurriculumLogic.Phase.WRITE)answerReview=null;
         if(phase==LessonCurriculumLogic.Phase.COMPLETE){renderCompletion(e);return;}
-        root=column();root.setBackground(pageBackground());
+        boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
+        root=column();root.setBackground(assembling?assemblyBackground():pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=column();top.setPadding(dp(22),dp(15),dp(22),dp(6));
         LinearLayout topRow=row();
@@ -5376,9 +5412,18 @@ public final class MainActivity extends Activity {
             return true;
         });
         topRow.addView(close,new LinearLayout.LayoutParams(dp(45),dp(45)));
-        // Compact progress is rendered below this existing lesson header.
-        LinearLayout.LayoutParams remaining=new LinearLayout.LayoutParams(0,dp(45),1);
-        topRow.addView(new View(this),remaining);
+        if(assembling){
+            close.setTextColor(BUILD_INK);
+            close.setBackground(outlined(0xFFFFF1E2,24,0xFFFFF9F0));
+            close.setElevation(dp(2));
+            TextView title=displayText("Сборка",27);
+            title.setTextColor(BUILD_INK);
+            title.setGravity(Gravity.CENTER);
+            topRow.setGravity(Gravity.CENTER_VERTICAL);
+            topRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+            if(!DeveloperModeController.isEnabled(this))
+                topRow.addView(new View(this),new LinearLayout.LayoutParams(dp(45),dp(45)));
+        }else topRow.addView(new View(this),new LinearLayout.LayoutParams(0,dp(45),1));
         if(DeveloperModeController.isEnabled(this)){
             TextView devButton=txt("DEV",12,GREEN,true);
             devButton.setGravity(Gravity.CENTER);
@@ -5392,7 +5437,7 @@ public final class MainActivity extends Activity {
             topRow.addView(devButton,new LinearLayout.LayoutParams(dp(48),dp(45)));
         }
         top.addView(topRow);
-        renderLessonHotbar(top,phase,e);
+        lessonHotbarStrip=null;
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         scroll.setClipToPadding(false);currentScroller=scroll;
@@ -5410,12 +5455,15 @@ public final class MainActivity extends Activity {
                 saveTrainingSession();render();
             });
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
-            lessonPhaseHeader("Сборка",e);
+            assemblyReference(e);
             boolean complete=renderLessonBuild(e);
-            mainAction=button(complete?"Продолжить":"Сначала собери фразу",complete,()->{
+            mainAction=button("Продолжить",true,()->{
                 if(lessonPicked>=lessonBuildRequired)advanceLessonBuild(e);
             });
-            mainAction.setEnabled(complete);mainAction.setAlpha(complete?1f:0.5f);
+            mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
+            mainAction.setTextSize(22);
+            mainAction.setElevation(dp(3));
+            styleAssemblyContinue(mainAction,complete);
             lessonBuildAction=mainAction;
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             if(answerReview!=null){
@@ -5430,10 +5478,11 @@ public final class MainActivity extends Activity {
             renderCompletion(e);
             return;
         }
+        renderLessonHotbar(top,phase,e);
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
         animateLessonPress(mainAction);
         mainAction.setMinimumHeight(dp(58));
-        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,answerReview!=null?-2:dp(58)));
+        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,assembling||answerReview!=null?-2:dp(58)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         setContentView(root);
     }
@@ -5580,8 +5629,9 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(passage)).size()).size());
         int buildTotal=chunks*variants;
         int currentBuild=Math.max(0,lessonVariant*chunks+lessonChunk);
-        // The next segment advances only after Continue changes the active build task.
-        int buildDone=currentBuild;
+        boolean assembled=phase==LessonCurriculumLogic.Phase.BUILD&&
+            lessonBuildRequired>0&&lessonPicked==lessonBuildRequired;
+        int buildDone=currentBuild+(assembled?1:0);
         int writingTotal=Math.max(1,writingVariants(e).size());
         // In a scheduled review the lesson legitimately starts at writing.
         boolean previouslyLearned=executingCollectionQueue &&
@@ -5599,13 +5649,18 @@ public final class MainActivity extends Activity {
                                      LocalStore.Entry e){
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
         LinearLayout bar=column();bar.setTag("lesson-progress");
-        lessonHotbarStrip=new LessonSegmentedBar(model);
+        boolean assembly=phase==LessonCurriculumLogic.Phase.BUILD;
+        lessonHotbarStrip=new LessonSegmentedBar(model,assembly);
         lessonHotbarStrip.setTag("lesson-progress-strip");
-        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(7));
-        stripP.topMargin=dp(3);
+        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(assembly?9:7));
+        if(assembly){
+            bar.setBackground(shape(0xBFFFF8EE,12));
+            bar.setPadding(dp(4),dp(3),dp(4),dp(3));
+        }else stripP.topMargin=dp(3);
         bar.addView(lessonHotbarStrip,stripP);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
-        lp.topMargin=dp(3);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(assembly?dp(190):-1,-2);
+        lp.gravity=Gravity.CENTER_HORIZONTAL;
+        lp.topMargin=dp(assembly?8:3);
         top.addView(bar,lp);
     }
 
@@ -5613,11 +5668,34 @@ public final class MainActivity extends Activity {
     private final class LessonSegmentedBar extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private LessonHotbarLogic.Model model;
-        LessonSegmentedBar(LessonHotbarLogic.Model model){
-            super(MainActivity.this);setModel(model);
+        private final boolean assembly;
+        private final float[] fill=new float[3];
+        private ValueAnimator fillAnimator;
+        LessonSegmentedBar(LessonHotbarLogic.Model model,boolean assembly){
+            super(MainActivity.this);
+            this.assembly=assembly;
+            setModel(model);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
         void setModel(LessonHotbarLogic.Model value){
+            if(assembly&&(model==null||!Arrays.equals(value.finished,model.finished)||
+                    !Arrays.equals(value.totals,model.totals))){
+                if(fillAnimator!=null)fillAnimator.cancel();
+                float[] target=new float[3];
+                for(int i=0;i<3;i++)if(value.totals[i]>0)target[i]=value.finished[i]/(float)value.totals[i];
+                if(model!=null&&isAttachedToWindow()&&ValueAnimator.areAnimatorsEnabled()){
+                    float[] start=fill.clone();
+                    fillAnimator=ValueAnimator.ofFloat(0f,1f);
+                    fillAnimator.setDuration(190);
+                    fillAnimator.setInterpolator(new DecelerateInterpolator());
+                    fillAnimator.addUpdateListener(animation->{
+                        float fraction=(float)animation.getAnimatedValue();
+                        for(int i=0;i<3;i++)fill[i]=start[i]+(target[i]-start[i])*fraction;
+                        invalidate();
+                    });
+                    fillAnimator.start();
+                }else System.arraycopy(target,0,fill,0,fill.length);
+            }
             model=value;
             String[] names={"Читай","Собери","Напиши"};
             setContentDescription(names[model.activePhase]+". Текущее задание "+model.currentNumber+
@@ -5627,6 +5705,10 @@ public final class MainActivity extends Activity {
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             if(model.total<=0||getWidth()<=0)return;
+            if(assembly){
+                drawAssemblyPhases(canvas);
+                return;
+            }
             float gap=Math.min(dp(3),getWidth()/(float)model.total/4f);
             float width=(getWidth()-gap*(model.total-1))/model.total;
             int index=0;
@@ -5635,6 +5717,28 @@ public final class MainActivity extends Activity {
                 paintLessonHotbarCell(canvas,paint,model.visual(group,task),left,
                     Math.min(getWidth(),left+width),getHeight());index++;
             }
+        }
+        private void drawAssemblyPhases(Canvas canvas){
+            int groups=0;
+            for(int total:model.totals)if(total>0)groups++;
+            if(groups==0)return;
+            float gap=dp(4),width=(getWidth()-gap*(groups-1))/groups;
+            if(width<=0)return;
+            float radius=getHeight()/2f,left=0f;
+            for(int i=0;i<3;i++){
+                if(model.totals[i]==0)continue;
+                paint.setColor(0xFFD2C5B7);
+                canvas.drawRoundRect(left,0,left+width,getHeight(),radius,radius,paint);
+                if(fill[i]>0f){
+                    paint.setColor(0xFF648C3C);
+                    canvas.drawRoundRect(left,0,left+width*fill[i],getHeight(),radius,radius,paint);
+                }
+                left+=width+gap;
+            }
+        }
+        @Override protected void onDetachedFromWindow(){
+            if(fillAnimator!=null)fillAnimator.cancel();
+            super.onDetachedFromWindow();
         }
         @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info){
             super.onInitializeAccessibilityNodeInfo(info);
@@ -5710,34 +5814,127 @@ public final class MainActivity extends Activity {
     private void resetLessonTiles(){
         lessonPicked=0;lessonWrongTile=-1;lessonUsedTiles.clear();lessonSeed=new Random().nextLong();
     }
-    /** Replacing hidden tokens keeps the original measured line widths. No reflow on tap. */
-    private static final class HiddenWordSpan extends ReplacementSpan {
-        @Override public int getSize(Paint paint,CharSequence text,int start,int end,
-                                     Paint.FontMetricsInt metrics){
-            return Math.max(1,Math.round(paint.measureText(text,start,end)));
+    private final class BuildSlot extends TextView {
+        private final String token;
+        private final SpannableString hidden;
+        private boolean filled;
+
+        BuildSlot(String token){
+            super(MainActivity.this);
+            this.token=token;
+            hidden=new SpannableString(token);
+            for(int[] range:ReviewLogic.blurRanges(token,100,0))
+                hidden.setSpan(new ForegroundColorSpan(Color.TRANSPARENT),range[0],range[1],
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            setTextSize(18);
+            setTypeface(Typeface.create("serif",Typeface.BOLD));
+            setTextColor(BUILD_INK);
+            setPadding(dp(10),dp(8),dp(10),dp(8));
+            setGravity(Gravity.CENTER);
+            setMinWidth(dp(56));
+            setMinHeight(dp(43));
+            showWord(false);
         }
-        @Override public void draw(Canvas canvas,CharSequence text,int start,int end,float x,
-                                   int top,int baseline,int bottom,Paint paint){
-            int color=paint.getColor();float width=paint.measureText(text,start,end);
-            paint.setColor(0xFFBDA490);
-            float height=(bottom-top)*0.22f;
-            canvas.drawRoundRect(x,baseline-height,x+width,baseline+height,6f,6f,paint);
-            paint.setColor(color);
+
+        void showWord(boolean filled){
+            this.filled=filled;
+            setText(filled?token:hidden);
+            GradientDrawable frame=shape(filled?0xFFE9EDDA:0x44FFF9EF,12);
+            if(filled)frame.setStroke(dp(1),0xFFCCD6B5);
+            else frame.setStroke(dp(1),0xFFBEB0A0,dp(5),dp(4));
+            setBackground(frame);
+            setContentDescription(filled?null:"Пропущенное слово");
+        }
+
+        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info){
+            super.onInitializeAccessibilityNodeInfo(info);
+            if(!filled)info.setText(null);
         }
     }
-    private CharSequence buildPromptText(String[] tokens,int[] missing,int count){
-        android.text.SpannableStringBuilder sb=new android.text.SpannableStringBuilder();
-        for(int i=0;i<tokens.length;i++){
-            if(i>0)sb.append(' ');
-            int start=sb.length();sb.append(tokens[i]);
-            int at=Arrays.binarySearch(missing,i);
-            if(at>=count && at>=0)
-                for(int[] range:ReviewLogic.blurRanges(tokens[i],100,0))
-                    sb.setSpan(new HiddenWordSpan(),start+range[0],start+range[1],
-                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
-        return sb;
+
+    private void assemblyReference(LocalStore.Entry entry){
+        LinearLayout reference=row();
+        reference.setGravity(Gravity.CENTER);
+        reference.setPadding(dp(15),dp(8),dp(15),dp(8));
+        reference.setBackground(outlined(0xFFFFEBD5,26,0xFFFFF8EF));
+        reference.setElevation(dp(2));
+        reference.addView(new NavigationGlyph("book",BUILD_INK),new LinearLayout.LayoutParams(dp(28),dp(27)));
+        TextView label=displayText(lessonFullReference(entry),18);
+        label.setTextColor(BUILD_INK);
+        label.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(-2,-2);
+        textParams.leftMargin=dp(8);
+        reference.addView(label,textParams);
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-2,-2);
+        params.gravity=Gravity.CENTER_HORIZONTAL;
+        content.addView(reference,params);
     }
+
+    private void assemblyInstruction(String copy){
+        LinearLayout instruction=row();
+        instruction.setGravity(Gravity.CENTER_VERTICAL);
+        instruction.setPadding(dp(12),dp(9),dp(12),dp(9));
+        instruction.setBackground(outlined(0xFEFFF5E8,20,0xFFFFFAF3));
+        instruction.setElevation(dp(2));
+        instruction.addView(new NavigationGlyph("puzzle",0xFF668B4E),new LinearLayout.LayoutParams(dp(34),dp(34)));
+        TextView label=displayText(copy,16);
+        label.setTextColor(BUILD_INK);
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);
+        params.leftMargin=dp(9);
+        instruction.addView(label,params);
+        add(content,instruction,13);
+    }
+
+    private void styleAssemblyContinue(TextView action,boolean enabled){
+        GradientDrawable background=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,enabled?
+            new int[]{0xFF7D9C49,0xFF3E692D}:new int[]{0xFFC3C8A7,0xFFA1AA83});
+        background.setCornerRadius(dp(32));
+        background.setStroke(dp(1),0xFFFFF9EA);
+        action.setBackground(background);
+        action.setTextColor(Color.WHITE);
+        action.setEnabled(enabled);
+    }
+
+    private android.graphics.drawable.Drawable assemblyBackground(){
+        return new android.graphics.drawable.Drawable(){
+            private final android.graphics.drawable.Drawable scenery=getDrawable(R.drawable.hero_sunrise);
+            private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+            private int horizon;
+            private Shader sky,fade;
+            @Override protected void onBoundsChange(Rect bounds){
+                int height=bounds.height(),width=bounds.width();
+                if(height<=0||width<=0)return;
+                horizon=bounds.top+Math.round(height*.52f);
+                int sceneryHeight=bounds.bottom-horizon;
+                float aspect=scenery.getIntrinsicWidth()/(float)scenery.getIntrinsicHeight();
+                int drawWidth=Math.max(width,Math.round(sceneryHeight*aspect));
+                int drawHeight=Math.round(drawWidth/aspect);
+                int left=bounds.centerX()-drawWidth/2;
+                scenery.setBounds(left,bounds.bottom-drawHeight,left+drawWidth,bounds.bottom);
+                sky=new LinearGradient(0,bounds.top,0,bounds.bottom,
+                    new int[]{0xFFF5E7E2,0xFFFFEBD5,0xFFF9D9A7},null,Shader.TileMode.CLAMP);
+                fade=new LinearGradient(0,horizon,0,bounds.bottom,
+                    new int[]{0xFFFFEBD5,0xA8FFEAD1,0x30FFE5BC,0x58FFE0A8},
+                    new float[]{0f,.32f,.72f,1f},Shader.TileMode.CLAMP);
+            }
+            @Override public void draw(Canvas canvas){
+                if(sky==null)return;
+                Rect bounds=getBounds();
+                paint.setShader(sky);
+                canvas.drawRect(bounds,paint);
+                canvas.save();
+                canvas.clipRect(bounds.left,horizon,bounds.right,bounds.bottom);
+                scenery.draw(canvas);
+                paint.setShader(fade);
+                canvas.drawRect(bounds,paint);
+                canvas.restore();
+            }
+            @Override public void setAlpha(int alpha){}
+            @Override public void setColorFilter(android.graphics.ColorFilter filter){}
+            @Override public int getOpacity(){return android.graphics.PixelFormat.OPAQUE;}
+        };
+    }
+
     private int lessonMaxTiles(){
         android.util.DisplayMetrics d=getResources().getDisplayMetrics();
         float available=Math.max(280,d.widthPixels/d.density);
@@ -5747,8 +5944,11 @@ public final class MainActivity extends Activity {
     private List<String[]> lessonChunks(List<String> lines){
         return WordOrderLogic.chunksForBudget(lines,lessonMaxTiles());
     }
-    private void updateLessonBuildView(String[] words,int[] missing){
-        if(lessonBuildPrompt!=null)lessonBuildPrompt.setText(buildPromptText(words,missing,lessonPicked));
+    private void updateLessonBuildView(){
+        for(int i=0;i<lessonBuildSlots.size();i++){
+            BuildSlot slot=lessonBuildSlots.get(i);
+            if(slot.filled!=(i<lessonPicked))slot.showWord(i<lessonPicked);
+        }
         if(lessonBuildError!=null)lessonBuildError.setText(lessonWrongTile>=0?
             LearningHelp.BUILD_ERROR:"");
         for(int i=0;i<lessonBuildTiles.size();i++){
@@ -5756,18 +5956,12 @@ public final class MainActivity extends Activity {
             int idx=(Integer)tile.getTag();
             tile.setVisibility(lessonUsedTiles.contains(idx)?View.INVISIBLE:View.VISIBLE);
             boolean wrong=idx==lessonWrongTile;
-            tile.setTextColor(wrong?RED:WHITE);
-            tile.setBackground(outlined(wrong?0xFFF8D6D2:CARD_ALT,12,wrong?RED:BORDER));
+            tile.setTextColor(wrong?0xFF923C37:BUILD_INK);
+            tile.setBackground(outlined(wrong?0xFFF8DDD4:0xFFFFEEDC,17,
+                wrong?0xFFE6B4A7:0xFFFFF9F0));
         }
-        if(lessonBuildAction!=null){
-            boolean done=lessonPicked==missing.length;
-            lessonBuildAction.setText(done?"Продолжить":"Сначала собери фразу");
-            if(lessonBuildAction.isEnabled()!=done){
-                lessonBuildAction.setBackground(done?softAccent():outlined(CARD_ALT,18,BORDER));
-                lessonBuildAction.setTextColor(done?PRIMARY_ON:WHITE);
-            }
-            lessonBuildAction.setEnabled(done);lessonBuildAction.setAlpha(done?1f:0.5f);
-        }
+        if(lessonBuildAction!=null&&lessonBuildAction.isEnabled()!=(lessonPicked==lessonBuildRequired))
+            styleAssemblyContinue(lessonBuildAction,lessonPicked==lessonBuildRequired);
     }
     /** Choose a balanced random mask once per exercise, never once per screen redraw. */
     private int[] lessonMissingPositions(String[] tokens,LessonCurriculumLogic.Variant kind){
@@ -5792,7 +5986,8 @@ public final class MainActivity extends Activity {
         return positions;
     }
     private boolean renderLessonBuild(LocalStore.Entry e){
-        lessonBuildAction=null;lessonBuildTiles.clear();
+        lessonBuildAction=null;lessonBuildError=null;lessonBuildRequired=0;
+        lessonBuildTiles.clear();lessonBuildSlots.clear();
         List<String> src=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))src.add(v.text);
         List<String[]> chunks=lessonChunks(src);
@@ -5803,38 +5998,63 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
-        helper(content,LearningHelp.BUILD_PROMPT);
+        assemblyInstruction(kind==LessonCurriculumLogic.Variant.FULL?
+            LearningHelp.BUILD_PROMPT:"Восстанови пропущенные слова в правильном порядке.");
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
         if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
             lessonPicked=0;lessonUsedTiles.clear();
         }
-        lessonBuildPrompt=txt("",22,WHITE,false);
-        lessonBuildPrompt.setLineSpacing(dp(8),1.13f);
-        add(content,lessonBuildPrompt,22);
-        WrapLayout choices=new WrapLayout(this,dp(9));
+        WrapLayout prompt=new WrapLayout(this,dp(7),true);
+        prompt.setPadding(dp(14),dp(16),dp(14),dp(16));
+        prompt.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
+        prompt.setElevation(dp(2));
+        prompt.setTag("assembly-answer");
+        for(int i=0;i<tokens.length;i++){
+            if(Arrays.binarySearch(missing,i)>=0){
+                BuildSlot slot=new BuildSlot(tokens[i]);
+                lessonBuildSlots.add(slot);
+                prompt.addView(slot);
+            }else{
+                TextView word=displayText(tokens[i],18);
+                word.setTextColor(BUILD_INK);
+                word.setGravity(Gravity.CENTER);
+                word.setMinHeight(dp(43));
+                word.setPadding(dp(4),dp(8),dp(4),dp(8));
+                prompt.addView(word);
+            }
+        }
+        add(content,prompt,10);
+        WrapLayout choices=new WrapLayout(this,dp(8),true);
+        choices.setTag("assembly-word-bank");
+        choices.setPadding(dp(6),dp(4),dp(6),dp(4));
+        choices.setClipChildren(false);
+        choices.setClipToPadding(false);
         int[] shuffled=WordOrderLogic.shuffledIndices(missing.length,lessonSeed);
         for(int index:shuffled){
             final int pressed=index;
             final int targetPos=missing[index];
-            String caption=tokens[targetPos].replaceAll("^[^\\p{L}\\p{Nd}]+|[^\\p{L}\\p{Nd}]+$", "");
-            TextView tile=wordTile(caption,CARD_ALT,WHITE,BORDER,()->{
+            String caption=tokens[targetPos].replaceAll("[^\\p{L}\\p{N}\\p{M}\\s]", "").trim();
+            TextView tile=wordTile(caption,0xFFFFEEDC,BUILD_INK,0xFFFFF9F0,()->{
                 // The target and bank occupy fixed views. Never call render() on a tile tap.
                 if(lessonUsedTiles.contains(pressed)||lessonPicked>=missing.length)return;
                 int wanted=missing[lessonPicked];
                 if(WordOrderLogic.comparable(tokens[wanted]).equals(WordOrderLogic.comparable(tokens[targetPos]))){
                     lessonPicked++;lessonUsedTiles.add(pressed);lessonWrongTile=-1;
                 }else lessonWrongTile=pressed;
-                updateLessonBuildView(tokens,missing);
+                updateLessonBuildView();
                 refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
                 saveTrainingSession();
             });
+            tile.setTypeface(Typeface.create("serif",Typeface.BOLD));
+            tile.setTextSize(18);
+            tile.setElevation(dp(2));
+            animateLessonPress(tile);
             tile.setTag(index);lessonBuildTiles.add(tile);choices.addView(tile);
         }
-        add(content,choices,26);
-        lessonBuildError=txt("",14,RED,false);add(content,lessonBuildError,12);
-        updateLessonBuildView(tokens,missing);
-        refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
+        add(content,choices,14);
+        lessonBuildError=txt("",14,0xFF923C37,false);add(content,lessonBuildError,6);
+        updateLessonBuildView();
         return lessonPicked==missing.length;
     }
     private void advanceLessonBuild(LocalStore.Entry e){
