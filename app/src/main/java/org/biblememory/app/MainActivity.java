@@ -2900,7 +2900,8 @@ public final class MainActivity extends Activity {
         action(content,"Задать диапазон",false,this::openPickerRange);
         final ScrollView scroller=currentScroller;
         final int targetVerse=focusVerse;focusVerse=-1;
-        final boolean scrollToSearchHit=focusPickerSearchHit&&pickerRestoredScroll<0;
+        // Keep the chapter heading for verse 1; jump to later selections and search hits.
+        final boolean scrollToTarget=pickerRestoredScroll<0&&(focusPickerSearchHit||targetVerse>1);
         focusPickerSearchHit=false;
         final Set<String> present=new HashSet<>(),included=new HashSet<>();
         if(pickerTarget==BibleTarget.STUDY_GROUP){
@@ -2937,7 +2938,7 @@ public final class MainActivity extends Activity {
             if(targetVerse==number){
                 afterPickerLayout(line,()->{
                     if(currentScroller!=scroller)return;
-                    if(scrollToSearchHit)
+                    if(scrollToTarget)
                         scroller.scrollTo(0,Math.max(0,line.getTop()-dp(16)));
                     line.setBackground(outlined(0xFFFFE8B5,20,BORDER));
                     line.postDelayed(()->{if(currentScroller==scroller)line.setBackground(outlined(CARD,20,BORDER));},1100);

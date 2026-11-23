@@ -138,7 +138,7 @@ public class PickerIntegrationTest {
         invoke("savePickerRange");assertEquals(1,store.entries(group).size());
         assertEquals(176,store.entries(group).get(0).lines().size());
     }
-    @Test public void pickerStartsAtTopAndRestoresPreviousGridOnBack()throws Exception {
+    @Test public void pickerKeepsFirstVerseAtTopAndRestoresPreviousGridOnBack()throws Exception {
         controller.visible();
         set("selectedBook",19);set("selectedChapter",118);
         set("screen",option("Screen","PICKER_CHAPTERS"));invoke("render");
@@ -153,11 +153,35 @@ public class PickerIntegrationTest {
             assertEquals(0,((ScrollView)field("currentScroller")).getScrollY());
             text(Integer.toString(verse)).performClick();layoutReader();
             assertNotNull(text("Псалтирь 118"));
-            assertEquals(0,((ScrollView)field("currentScroller")).getScrollY());
+            int verseTextScroll=((ScrollView)field("currentScroller")).getScrollY();
+            if(verse==1)assertEquals(0,verseTextScroll);
+            else assertTrue(verseTextScroll>0);
             activity.onBackPressed();layoutReader();
             activity.onBackPressed();layoutReader();
             assertEquals(saved,((ScrollView)field("currentScroller")).getScrollY());
         }
+    }
+    @Test public void genesisVerse27OpensAtItsTextWithAddAction()throws Exception {
+        controller.visible();
+        set("screen",option("Screen","PICKER_BOOKS"));
+        invoke("render");
+        ((View)text("Бытие").getParent()).performClick();
+        text("1").performClick();
+        text("27").performClick();
+        layoutReader();
+
+        assertEquals("PICKER_TEXT",field("screen").toString());
+        View marker=text("1:27");
+        assertNotNull(marker);
+        View verseCard=(View)marker.getParent().getParent();
+        ScrollView scroll=(ScrollView)field("currentScroller");
+        assertTrue(scroll.getScrollY()>0);
+        assertTrue(verseCard.getTop()>=scroll.getScrollY());
+        assertTrue(verseCard.getTop()<scroll.getScrollY()+scroll.getHeight());
+
+        @SuppressWarnings("unchecked") List<View> buttons=(List<View>)field("pickerQuickButtons");
+        buttons.get(26).performClick();
+        assertEquals("Бытие 1:27",store.entries(group).get(0).reference);
     }
     @Test public void backCancelsOnlyPendingBoundaryAndKeepsQuickChapter()throws Exception {
         invoke("openPickerRange");choose(false,5,3);choose(true,7,29);
