@@ -2217,17 +2217,28 @@ public final class MainActivity extends Activity {
     }
 
 
-    /** Collection queue contains independent records; never links across entries/books. */
+    /** Archived entries still exist: a saved queue is valid only while its entire
+     * ordered membership matches the currently selected collection. */
+    private boolean collectionQueueMatches(long groupId,List<LocalStore.Entry> entries){
+        if(groupId<0||collectionQueueGroup!=groupId||collectionQueueCursor<0||
+            collectionQueueCursor>=collectionQueue.size()||collectionQueue.size()!=entries.size())
+            return false;
+        for(int i=0;i<entries.size();i++)
+            if(collectionQueue.get(i)!=entries.get(i).id)return false;
+        return true;
+    }
     private void restoreCollectionQueue(){
         android.content.SharedPreferences p=getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);
         if(!p.getBoolean("active",false))return;
+        collectionQueue.clear();
         collectionQueueGroup=p.getLong("group",-1);
         collectionQueueCursor=p.getInt("cursor",0);
         String ids=p.getString("ids","");
         for(String raw:ids.split(","))try{
-            long id=Long.parseLong(raw);if(store.entry(id)!=null)collectionQueue.add(id);
+            collectionQueue.add(Long.parseLong(raw));
         }catch(NumberFormatException ignored){}
-        if(collectionQueue.isEmpty()||collectionQueueCursor>=collectionQueue.size())clearCollectionQueue();
+        if(!collectionQueueMatches(collectionQueueGroup,store.entries(collectionQueueGroup)))
+            clearCollectionQueue();
     }
     private void persistCollectionQueue(){
         StringBuilder ids=new StringBuilder();
@@ -2244,17 +2255,18 @@ public final class MainActivity extends Activity {
     }
     private void startStudyCollection(long groupId){
         List<LocalStore.Entry> entries=store.entries(groupId);
-        if(entries.isEmpty()){toast("Коллекция пока пустая");return;}
+        if(entries.isEmpty()){clearCollectionQueue();toast("Коллекция пока пустая");return;}
         cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
-        executingCollectionQueue=true;
-        if(collectionQueueGroup==groupId&&collectionQueueCursor>=0&&
-            collectionQueueCursor<collectionQueue.size()){
-            long id=collectionQueue.get(collectionQueueCursor);
-            if(store.entry(id)!=null){collectionQueueNewStep=false;openTraining(id);return;}
+        if(collectionQueueMatches(groupId,entries)){
+            executingCollectionQueue=true;
+            collectionQueueNewStep=false;
+            openTraining(collectionQueue.get(collectionQueueCursor));return;
         }
-        collectionQueue.clear();
+        // The membership/order changed: discard only the old queue, not study history.
+        clearCollectionQueue();
         for(LocalStore.Entry e:entries)collectionQueue.add(e.id);
         collectionQueueGroup=groupId;collectionQueueCursor=0;
+        executingCollectionQueue=true;
         for(int i=0;i<entries.size();i++){
             LocalStore.Entry item=entries.get(i);
             if(store.masteryCount(store.canonicalStudyEntryId(item.id))<item.lines().size() ||
@@ -2264,12 +2276,12 @@ public final class MainActivity extends Activity {
         persistCollectionQueue();openTraining(collectionQueue.get(collectionQueueCursor));
     }
     private boolean resumeCollectionTraining(){
-        if(collectionQueueCursor<0||collectionQueueCursor>=collectionQueue.size())return false;
+        if(!collectionQueueMatches(collectionQueueGroup,store.entries(collectionQueueGroup))){
+            clearCollectionQueue();return false;
+        }
         executingCollectionQueue=true;
-        long id=collectionQueue.get(collectionQueueCursor);
-        if(store.entry(id)==null){clearCollectionQueue();return false;}
         collectionQueueNewStep=false;
-        openTraining(id);return true;
+        openTraining(collectionQueue.get(collectionQueueCursor));return true;
     }
     private void advanceStudyCollection(){
         if(collectionQueueCursor<0||!executingCollectionQueue)return;
