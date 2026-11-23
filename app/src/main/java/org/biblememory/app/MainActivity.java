@@ -5937,9 +5937,15 @@ public final class MainActivity extends Activity {
 
     private int lessonMaxTiles(){
         android.util.DisplayMetrics d=getResources().getDisplayMetrics();
-        float available=Math.max(280,d.widthPixels/d.density);
-        // Fixed for the current screen, based on available width rather than a global verse cutoff.
-        return Math.max(10,Math.min(28,Math.round(available/20f)));
+        float widthDp=d.widthPixels/d.density;
+        float heightDp=d.heightPixels/d.density;
+        float fontScale=Math.max(1f,getResources().getConfiguration().fontScale);
+        // Both the assembled answer and its word bank must fit on a phone at once.
+        // A width-only budget produced 18-28 tiles, forcing repeated vertical scrolling.
+        int byWidth=(int)Math.floor(Math.max(280f,widthDp)/44f);
+        int byHeight=(int)Math.floor(Math.max(480f,heightDp)/92f);
+        int largeFontPenalty=(int)Math.ceil((fontScale-1f)*3f);
+        return Math.max(6,Math.min(9,Math.min(byWidth,byHeight)-largeFontPenalty));
     }
     private List<String[]> lessonChunks(List<String> lines){
         return WordOrderLogic.chunksForBudget(lines,lessonMaxTiles());
