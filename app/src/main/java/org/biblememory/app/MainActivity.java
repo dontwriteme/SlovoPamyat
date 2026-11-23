@@ -416,7 +416,7 @@ public final class MainActivity extends Activity {
     private static final int BULK_INK=0xFF426747;
     private static final int BULK_SELECTED=0xFFE3EDD9;
     private final Set<String> pendingBooks=new HashSet<>();
-    private final Map<Integer,TextView> pickerBookActions=new HashMap<>();
+    private final Map<Integer,BookToggle> pickerBookActions=new HashMap<>();
     private final SortedSet<Integer> selectedPickerChapters=new TreeSet<>();
     private final Map<Integer,TextView> pickerChapterButtons=new HashMap<>();
     private LinearLayout pickerChapterFooter;
@@ -942,7 +942,7 @@ public final class MainActivity extends Activity {
         b.setClickable(true);b.setFocusable(true);b.setOnClickListener(v->action.run());
         return b;
     }
-    private void animateLessonPress(TextView button){
+    private void animateLessonPress(View button){
         button.setOnTouchListener((view,event)->{
             if(!view.isEnabled()||!ValueAnimator.areAnimatorsEnabled())return false;
             switch(event.getActionMasked()){
@@ -3622,8 +3622,7 @@ public final class MainActivity extends Activity {
             full.setSingleLine(true);full.setEllipsize(android.text.TextUtils.TruncateAt.END);
             line.addView(full,new LinearLayout.LayoutParams(0,-2,1));
             if(bulk){
-                TextView toggle=txt("",22,BULK_INK,true);
-                toggle.setGravity(Gravity.CENTER);
+                BookToggle toggle=new BookToggle();
                 toggle.setFocusable(true);
                 applyBookToggle(toggle,pickerTargetId,book,addedBooks.contains(book));
                 animateLessonPress(toggle);
@@ -3718,11 +3717,49 @@ public final class MainActivity extends Activity {
         return pickerTarget==BibleTarget.STUDY_GROUP&&pickerTargetId>0&&!passageSelection.active&&insertAfterEntryId<0;
     }
 
-    private void applyBookToggle(TextView toggle,long group,int book,boolean added){
+    private final class BookToggle extends View {
+        private final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean added,busy;
+
+        BookToggle(){
+            super(MainActivity.this);
+            ink.setStrokeCap(Paint.Cap.ROUND);
+        }
+
+        void showState(boolean added,boolean busy){
+            this.added=added;
+            this.busy=busy;
+            int surface=added?BULK_SELECTED:0xFFF9F2E7;
+            int edge=added?0xFFB8CBAE:HOME_BORDER;
+            // Inset the visible circle while leaving the entire 48 dp view tappable.
+            setBackground(new android.graphics.drawable.InsetDrawable(
+                new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x24426747),
+                    outlined(surface,16,edge),null),dp(8)));
+            invalidate();
+        }
+
+        @Override public CharSequence getAccessibilityClassName(){return Button.class.getName();}
+
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            float x=getWidth()/2f,y=getHeight()/2f;
+            ink.setColor(busy?MUTED:BULK_INK);
+            if(busy){
+                for(int i=-1;i<=1;i++)canvas.drawCircle(x+i*dp(4),y,dp(1),ink);
+            }else{
+                float arm=dp(5);
+                ink.setStrokeWidth(dp(2));
+                canvas.drawLine(x-arm,y,x+arm,y,ink);
+                if(!added)canvas.drawLine(x,y-arm,x,y+arm,ink);
+            }
+        }
+    }
+
+    private void applyBookToggle(BookToggle toggle,long group,int book,boolean added){
         boolean busy=pendingBooks.contains(group+":"+book);
-        toggle.setText(busy?"…":added?"−":"+");
+        toggle.showState(added,busy);
         toggle.setContentDescription((busy?"Сохраняется ":added?"Убрать книгу ":"Добавить книгу ")+Bible.NAMES[book-1]);
-        toggle.setBackground(outlined(added?BULK_SELECTED:CARD,22,0xFFD1DFC9));
         toggle.setOnClickListener(v->changeWholeBook(group,book,added));
         toggle.setEnabled(!busy);
     }
@@ -3737,7 +3774,7 @@ public final class MainActivity extends Activity {
         },success->{
             pendingBooks.remove(key);
             if(screen==Screen.PICKER_BOOKS&&pickerTargetId==group){
-                TextView current=pickerBookActions.get(book);
+                BookToggle current=pickerBookActions.get(book);
                 if(current!=null)applyBookToggle(current,group,book,success?!remove:remove);
             }
             if(success)refreshCollectionAfterBulkChange(group);
