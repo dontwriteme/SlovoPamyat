@@ -10,6 +10,10 @@ public final class AcceptedTextLogic {
         for(String ref:refs)if("5:13".equals(ref))return true;
         return false;
     }
+    /** A single verse as displayed in the independent memory check. */
+    public static boolean matthew513Verse(String reference) {
+        return reference!=null && "Матфея 5:13".equals(reference.trim());
+    }
     public static List<String> accepted(String expected,boolean isMatthew513) {
         ArrayList<String> options=new ArrayList<>();
         options.add(expected);
