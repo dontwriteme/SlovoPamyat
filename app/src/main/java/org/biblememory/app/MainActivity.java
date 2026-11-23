@@ -125,6 +125,11 @@ public final class MainActivity extends Activity {
     private static final int BUILD_INK=0xFF553722;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
     private int lessonBuildRequired=0;
+    // Cache one active passage's variant-specific fragments. Esther 8:9 is long:
+    // recomputing all three layouts on each tile tap stalls the UI thread.
+    private final EnumMap<LessonCurriculumLogic.Variant,List<String[]>> lessonChunkCache=
+        new EnumMap<>(LessonCurriculumLogic.Variant.class);
+    private String lessonChunkCacheKey="";
     // Presentation only: one adaptive strip, independent of text/answer Views.
     private LessonSegmentedBar lessonHotbarStrip;
 
@@ -5977,9 +5982,20 @@ public final class MainActivity extends Activity {
     private List<String[]> lessonChunks(List<String> lines,LessonCurriculumLogic.Variant kind){
         android.util.DisplayMetrics d=getResources().getDisplayMetrics();
         float widthDp=d.widthPixels/d.density;
-        int viewport=getWindow().getDecorView().getHeight();
-        float heightDp=(viewport>0?viewport:d.heightPixels)/d.density;
+        // Use stable screen dimensions; the previous root can still be attached
+        // while a new lesson is rendering, and its height may not be final.
+        float heightDp=d.heightPixels/d.density;
         float fontScale=Math.max(1f,getResources().getConfiguration().fontScale);
+        String key=selectedEntry+":"+studyStage+":"+
+            (activeStep==null?-1:activeStep.start)+":"+
+            (activeStep==null?-1:activeStep.end)+":"+lines.hashCode()+":"+
+            d.widthPixels+"x"+d.heightPixels+":"+d.scaledDensity+":"+fontScale;
+        if(!key.equals(lessonChunkCacheKey)){
+            lessonChunkCache.clear();
+            lessonChunkCacheKey=key;
+        }
+        List<String[]> cached=lessonChunkCache.get(kind);
+        if(cached!=null)return cached;
         int maximum=kind==LessonCurriculumLogic.Variant.GAPS?26:
             kind==LessonCurriculumLogic.Variant.ENDING?22:18;
         // A short or narrow display needs fewer words; on larger phones keep the
@@ -6003,9 +6019,13 @@ public final class MainActivity extends Activity {
                     fits=false;break;
                 }
             }
-            if(fits)return chunks;
+            if(fits){
+                lessonChunkCache.put(kind,chunks);
+                return chunks;
+            }
         }
         // On very small devices, the existing ScrollView remains the safety net.
+        lessonChunkCache.put(kind,fallback);
         return fallback;
     }
     private boolean assemblyChunkFits(String[] words,LessonCurriculumLogic.Variant kind,
@@ -6078,11 +6098,17 @@ public final class MainActivity extends Activity {
         for(int i=0;i<lessonBuildTiles.size();i++){
             TextView tile=lessonBuildTiles.get(i);
             int idx=(Integer)tile.getTag();
-            tile.setVisibility(lessonUsedTiles.contains(idx)?View.INVISIBLE:View.VISIBLE);
+            int visibility=lessonUsedTiles.contains(idx)?View.INVISIBLE:View.VISIBLE;
+            if(tile.getVisibility()!=visibility)tile.setVisibility(visibility);
             boolean wrong=idx==lessonWrongTile;
-            tile.setTextColor(wrong?0xFF923C37:BUILD_INK);
-            tile.setBackground(outlined(wrong?0xFFF8DDD4:0xFFFFEEDC,17,
-                wrong?0xFFE6B4A7:0xFFFFF9F0));
+            // A wrong tap changes at most two tiles (previous and current).
+            // Avoid allocating new GradientDrawables and invalidating every tile.
+            if(tile.isSelected()!=wrong){
+                tile.setSelected(wrong);
+                tile.setTextColor(wrong?0xFF923C37:BUILD_INK);
+                tile.setBackground(outlined(wrong?0xFFF8DDD4:0xFFFFEEDC,17,
+                    wrong?0xFFE6B4A7:0xFFFFF9F0));
+            }
         }
         if(lessonBuildAction!=null&&lessonBuildAction.isEnabled()!=(lessonPicked==lessonBuildRequired))
             styleAssemblyContinue(lessonBuildAction,lessonPicked==lessonBuildRequired);
@@ -6167,11 +6193,15 @@ public final class MainActivity extends Activity {
                     lessonPicked++;lessonUsedTiles.add(pressed);lessonWrongTile=-1;
                 }else lessonWrongTile=pressed;
                 updateLessonBuildView();
-                refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
+                // The progress bar advances per completed exercise, not per word.
+                // Avoid re-querying mastery and recomputing every layout on each tap.
+                if(lessonPicked==lessonBuildRequired)
+                    refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
                 saveTrainingSession();
             });
             tile.setTypeface(Typeface.create("serif",Typeface.BOLD));
             tile.setTextSize(18);
+            tile.setBackground(outlined(0xFFFFEEDC,17,0xFFFFF9F0));
             tile.setElevation(dp(2));
             animateLessonPress(tile);
             tile.setTag(index);lessonBuildTiles.add(tile);choices.addView(tile);
