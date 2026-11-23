@@ -6015,37 +6015,52 @@ public final class MainActivity extends Activity {
         if(n==0)return true;
         float[] textWidths=new float[n];
         for(int i=0;i<n;i++)textWidths[i]=font.measureText(words[i])/density;
-        int selections=kind==LessonCurriculumLogic.Variant.FULL?n:
-            kind==LessonCurriculumLogic.Variant.ENDING?(n+1)/2:
-                Math.max(1,(int)Math.ceil(n*.4));
-        // In gap exercises the words missing at each attempt rotate, so budget
-        // for a representative spread of gaps and a conservative word bank.
+        if(kind==LessonCurriculumLogic.Variant.ENDING){
+            // The seed switches which half is hidden between exercises. Account
+            // for both layouts so the chunk boundaries never depend on that seed.
+            int midpoint=Math.max(1,n/2);
+            boolean[] first=new boolean[n],last=new boolean[n];
+            for(int i=0;i<n;i++){
+                first[i]=i<midpoint;
+                last[i]=i>=midpoint;
+            }
+            return Math.max(assemblyEstimatedHeight(textWidths,first,false,
+                answerWidth,bankWidth,fontScale),
+                assemblyEstimatedHeight(textWidths,last,false,
+                answerWidth,bankWidth,fontScale))<=heightBudget;
+        }
         boolean[] missing=new boolean[n];
         if(kind==LessonCurriculumLogic.Variant.FULL){
             Arrays.fill(missing,true);
-        }else if(kind==LessonCurriculumLogic.Variant.GAPS){
-            for(int i=0;i<selections;i++)missing[i*n/selections]=true;
         }else{
-            boolean start=(lessonSeed&1L)==0L;
-            for(int i=0;i<n;i++)missing[i<(n/2)==start]=true;
+            int selections=Math.max(1,(int)Math.ceil(n*.4));
+            for(int i=0;i<selections;i++)missing[i*n/selections]=true;
         }
+        return assemblyEstimatedHeight(textWidths,missing,
+            kind==LessonCurriculumLogic.Variant.GAPS,
+            answerWidth,bankWidth,fontScale)<=heightBudget;
+    }
+    private float assemblyEstimatedHeight(float[] textWidths,boolean[] missing,
+            boolean conservativeBank,float answerWidth,float bankWidth,float fontScale){
+        int n=textWidths.length,selections=0;
+        for(boolean gap:missing)if(gap)selections++;
         float[] answer=new float[n],bank=new float[selections];
         for(int i=0;i<n;i++)
             answer[i]=missing[i]?Math.max(56f,textWidths[i]+20f):textWidths[i]+8f;
-        if(kind==LessonCurriculumLogic.Variant.GAPS){
+        if(conservativeBank){
+            // Gaps rotate; size the bank for the longest plausible selected words.
             float[] longest=textWidths.clone();
             Arrays.sort(longest);
             for(int i=0;i<selections;i++)bank[i]=longest[n-1-i]+24f;
         }else{
             int index=0;
-            for(int i=0;i<n;i++)if(missing[i]&&index<bank.length)
-                bank[index++]=textWidths[i]+24f;
+            for(int i=0;i<n;i++)if(missing[i])bank[index++]=textWidths[i]+24f;
         }
         float lineHeight=Math.max(43f,24f*fontScale+18f);
-        float answerHeight=assemblyRows(answer,answerWidth,7f)* (lineHeight+7f)+27f;
+        float answerHeight=assemblyRows(answer,answerWidth,7f)*(lineHeight+7f)+27f;
         float bankHeight=assemblyRows(bank,bankWidth,8f)*(lineHeight+8f)+6f;
-        // Leave spare room for the inter-card gap and slightly different actual font metrics.
-        return answerHeight+bankHeight+32f<=heightBudget;
+        // Reserve space for inter-card spacing and slight font metric differences.
+        return answerHeight+bankHeight+32f;
     }
     private static int assemblyRows(float[] widths,float available,float gap){
         int rows=1;float used=0f;
