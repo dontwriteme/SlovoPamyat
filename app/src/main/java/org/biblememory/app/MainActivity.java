@@ -3336,7 +3336,7 @@ public final class MainActivity extends Activity {
         LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
         TextView deckHeading=displayText(deck==null?"Карточки":deck.title,22);
         deckHeading.setGravity(Gravity.CENTER);
-        addHelpLabel(header,deckHeading,LearningHelp.CARDS,0);
+        header.addView(deckHeading,new LinearLayout.LayoutParams(-1,dp(45)));
         root.addView(header,new LinearLayout.LayoutParams(-1,-2));
         SwipeCardLayout swipe=new SwipeCardLayout();
         swipe.setBackground(outlined(CARD,26,BORDER));
@@ -4658,7 +4658,7 @@ public final class MainActivity extends Activity {
         LearningHelp help=reviewCollectionGroup>0?LearningHelp.REVIEW:LearningHelp.ALL_REVIEWS;
         title(help.title,null);
         LinearLayout c=headerCard(content);
-        addHelpLabel(c,txt("Пока нет заданий на повторение",21,WHITE,true),help,0);
+        add(c,txt("Пока нет заданий на повторение",21,WHITE,true),0);
         helper(c,reviewCollectionGroup>0?"В выбранной коллекции сейчас нет заданий, срок которых наступил.":
             "Сейчас нет запланированных заданий, срок которых наступил.");
 
@@ -5228,7 +5228,7 @@ public final class MainActivity extends Activity {
         add(textCard,txt(step.title+(mastered?"  ✓":""),18,WHITE,true),5);
         String status=store.consolidated(e.id,studyStage.name(),step.start,step.end)?"Закреплён":
             mastered?"Предварительно освоен":"Изучается";
-        addHelpLabel(textCard,txt(status,13,mastered?GREEN:MUTED,true),LearningHelp.PROGRESS,8);
+        add(textCard,txt(status,13,mastered?GREEN:MUTED,true),8);
         if(!checked) {
             activeTextArea=column();activeTextArea.setMinimumHeight(dp(92));
             add(textCard,activeTextArea,7);
@@ -5391,10 +5391,6 @@ public final class MainActivity extends Activity {
             });
             topRow.addView(devButton,new LinearLayout.LayoutParams(dp(48),dp(45)));
         }
-        LearningHelp lessonHelp=phase==LessonCurriculumLogic.Phase.INTRO?LearningHelp.INTRO:
-            phase==LessonCurriculumLogic.Phase.BUILD?LearningHelp.BUILD:LearningHelp.WRITE;
-        topRow.addView(helpIcon(lessonHelp,"Подсказка «"+lessonHelp.title+"»"),
-            new LinearLayout.LayoutParams(dp(48),dp(48)));
         top.addView(topRow);
         renderLessonHotbar(top,phase,e);
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
@@ -6963,8 +6959,6 @@ public final class MainActivity extends Activity {
         TextView count=txt((runCursor+1)+" из "+runLines.size(),15,MUTED,true);
         count.setGravity(Gravity.CENTER);
         top.addView(count,new LinearLayout.LayoutParams(0,dp(45),1));
-        top.addView(helpIcon(LearningHelp.MEMORY,"О режиме «Проверка памяти»"),
-            new LinearLayout.LayoutParams(dp(48),dp(48)));
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         content=column();content.setPadding(dp(21),dp(18),dp(21),dp(24));scroll.addView(content);
