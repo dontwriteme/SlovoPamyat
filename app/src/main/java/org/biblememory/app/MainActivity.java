@@ -47,7 +47,7 @@ public final class MainActivity extends Activity {
     private static final int SUCCESS=0xFF4D815C, GOLD=0xFFD8A75C;
     private static final int PRIMARY_ON=0xFFFFFFFF;
     private static final int EXPORT=10,IMPORT=11;
-    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,RUN,RUN_SUMMARY}
+    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,RUN,RUN_SUMMARY}
     private Screen screen=Screen.HOME;
     private static final String UNIFIED_PREFS="unified_library_ui";
     private long activeUnifiedId=-1,openUnifiedId=-1;
@@ -413,6 +413,20 @@ public final class MainActivity extends Activity {
     private final Handler collectionHandler=new Handler(android.os.Looper.getMainLooper());
     private java.util.concurrent.Future<?> collectionTask;
     private LocalStore collectionStore;
+    private static final int BULK_INK=0xFF426747;
+    private static final int BULK_SELECTED=0xFFE3EDD9;
+    private final Set<String> pendingBooks=new HashSet<>();
+    private final Map<Integer,TextView> pickerBookActions=new HashMap<>();
+    private final SortedSet<Integer> selectedPickerChapters=new TreeSet<>();
+    private final Map<Integer,TextView> pickerChapterButtons=new HashMap<>();
+    private LinearLayout pickerChapterFooter;
+    private TextView pickerChapterAdd, pickerChapterCancel;
+    private boolean savingPickerChapters;
+    private int openedCollectionChapter;
+    private SortedMap<Integer,Long> openedCollectionBook;
+    private CollectionProgressSnapshot openedBookProgress;
+    private String openedBookName;
+
     private long collectionGeneration;
     private boolean collectionDetailLoading;
 
@@ -539,6 +553,10 @@ public final class MainActivity extends Activity {
             case HOME: super.onBackPressed(); break;
             case BOOKS:case DUE:case CARDS:case COLLECTIONS:screen=Screen.HOME;render();break;
             case COLLECTION_DETAIL:screen=Screen.COLLECTIONS;render();break;
+            case COLLECTION_BOOK:
+                openedCollectionBook=null;openedBookProgress=null;
+                screen=Screen.COLLECTION_DETAIL;render();break;
+            case COLLECTION_CHAPTER:screen=Screen.COLLECTION_BOOK;render();break;
             case RUN:saveRunSession();screen=Screen.HOME;render();break;
             case RUN_SUMMARY:screen=Screen.HOME;render();break;
             case CARD_DECK:screen=Screen.CARDS;render();break;
@@ -554,6 +572,7 @@ public final class MainActivity extends Activity {
                 selectedBook=readerBookBeforePicker;selectedChapter=readerChapterBeforePicker;
                 screen=pickerBackScreen;render();break;
             case PICKER_CHAPTERS:
+                if(!selectedPickerChapters.isEmpty()){clearPickerChapterSelection();break;}
                 screen=passageSelection.active?Screen.BIBLE_PICKER:Screen.PICKER_BOOKS;render();break;
             case PICKER_VERSES:screen=Screen.PICKER_CHAPTERS;render();break;
             case PICKER_TEXT:screen=Screen.PICKER_VERSES;render();break;
@@ -1086,6 +1105,8 @@ public final class MainActivity extends Activity {
             case CARDS: renderUnifiedCollections();break;
             case COLLECTIONS:renderUnifiedCollections();break;
             case COLLECTION_DETAIL:renderUnifiedCollectionDetail();break;
+            case COLLECTION_BOOK:renderCollectionBook();break;
+            case COLLECTION_CHAPTER:renderCollectionChapter();break;
             case RUN_SUMMARY:renderRunSummary();break;
             case CARD_DECK: renderCardDeck();break;
             case CARD_PICK: renderCardPicker();break;
@@ -1118,6 +1139,7 @@ public final class MainActivity extends Activity {
 
 
         if(screen==Screen.BIBLE_PICKER && pickerSelectionPanel!=null)root.addView(pickerSelectionPanel);
+        if(screen==Screen.PICKER_CHAPTERS&&canBulkPick())addPickerChapterFooter();
         if(screen==Screen.COLLECTIONS||screen==Screen.CARDS||
             screen==Screen.COLLECTION_DETAIL) addUnifiedCollectionFooter();
         if(screen!=Screen.CUSTOM && screen!=Screen.RUN_SUMMARY) addNav(root);
@@ -2762,6 +2784,7 @@ public final class MainActivity extends Activity {
 
     /** Unified Bible entry: catalogue -> chapter grid -> verse grid -> highlighted chapter text. */
     private void openBiblePicker(BibleTarget target,long targetId,Screen back){
+        selectedPickerChapters.clear();
         readerBookBeforePicker=selectedBook;readerChapterBeforePicker=selectedChapter;
         passageSelection.cancel();passageSelection.book=0;passageSelection.collectionId=targetId;
         pickerTarget=target;pickerTargetId=targetId;pickerBackScreen=back;
@@ -3046,10 +3069,14 @@ public final class MainActivity extends Activity {
             String ref=Bible.reference(book,sc,sv,ec,ev);
             if(pickerTarget==BibleTarget.STUDY_GROUP){
                 if(store.unifiedForGroup(pickerTargetId)==null){toast("Коллекция больше не существует");return false;}
+                long added=-1;
                 for(LocalStore.Entry e:store.entries(pickerTargetId))if(ref.equals(e.reference)){
-                    toast("Уже в коллекции");return false;
+                    if(!store.retainBookChapter(pickerTargetId,e.id)){
+                        toast("Уже в коллекции");return false;
+                    }
+                    added=e.id;break;
                 }
-                long added=store.addPickedPassage(pickerTargetId,ref,verses,bible,insertAfterEntryId);
+                if(added<0)added=store.addPickedPassage(pickerTargetId,ref,verses,bible,insertAfterEntryId);
                 if(insertAfterEntryId>=0){
                     insertAfterEntryId=added;
                     studyInsertionTrail.add(added);
@@ -3566,6 +3593,9 @@ public final class MainActivity extends Activity {
     private void renderBooks() {
         if(bibleSearchActive){renderSearchResults();return;}
         if(bibleNotReady())return;
+        boolean bulk=screen==Screen.PICKER_BOOKS&&canBulkPick();
+        Set<Integer> addedBooks=bulk?store.collectionBooks(pickerTargetId).keySet():Collections.emptySet();
+        if(bulk)pickerBookActions.clear();
         BookColorLogic.Group previous=null;
         LinearLayout groupedRows=null;
         for(int b=1;b<=66;b++){
@@ -3591,8 +3621,18 @@ public final class MainActivity extends Activity {
             TextView full=txt(Bible.NAMES[b-1],16,WHITE,false);
             full.setSingleLine(true);full.setEllipsize(android.text.TextUtils.TruncateAt.END);
             line.addView(full,new LinearLayout.LayoutParams(0,-2,1));
-            TextView arrow=txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
-            line.addView(arrow,new LinearLayout.LayoutParams(dp(20),-2));
+            if(bulk){
+                TextView toggle=txt("",22,BULK_INK,true);
+                toggle.setGravity(Gravity.CENTER);
+                toggle.setFocusable(true);
+                applyBookToggle(toggle,pickerTargetId,book,addedBooks.contains(book));
+                animateLessonPress(toggle);
+                pickerBookActions.put(book,toggle);
+                line.addView(toggle,new LinearLayout.LayoutParams(dp(48),dp(48)));
+            }else{
+                TextView arrow=txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
+                line.addView(arrow,new LinearLayout.LayoutParams(dp(20),-2));
+            }
             line.setMinimumHeight(dp(48));
             line.setContentDescription(Bible.NAMES[b-1]);
             line.setOnClickListener(v->{
@@ -3602,6 +3642,7 @@ public final class MainActivity extends Activity {
                     boolean rangeActive=passageSelection.active;
                     passageSelection.openBook(book);passageSelection.active=rangeActive;
                     pickerHasAnchor=false;
+                    selectedPickerChapters.clear();
                     savedScrollY.remove(Screen.PICKER_CHAPTERS);
                     savedScrollY.remove(Screen.PICKER_VERSES);
                     pickerRestoredScroll=-1;
@@ -3639,12 +3680,15 @@ public final class MainActivity extends Activity {
             n+" "+(n%10==1 && n%100!=11?"глава":
             n%10>=2 && n%10<=4 && (n%100<12||n%100>14)?"главы":"глав"));
         int selected=screen==Screen.PICKER_CHAPTERS?selectedChapter:lastReadChapter(selectedBook);
+        boolean bulk=screen==Screen.PICKER_CHAPTERS&&canBulkPick();
+        if(bulk)pickerChapterButtons.clear();
         for(int base=1;base<=n;base+=4){
             LinearLayout r=row();
             for(int k=base;k<base+4;k++){
                 if(k>n){r.addView(new View(this),new LinearLayout.LayoutParams(0,dp(50),1));continue;}
                 final int c=k;
                 TextView b=button(String.valueOf(k),c==selected,()->{
+                    if(bulk&&!selectedPickerChapters.isEmpty()){togglePickerChapter(c);return;}
                     if(screen==Screen.PICKER_CHAPTERS&&!passageSelection.active&&selectedChapter!=c)pickerVerseNumber=1;
                     selectedChapter=c;
                     if(screen==Screen.PICKER_CHAPTERS){
@@ -3658,6 +3702,11 @@ public final class MainActivity extends Activity {
                 if(screen==Screen.PICKER_CHAPTERS){
                     b.setPadding(dp(4),dp(4),dp(4),dp(4));
                     b.setContentDescription("Глава "+c+(c==selected?", выбрана":""));
+                    if(bulk){
+                        pickerChapterButtons.put(c,b);
+                        b.setOnLongClickListener(v->{togglePickerChapter(c);return true;});
+                        stylePickerChapter(c,b);
+                    }
                 }else if(c==selected)b.setContentDescription("Глава "+c+", последняя прочитанная");
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(50),1);
                 p.setMargins(dp(3),dp(4),dp(3),dp(4));r.addView(b,p);
@@ -3665,6 +3714,128 @@ public final class MainActivity extends Activity {
             add(content,r,2);
         }
     }
+    private boolean canBulkPick(){
+        return pickerTarget==BibleTarget.STUDY_GROUP&&pickerTargetId>0&&!passageSelection.active&&insertAfterEntryId<0;
+    }
+
+    private void applyBookToggle(TextView toggle,long group,int book,boolean added){
+        boolean busy=pendingBooks.contains(group+":"+book);
+        toggle.setText(busy?"…":added?"−":"+");
+        toggle.setContentDescription((busy?"Сохраняется ":added?"Убрать книгу ":"Добавить книгу ")+Bible.NAMES[book-1]);
+        toggle.setBackground(outlined(added?BULK_SELECTED:CARD,22,0xFFD1DFC9));
+        toggle.setOnClickListener(v->changeWholeBook(group,book,added));
+        toggle.setEnabled(!busy);
+    }
+
+    private void changeWholeBook(long group,int book,boolean remove){
+        String key=group+":"+book;
+        if(!pendingBooks.add(key))return;
+        applyBookToggle(pickerBookActions.get(book),group,book,remove);
+        runCollectionMutation(()->{
+            if(remove)collectionStore.removeBibleBook(group,book);
+            else collectionStore.addBibleChapters(group,book,Collections.emptyList(),true,bible);
+        },success->{
+            pendingBooks.remove(key);
+            if(screen==Screen.PICKER_BOOKS&&pickerTargetId==group){
+                TextView current=pickerBookActions.get(book);
+                if(current!=null)applyBookToggle(current,group,book,success?!remove:remove);
+            }
+            if(success)refreshCollectionAfterBulkChange(group);
+        });
+    }
+
+    private void togglePickerChapter(int chapter){
+        if(savingPickerChapters)return;
+        if(!selectedPickerChapters.add(chapter))selectedPickerChapters.remove(chapter);
+        updatePickerChapterSelection();
+    }
+
+    private void clearPickerChapterSelection(){
+        selectedPickerChapters.clear();
+        updatePickerChapterSelection();
+    }
+
+    private void stylePickerChapter(int chapter,TextView button){
+        boolean selected=selectedPickerChapters.contains(chapter);
+        boolean highlighted=selectedPickerChapters.isEmpty()&&chapter==selectedChapter;
+        button.setText(chapter+(selected?" ✓":""));
+        button.setContentDescription("Глава "+chapter+(selected?", выделена":highlighted?", выбрана":""));
+        button.setTextColor(selected?BULK_INK:highlighted?PRIMARY_ON:WHITE);
+        button.setBackground(selected?outlined(BULK_SELECTED,18,0xFFABC5A7):
+            highlighted?softAccent():outlined(CARD_ALT,18,BORDER));
+    }
+
+    private void updatePickerChapterSelection(){
+        for(Map.Entry<Integer,TextView> chapter:pickerChapterButtons.entrySet())
+            stylePickerChapter(chapter.getKey(),chapter.getValue());
+        if(pickerChapterFooter==null)return;
+        int count=selectedPickerChapters.size();
+        pickerChapterFooter.setVisibility(count>0?View.VISIBLE:View.GONE);
+        pickerChapterAdd.setEnabled(!savingPickerChapters);
+        pickerChapterCancel.setEnabled(!savingPickerChapters);
+        if(count==0)return;
+        int first=selectedPickerChapters.first(), last=selectedPickerChapters.last();
+        pickerChapterAdd.setText(savingPickerChapters?"Добавляем…":count==1?"Добавить главу "+first:
+            last-first+1==count?"Добавить главы "+first+"–"+last:"Добавить главы ("+count+")");
+    }
+
+    private void addPickerChapterFooter(){
+        pickerChapterFooter=row();
+        pickerChapterFooter.setPadding(dp(19),dp(8),dp(19),dp(8));
+        pickerChapterFooter.setBackgroundColor(CARD);
+        pickerChapterAdd=button("",true,this::commitPickerChapters);
+        pickerChapterAdd.setBackground(shape(BULK_INK,18));
+        pickerChapterAdd.setTextColor(Color.WHITE);
+        animateLessonPress(pickerChapterAdd);
+        pickerChapterFooter.addView(pickerChapterAdd,new LinearLayout.LayoutParams(0,-2,1));
+        pickerChapterCancel=txt("×",26,MUTED,false);
+        pickerChapterCancel.setGravity(Gravity.CENTER);
+        pickerChapterCancel.setContentDescription("Отменить выделение глав");
+        pickerChapterCancel.setFocusable(true);
+        pickerChapterCancel.setOnClickListener(v->clearPickerChapterSelection());
+        pickerChapterFooter.addView(pickerChapterCancel,new LinearLayout.LayoutParams(dp(48),dp(49)));
+        root.addView(pickerChapterFooter,new LinearLayout.LayoutParams(-1,-2));
+        updatePickerChapterSelection();
+    }
+
+    private void commitPickerChapters(){
+        if(savingPickerChapters||selectedPickerChapters.isEmpty())return;
+        final long group=pickerTargetId;
+        final int book=selectedBook;
+        Set<Integer> chapters=new TreeSet<>(selectedPickerChapters);
+        savingPickerChapters=true;
+        updatePickerChapterSelection();
+        runCollectionMutation(()->collectionStore.addBibleChapters(group,book,chapters,false,bible),success->{
+            savingPickerChapters=false;
+            if(screen==Screen.PICKER_CHAPTERS&&pickerTargetId==group&&selectedBook==book){
+                if(success)clearPickerChapterSelection();
+                else updatePickerChapterSelection();
+            }
+            if(success){
+                toast("Главы добавлены");
+                refreshCollectionAfterBulkChange(group);
+            }
+        });
+    }
+
+    private void runCollectionMutation(Runnable write,java.util.function.Consumer<Boolean> finished){
+        collectionExecutor.execute(()->{
+            boolean saved=false;
+            try{write.run();saved=true;}
+            catch(RuntimeException error){android.util.Log.e("CollectionBooks","Unable to save Bible chapters",error);}
+            boolean success=saved;
+            collectionHandler.post(()->{
+                if(isDestroyed()||isFinishing())return;
+                if(!success)toast("Не удалось изменить коллекцию");
+                finished.accept(success);
+            });
+        });
+    }
+
+    private void refreshCollectionAfterBulkChange(long group){
+        if(screen==Screen.COLLECTION_DETAIL&&selectedGroup==group)render();
+    }
+
     private void clearPassageSelection(){
         rangeStartChapter=-1;rangeStartVerse=-1;rangeEndChapter=-1;rangeEndVerse=-1;
     }
@@ -6498,11 +6669,13 @@ public final class MainActivity extends Activity {
         collectionTask=collectionExecutor.submit(()->{
             try{
                 CollectionProgressSnapshot snapshot=collectionStore.collectionProgress();
+                SortedMap<Integer,SortedMap<Integer,Long>> books=collectionStore.collectionBooks(u.groupId);
+                List<LocalStore.Entry> visible=snapshot.visibleCollectionEntries(u.groupId,books,bible);
                 if(Thread.currentThread().isInterrupted())return;
                 collectionHandler.post(()->{
                     if(isDestroyed()||isFinishing()||generation!=collectionGeneration||
                         screen!=Screen.COLLECTION_DETAIL||openUnifiedId!=u.id||content!=target)return;
-                    populateCollectionDetail(u,snapshot,generation,restoreScroll);
+                    populateCollectionDetail(u,snapshot,books,visible,generation,restoreScroll);
                 });
             }catch(RuntimeException error){
                 android.util.Log.e("CollectionProgress","Unable to read collection progress",error);
@@ -6515,7 +6688,8 @@ public final class MainActivity extends Activity {
             }
         });
     }
-    private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionProgressSnapshot snapshot,long generation,int restoreScroll){
+    private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionProgressSnapshot snapshot,
+            SortedMap<Integer,SortedMap<Integer,Long>> books,List<LocalStore.Entry> entries,long generation,int restoreScroll){
         helper(content,"Освоено: "+studyProgressFor(u.groupId,snapshot));
         try{
             JSONArray history=new JSONArray(getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE)
@@ -6524,8 +6698,17 @@ public final class MainActivity extends Activity {
                 helper(content,"Последняя проверка памяти: "+last.optInt("correct")+
                     " из "+last.optInt("total")+" без ошибок");}
         }catch(JSONException ignored){}
-        List<LocalStore.Entry> entries=snapshot.entries(u.groupId);
-        if(entries.isEmpty())helper(content,"Добавь первый стих или отрывок.");
+        for(Map.Entry<Integer,SortedMap<Integer,Long>> book:books.entrySet()){
+            String name=Bible.NAMES[book.getKey()-1];
+            collectionBookRow(name,countedRussian(book.getValue().size(),"глава","главы","глав"),()->{
+                openedBookName=name;
+                openedCollectionBook=book.getValue();
+                openedBookProgress=snapshot;
+                savedScrollY.remove(Screen.COLLECTION_BOOK);
+                screen=Screen.COLLECTION_BOOK;render();
+            });
+        }
+        if(entries.isEmpty()&&books.isEmpty())helper(content,"Добавь первый стих или отрывок.");
         appendCollectionEntries(entries,snapshot,0,generation,restoreScroll);
     }
     private void appendCollectionEntries(List<LocalStore.Entry> entries,CollectionProgressSnapshot snapshot,
@@ -6541,6 +6724,54 @@ public final class MainActivity extends Activity {
             if(scroller!=null)scroller.post(()->{
                 if(generation==collectionGeneration&&currentScroller==scroller)scroller.scrollTo(0,restoreScroll);
             });
+        }
+    }
+
+    private void collectionBookRow(String title,String description,Runnable open){
+        LinearLayout frame=card(content);
+        frame.setBackground(homeSurface());
+        LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout labels=column();
+        add(labels,displayText(title,17),0);
+        add(labels,txt(description,13,MUTED,false),6);
+        line.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        line.addView(txt("›",22,GREEN,false),new LinearLayout.LayoutParams(dp(24),-2));
+        add(frame,line,0);
+        frame.setFocusable(true);
+        frame.setOnClickListener(v->open.run());
+    }
+
+    private void renderCollectionBook(){
+        title(openedBookName,null);
+        for(Map.Entry<Integer,Long> chapter:openedCollectionBook.entrySet()){
+            long id=chapter.getValue();
+            collectionBookRow("Глава "+chapter.getKey(),countedRussian(openedBookProgress.verseCount(id),
+                "стих","стиха","стихов"),()->{
+                openedCollectionChapter=chapter.getKey();
+                savedScrollY.remove(Screen.COLLECTION_CHAPTER);
+                screen=Screen.COLLECTION_CHAPTER;render();
+            });
+        }
+    }
+
+    private void renderCollectionChapter(){
+        long id=openedCollectionBook.get(openedCollectionChapter);
+        title(openedBookName+" "+openedCollectionChapter,null);
+        action(content,"Изучать главу",true,()->openTraining(id));
+        action(content,"Добавить стих / отрывок после главы",false,()->{
+            clearInsertionContext();
+            insertAfterEntryId=id;
+            studyInsertionTrail.add(id);
+            openBiblePicker(BibleTarget.STUDY_GROUP,selectedGroup,Screen.COLLECTION_DETAIL);
+        });
+        List<Bible.Verse> lines=openedBookProgress.verses(id);
+        for(int i=0;i<lines.size();i++){
+            Bible.Verse verse=lines.get(i);
+            LinearLayout item=card(content);
+            String status=openedBookProgress.verseConsolidated(id,i)?"выучен":
+                openedBookProgress.mastered(id,i)?"освоен":"не изучен";
+            add(item,txt(verse.ref+" · "+status,14,GREEN,true),0);
+            add(item,prose(verse.text,19),8);
         }
     }
 

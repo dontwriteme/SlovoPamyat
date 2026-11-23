@@ -57,4 +57,77 @@ public class CollectionLoadingTest {
   assertEquals(reads,loader.readQueryCount());
  }
 
+ private View findView(View parent,String label,boolean description){
+  CharSequence value=description?parent.getContentDescription():parent instanceof TextView?((TextView)parent).getText():null;
+  if(value!=null&&label.contentEquals(value))return parent;
+  if(parent instanceof ViewGroup)for(int i=0;i<((ViewGroup)parent).getChildCount();i++){
+   View found=findView(((ViewGroup)parent).getChildAt(i),label,description);
+   if(found!=null)return found;
+  }
+  return null;
+ }
+
+ private View current(String label,boolean description)throws Exception{
+  View found=findView((View)field("root"),label,description);
+  assertNotNull(label,found);
+  return found;
+ }
+
+ private void finishMutation()throws Exception{
+  ((ExecutorService)field("collectionExecutor")).submit(()->{}).get(30,TimeUnit.SECONDS);
+  Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+ }
+
+ @Test public void bookPickerChapterSelectionAndNestedBookNavigation()throws Exception{
+  long uid=store.createUnifiedCollection("Bulk picker");
+  long group=store.unifiedCollection(uid).groupId;
+  set("openUnifiedId",uid);
+  screen("COLLECTION_DETAIL");finishLoad();
+  current("＋  Добавить из Библии",false).performClick();
+
+  View plus=current("Добавить книгу Бытие",true);
+  plus.performClick();
+  assertFalse(plus.isEnabled());
+  plus.performClick();
+  finishMutation();
+  assertSame(plus,current("Убрать книгу Бытие",true));
+  current("Бытие",true).performClick();
+
+  View scroller=(View)field("currentScroller");
+  current("1",false).performLongClick();
+  current("Добавить главу 1",false);
+  current("2",false).performClick();
+  current("Добавить главы 1–2",false);
+  current("3",false).performClick();
+  current("2 ✓",false).performClick();
+  current("Добавить главы (2)",false);
+  assertSame(scroller,field("currentScroller"));
+  activity.onBackPressed();
+  assertEquals("PICKER_CHAPTERS",field("screen").toString());
+  assertEquals(View.GONE,((View)field("pickerChapterFooter")).getVisibility());
+  current("1",false).performLongClick();
+  current("3",false).performClick();
+  current("Добавить главы (2)",false).performClick();
+  finishMutation();
+  assertEquals(View.GONE,((View)field("pickerChapterFooter")).getVisibility());
+
+  activity.onBackPressed();activity.onBackPressed();finishLoad();
+  View book=current("Бытие",false);
+  assertFalse(contains((View)field("content"),"Бытие 1:1–31"));
+  View bookCard=(View)book.getParent().getParent().getParent();
+  bookCard.performClick();
+  assertEquals("COLLECTION_BOOK",field("screen").toString());
+  View chapter=current("Глава 1",false);
+  ((View)chapter.getParent().getParent().getParent()).performClick();
+  assertEquals("COLLECTION_CHAPTER",field("screen").toString());
+  current("Бытие 1",false);
+  current("1:27 · не изучен",false);
+  current("Изучать главу",false);
+
+  activity.onBackPressed();activity.onBackPressed();finishLoad();
+  current("＋  Добавить из Библии",false).performClick();
+  current("Убрать книгу Бытие",true).performClick();finishMutation();
+  current("Добавить книгу Бытие",true);
+  assertEquals(2,store.entries(group).size());
+ }
 }

@@ -93,6 +93,69 @@ public final class CollectionProgressSnapshot {
     public boolean mastered(long id,int pos){State s=states.get(id);return s!=null&&pos>=0&&pos<s.lines.size()&&(s.mastered[pos]||shared(s,pos,masteredOwners));}
     public long canonicalId(long id){State s=states.get(id);return s==null||!s.canonical?id:canonicalEntries.getOrDefault(passage(s.entry),id);}
     public List<LocalStore.Entry> entries(long group){return Collections.unmodifiableList(groups.getOrDefault(group,Collections.emptyList()));}
+    public List<Bible.Verse> verses(long id){
+        State state=states.get(id);
+        return state==null?Collections.emptyList():Collections.unmodifiableList(state.lines);
+    }
+
+    public boolean verseConsolidated(long id,int position){
+        State state=states.get(id);
+        return state!=null&&position>=0&&position<state.lines.size()&&
+            (state.consolidated[position]||shared(state,position,consolidatedOwners));
+    }
+
+    /** Hide nested content while retaining the original entry IDs and their progress. */
+    public List<LocalStore.Entry> visibleCollectionEntries(long group,
+            Map<Integer,? extends Map<Integer,Long>> books,Bible bible){
+        List<LocalStore.Entry> entries=entries(group);
+        Map<Integer,Map<Integer,Long>> completeChapters=new HashMap<>();
+        Map<Long,Integer> canonicalBooks=new HashMap<>();
+        for(LocalStore.Entry entry:entries){
+            State state=states.get(entry.id);
+            if(!state.canonical||state.lines.isEmpty())continue;
+            int book=LocalStore.bibleBookFromReference(entry.reference);
+            canonicalBooks.put(entry.id,book);
+            if(books.containsKey(book))continue;
+            int[] first=LocalStore.verseNumbers(state.lines.get(0).ref);
+            if(first==null||first[1]!=1)continue;
+            int length=state.lines.size();
+            if(!entry.reference.equals(Bible.reference(book,first[0],1,first[0],length)))continue;
+            List<Bible.Verse> chapter=bible.chapter(book,first[0]);
+            if(chapter.size()==length&&sameCanonicalChapter(chapter,state.lines))
+                completeChapters.computeIfAbsent(book,key->new HashMap<>()).putIfAbsent(first[0],entry.id);
+        }
+        List<LocalStore.Entry> visible=new ArrayList<>();
+        for(LocalStore.Entry entry:entries){
+            int book=canonicalBooks.getOrDefault(entry.id,0);
+            Map<Integer,Long> chapters=books.containsKey(book)?books.get(book):completeChapters.get(book);
+            if(chapters==null){visible.add(entry);continue;}
+            boolean covered=true;
+            for(Bible.Verse verse:states.get(entry.id).lines){
+                int[] coordinate=LocalStore.verseNumbers(verse.ref);
+                Long owner=coordinate==null?null:chapters.get(coordinate[0]);
+                if(owner==null||(!books.containsKey(book)&&owner==entry.id)||
+                    !sameCanonicalVerse(owner,coordinate[1],verse)){
+                    covered=false;break;
+                }
+            }
+            if(!covered)visible.add(entry);
+        }
+        return visible;
+    }
+
+    private boolean sameCanonicalVerse(long id,int number,Bible.Verse verse){
+        State state=states.get(id);
+        if(state==null||number<1||number>state.lines.size())return false;
+        Bible.Verse canonical=state.lines.get(number-1);
+        return canonical.ref.equals(verse.ref)&&canonical.text.equals(verse.text);
+    }
+
+    private static boolean sameCanonicalChapter(List<Bible.Verse> canonical,List<Bible.Verse> saved){
+        for(int i=0;i<canonical.size();i++)
+            if(!canonical.get(i).ref.equals(saved.get(i).ref)||!canonical.get(i).text.equals(saved.get(i).text))return false;
+        return true;
+    }
+
     List<long[]> matches(long id,int pos){
         State s=states.get(id);List<long[]> result=new ArrayList<>();
         if(s==null||!s.canonical||pos<0||pos>=s.lines.size())return result;

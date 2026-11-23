@@ -56,7 +56,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();return progressSnapshot;
         }}finally{db.endTransaction();}
     }
-    public LocalStore(Context context) { super(context,"slovo_pamyat.db",null,8); }
+    public LocalStore(Context context) { super(context,"slovo_pamyat.db",null,9);setWriteAheadLoggingEnabled(true); }
     @Override public void onConfigure(SQLiteDatabase db){ db.setForeignKeyConstraintsEnabled(true); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE groups_ (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)");
@@ -69,6 +69,7 @@ public final class LocalStore extends SQLiteOpenHelper {
         createOrderTables(db);
         createUnifiedTables(db);
         migrateLegacyCollections(db);
+        createCollectionBookTable(db);
     }
     private static void createProgressTables(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS verse_progress (entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE, position INTEGER NOT NULL, best_score INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(entry_id,position))");
@@ -101,6 +102,14 @@ public final class LocalStore extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE IF NOT EXISTS unified_collections (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, group_id INTEGER NOT NULL UNIQUE REFERENCES groups_(id), deck_id INTEGER NOT NULL UNIQUE REFERENCES card_decks(id), origin TEXT NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS unified_card_entries (collection_id INTEGER NOT NULL REFERENCES unified_collections(id) ON DELETE CASCADE, card_id INTEGER NOT NULL, entry_id INTEGER NOT NULL, PRIMARY KEY(collection_id,card_id))");
         db.execSQL("CREATE TABLE IF NOT EXISTS unified_entry_cards (collection_id INTEGER NOT NULL REFERENCES unified_collections(id) ON DELETE CASCADE, entry_id INTEGER NOT NULL, verse_position INTEGER NOT NULL, card_id INTEGER NOT NULL, PRIMARY KEY(collection_id,entry_id,verse_position))");
+    }
+    private static void createCollectionBookTable(SQLiteDatabase db){
+        db.execSQL("CREATE TABLE collection_book_chapters ("+
+            "collection_id INTEGER NOT NULL REFERENCES unified_collections(id) ON DELETE CASCADE,"+
+            "book INTEGER NOT NULL, chapter INTEGER NOT NULL,"+
+            "entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,"+
+            "independent INTEGER NOT NULL, PRIMARY KEY(collection_id,book,chapter),"+
+            "UNIQUE(collection_id,entry_id))");
     }
     /** The migration is atomic because SQLiteOpenHelper wraps onUpgrade in a transaction. */
     private static void migrateLegacyCollections(SQLiteDatabase db){
@@ -198,6 +207,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             String[] group={String.valueOf(u.groupId)};
             String[] deck={String.valueOf(u.deckId)};
             // Remove collection-specific order and mapped relationships first.
+            db.delete("collection_book_chapters","collection_id=?",collection);
             db.delete("unified_entry_cards","collection_id=?",collection);
             db.delete("unified_card_entries","collection_id=?",collection);
             db.delete("study_order","group_id=?",group);
@@ -247,6 +257,14 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     /** Backfill both legacy kinds after the bundled Bible has loaded. Idempotent by mapping keys. */
     public void syncUnifiedCollection(long collectionId,Bible bible){
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransactionNonExclusive();
+        try{
+            syncUnifiedCollectionInTransaction(collectionId,bible);
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+    private void syncUnifiedCollectionInTransaction(long collectionId,Bible bible){
         UnifiedCollection u=unifiedCollection(collectionId);
         if(u==null)return;
         Set<Long> mappedCards=new HashSet<>();
@@ -574,6 +592,7 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
         if(from<7)createOrderTables(db);
         if(from<8){createUnifiedTables(db);migrateLegacyCollections(db);}
+        if(from<9)createCollectionBookTable(db);
     }
     public int masteredLinkedSegments(long entryId){
         try(Cursor c=readQuery(
@@ -824,6 +843,8 @@ public final class LocalStore extends SQLiteOpenHelper {
             UnifiedCollection collection=unifiedForGroup(groupId);
             if(collection==null)throw new IllegalStateException("Коллекция больше не существует");
             long id=restoreOrAddStudyPassage(groupId,reference,verses);
+            db.execSQL("UPDATE collection_book_chapters SET independent=1 WHERE collection_id=? AND entry_id=?",
+                new Object[]{collection.id,id});
             syncUnifiedCollection(collection.id,bible);
             try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM unified_entry_cards x "+
                 "JOIN card_deck_members m ON m.card_id=x.card_id AND m.deck_id=? "+
@@ -841,6 +862,153 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();return id;
         }finally{db.endTransaction();}
     }
+    public SortedMap<Integer,SortedMap<Integer,Long>> collectionBooks(long groupId){
+        SortedMap<Integer,SortedMap<Integer,Long>> books=new TreeMap<>();
+        try(Cursor c=readQuery("SELECT b.book,b.chapter,b.entry_id FROM collection_book_chapters b "+
+            "JOIN unified_collections u ON u.id=b.collection_id WHERE u.group_id=?",
+            new String[]{String.valueOf(groupId)})){
+            while(c.moveToNext())
+                books.computeIfAbsent(c.getInt(0),key->new TreeMap<>()).put(c.getInt(1),c.getLong(2));
+        }
+        return books;
+    }
+
+    /** Promote a generated chapter when an identical range is saved independently. */
+    public boolean retainBookChapter(long groupId,long entryId){
+        ContentValues values=new ContentValues();
+        values.put("independent",1);
+        return getWritableDatabase().update("collection_book_chapters",values,
+            "entry_id=? AND independent=0 AND collection_id=(SELECT id FROM unified_collections WHERE group_id=?)",
+            new String[]{String.valueOf(entryId),String.valueOf(groupId)})>0;
+    }
+
+    /** Each chapter stays a normal study entry. A full book owns only these extra memberships. */
+    public void addBibleChapters(long groupId,int book,Collection<Integer> chapters,boolean wholeBook,Bible bible){
+        int chapterCount=bible.chapterCount(book);
+        if(chapterCount==0)throw new IllegalArgumentException("Книга не найдена");
+        SortedSet<Integer> selected=new TreeSet<>(chapters);
+        if(wholeBook)for(int chapter=1;chapter<=chapterCount;chapter++)selected.add(chapter);
+        if(selected.isEmpty())return;
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransactionNonExclusive();
+        try{
+            UnifiedCollection collection=unifiedForGroup(groupId);
+            if(collection==null)throw new IllegalStateException("Коллекция больше не существует");
+            SortedMap<Integer,Long> owned=collectionBooks(groupId).getOrDefault(book,new TreeMap<>());
+            if(wholeBook&&owned.size()==chapterCount){db.setTransactionSuccessful();return;}
+            long archive=libraryId(db);
+            Map<String,List<Entry>> candidates=new HashMap<>();
+            String prefix=Bible.NAMES[book-1]+" ";
+            try(Cursor c=readQuery("SELECT "+FIELDS+" FROM entries WHERE group_id IN (?,?) "+
+                "AND reference>=? AND reference<? ORDER BY CASE WHEN group_id=? THEN 0 ELSE 1 END,id",
+                new String[]{String.valueOf(groupId),String.valueOf(archive),prefix,Bible.NAMES[book-1]+"!",String.valueOf(groupId)})){
+                while(c.moveToNext()){
+                    Entry entry=readEntry(c);
+                    candidates.computeIfAbsent(entry.reference,key->new ArrayList<>()).add(entry);
+                }
+            }
+            Map<Long,Long> cardIds=new HashMap<>();
+            try(Cursor c=readQuery("SELECT first_chapter,first_verse,id FROM flashcards "+
+                "WHERE book_id=? AND first_chapter=last_chapter AND first_verse=last_verse",
+                new String[]{String.valueOf(book)})){
+                while(c.moveToNext())cardIds.put(verseCoordinate(c.getInt(0),c.getInt(1)),c.getLong(2));
+            }
+            int nextOrder;
+            try(Cursor c=readQuery("SELECT COALESCE(MAX(position),-1)+1 FROM study_order WHERE group_id=?",
+                new String[]{String.valueOf(groupId)})){c.moveToFirst();nextOrder=c.getInt(0);}
+            for(int chapter:selected){
+                Long ownedEntry=owned.get(chapter);
+                if(ownedEntry!=null){
+                    if(!wholeBook)db.execSQL("UPDATE collection_book_chapters SET independent=1 "+
+                        "WHERE collection_id=? AND book=? AND chapter=?",new Object[]{collection.id,book,chapter});
+                    continue;
+                }
+                List<Bible.Verse> verses=bible.chapter(book,chapter);
+                if(verses.isEmpty())throw new IllegalArgumentException("Глава не найдена");
+                String reference=Bible.reference(book,chapter,1,chapter,verses.size());
+                Entry match=null;
+                for(Entry candidate:candidates.getOrDefault(reference,Collections.emptyList())){
+                    if(sameVerses(candidate.lines(),verses)){match=candidate;break;}
+                }
+                boolean alreadyInGroup=match!=null&&match.groupId==groupId;
+                long entryId;
+                if(match==null)entryId=add(groupId,reference,reference,verses);
+                else{
+                    entryId=match.id;
+                    if(!alreadyInGroup)db.execSQL("UPDATE entries SET group_id=? WHERE id=?",new Object[]{groupId,entryId});
+                }
+                if(!alreadyInGroup)db.execSQL("INSERT OR REPLACE INTO study_order(entry_id,group_id,position) VALUES(?,?,?)",
+                    new Object[]{entryId,groupId,nextOrder++});
+                if(wholeBook)db.execSQL("INSERT INTO collection_book_chapters VALUES(?,?,?,?,?)",
+                    new Object[]{collection.id,book,chapter,entryId,alreadyInGroup?1:0});
+                linkBulkChapter(db,collection,book,chapter,entryId,verses,cardIds);
+            }
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+
+    private static boolean sameVerses(List<Bible.Verse> first,List<Bible.Verse> second){
+        if(first.size()!=second.size())return false;
+        for(int i=0;i<first.size();i++)
+            if(!first.get(i).ref.equals(second.get(i).ref)||!first.get(i).text.equals(second.get(i).text))return false;
+        return true;
+    }
+
+    private static long verseCoordinate(int chapter,int verse){
+        return ((long)chapter<<32)|verse;
+    }
+
+    private void linkBulkChapter(SQLiteDatabase db,UnifiedCollection collection,int book,int chapter,
+            long entryId,List<Bible.Verse> verses,Map<Long,Long> cardIds){
+        for(int i=0;i<verses.size();i++){
+            Bible.Verse verse=verses.get(i);
+            int number=Integer.parseInt(verse.ref.substring(verse.ref.indexOf(':')+1));
+            long coordinate=verseCoordinate(chapter,number);
+            Long cardId=cardIds.get(coordinate);
+            if(cardId==null){
+                ContentValues card=new ContentValues();
+                card.put("book_id",book);card.put("first_chapter",chapter);card.put("last_chapter",chapter);
+                card.put("first_verse",number);card.put("last_verse",number);
+                card.put("reference",Bible.reference(book,chapter,number,chapter,number));card.put("content",verse.text);
+                cardId=db.insertOrThrow("flashcards",null,card);
+                cardIds.put(coordinate,cardId);
+            }
+            db.execSQL("INSERT OR IGNORE INTO card_deck_members(deck_id,card_id) VALUES(?,?)",
+                new Object[]{collection.deckId,cardId});
+            db.execSQL("INSERT OR REPLACE INTO unified_entry_cards(collection_id,entry_id,verse_position,card_id) VALUES(?,?,?,?)",
+                new Object[]{collection.id,entryId,i,cardId});
+            db.execSQL("INSERT OR IGNORE INTO unified_card_entries(collection_id,card_id,entry_id) VALUES(?,?,?)",
+                new Object[]{collection.id,cardId,entryId});
+        }
+    }
+
+    public void removeBibleBook(long groupId,int book){
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransactionNonExclusive();
+        try{
+            UnifiedCollection collection=unifiedForGroup(groupId);
+            if(collection==null)throw new IllegalStateException("Коллекция больше не существует");
+            String detached="SELECT entry_id FROM collection_book_chapters "+
+                "WHERE collection_id=? AND book=? AND independent=0";
+            Object[] owner={collection.id,book};
+            db.execSQL("UPDATE entries SET group_id=? WHERE group_id=? AND id IN ("+detached+")",
+                new Object[]{libraryId(db),groupId,collection.id,book});
+            db.execSQL("DELETE FROM study_order WHERE entry_id IN ("+detached+")",owner);
+            db.execSQL("DELETE FROM card_deck_members WHERE deck_id=? AND card_id IN ("+
+                "SELECT card_id FROM unified_entry_cards WHERE collection_id=? AND entry_id IN ("+detached+")) "+
+                "AND card_id NOT IN (SELECT x.card_id FROM unified_entry_cards x JOIN entries e ON e.id=x.entry_id "+
+                "WHERE x.collection_id=? AND e.group_id=?)",
+                new Object[]{collection.deckId,collection.id,collection.id,book,collection.id,groupId});
+            db.execSQL("DELETE FROM unified_entry_cards WHERE collection_id=? AND entry_id IN ("+detached+")",
+                new Object[]{collection.id,collection.id,book});
+            db.execSQL("DELETE FROM unified_card_entries WHERE collection_id=? AND entry_id IN ("+detached+") "+
+                "AND card_id NOT IN (SELECT card_id FROM card_deck_members WHERE deck_id=?)",
+                new Object[]{collection.id,collection.id,book,collection.deckId});
+            db.execSQL("DELETE FROM collection_book_chapters WHERE collection_id=? AND book=?",owner);
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+
     /** Moving the original row back retains all FK-linked lesson/recall history. */
     public long restoreOrAddStudyPassage(long groupId,String reference,List<Bible.Verse> verses){
         if(verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустой отрывок");
