@@ -118,9 +118,9 @@ public final class MainActivity extends Activity {
     private int blurSeed=new Random().nextInt();
     private boolean orderCompleted=false;
     // Three-phase fullscreen lesson: stable footer, adaptive word-tile exercises.
-    private int lessonVariant=0,lessonChunk=0,lessonPicked=0,lessonWrongTile=-1;
+    private int lessonVariant=0,lessonChunk=0;
     private long lessonSeed=new Random().nextLong();
-    private final List<Integer> lessonUsedTiles=new ArrayList<>();
+    private final LessonAssemblyState lessonAssembly=new LessonAssemblyState();
     private boolean lessonPracticeAgain=false,lessonWriteHadFeedback=false;
     private Runnable revealCleanup=()->{};
     private final List<LocalStore.DueItem> reviewQueue=new ArrayList<>();
@@ -5101,8 +5101,8 @@ public final class MainActivity extends Activity {
             .putInt(key+"mask",mask);
         LessonExerciseState exercise=new LessonExerciseState(
             resumableWritingDraft(draft,answerReview!=null||lessonWriteHadFeedback),
-            blurSeed,lessonVariant,lessonChunk,lessonPicked,lessonSeed,savedAssemblyFingerprint,
-            rotationExerciseKey,rotationExerciseSeed,rotationMask,lessonUsedTiles,lessonWriteVariant,
+            blurSeed,lessonVariant,lessonChunk,lessonAssembly.picked(),lessonSeed,savedAssemblyFingerprint,
+            rotationExerciseKey,rotationExerciseSeed,rotationMask,lessonAssembly.usedTiles(),lessonWriteVariant,
             groupIntroDone,groupBuildDone,practiceWeakFragment,weakFragmentText);
         LessonExercisePreferences.write(editor,key,exercise)
             .putBoolean(key+"pending",reviewMode||groupMode)
@@ -5133,12 +5133,12 @@ public final class MainActivity extends Activity {
         mask=trainingMode==TrainingMode.HIDE?Math.max(0,Math.min(100,pref.getInt(key+"mask",0))):0;
         LessonExerciseState exercise=LessonExercisePreferences.read(pref,key,linked,groupIntroDone,groupBuildDone);
         blurSeed=exercise.blurSeed();draft=exercise.draft();
-        lessonVariant=exercise.variant();lessonChunk=exercise.chunk();lessonPicked=exercise.picked();
+        lessonVariant=exercise.variant();lessonChunk=exercise.chunk();
         savedAssemblyFingerprint=exercise.assemblyFingerprint();lessonSeed=exercise.seed();
         rotationExerciseKey=exercise.rotationExerciseKey();rotationExerciseSeed=exercise.rotationExerciseSeed();
         rotationMask=exercise.rotationMask();
-        lessonUsedTiles.clear();lessonUsedTiles.addAll(exercise.usedTiles());
-        lessonWrongTile=-1;lessonPracticeAgain=false;lessonWriteHadFeedback=false;
+        lessonAssembly.restore(exercise.picked(),exercise.usedTiles());
+        lessonPracticeAgain=false;lessonWriteHadFeedback=false;
         lessonWriteVariant=exercise.writeVariant();
         groupIntroDone=exercise.groupIntroDone();groupBuildDone=exercise.groupBuildDone();
         practiceWeakFragment=exercise.practiceWeak();weakFragmentText=exercise.weakFragment();
@@ -5240,9 +5240,9 @@ public final class MainActivity extends Activity {
     }
     private void resetTrainingStep(LocalStore.Entry e) {
         savedAssemblyFingerprint="";
-        lessonVariant=0;lessonChunk=0;lessonPicked=0;lessonWrongTile=-1;lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;
+        lessonVariant=0;lessonChunk=0;lessonAssembly.reset();lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;
         practiceWeakFragment=false;weakFragmentText="";
-        lessonSeed=new Random().nextLong();lessonUsedTiles.clear();lessonPracticeAgain=false;
+        lessonSeed=new Random().nextLong();lessonPracticeAgain=false;
         rotationExerciseKey="";rotationMask="";rotationExerciseSeed=0L;
         lessonWriteHadFeedback=false;
         mask=0;checked=false;passed=false;draft="";lastAccuracy=-1;
@@ -5855,7 +5855,7 @@ public final class MainActivity extends Activity {
             assemblyReference(e);
             boolean complete=renderLessonBuild(e);
             mainAction=button("Продолжить",true,()->{
-                if(lessonPicked>=lessonBuildRequired)advanceLessonBuild(e);
+                if(lessonAssembly.picked()>=lessonBuildRequired)advanceLessonBuild(e);
             });
             mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
             mainAction.setTextSize(22);
@@ -6044,7 +6044,7 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(passage)).size());
         int buildTotal=0,buildDone=0;
         boolean assembled=phase==LessonCurriculumLogic.Phase.BUILD&&
-            lessonBuildRequired>0&&lessonPicked==lessonBuildRequired;
+            lessonBuildRequired>0&&lessonAssembly.picked()==lessonBuildRequired;
         for(int i=0;i<variants.size();i++){
             int count=Math.max(1,lessonChunks(source,variants.get(i)).size());
             buildTotal+=count;
@@ -6224,7 +6224,7 @@ public final class MainActivity extends Activity {
         // No extra instructional caption: gesture behavior remains unchanged.
     }
     private void resetLessonTiles(){
-        lessonPicked=0;lessonWrongTile=-1;lessonUsedTiles.clear();lessonSeed=new Random().nextLong();
+        lessonAssembly.reset();lessonSeed=new Random().nextLong();
     }
     private final class BuildSlot extends TextView {
         private final String token;
@@ -6466,14 +6466,14 @@ public final class MainActivity extends Activity {
     private void updateLessonBuildView(){
         for(int i=0;i<lessonBuildSlots.size();i++){
             BuildSlot slot=lessonBuildSlots.get(i);
-            if(slot.filled!=(i<lessonPicked))slot.showWord(i<lessonPicked);
+            if(slot.filled!=(i<lessonAssembly.picked()))slot.showWord(i<lessonAssembly.picked());
         }
         for(int i=0;i<lessonBuildTiles.size();i++){
             TextView tile=lessonBuildTiles.get(i);
             int idx=(Integer)tile.getTag();
-            int visibility=lessonUsedTiles.contains(idx)?View.INVISIBLE:View.VISIBLE;
+            int visibility=lessonAssembly.used(idx)?View.INVISIBLE:View.VISIBLE;
             if(tile.getVisibility()!=visibility)tile.setVisibility(visibility);
-            boolean wrong=idx==lessonWrongTile;
+            boolean wrong=idx==lessonAssembly.wrongTile();
             // A wrong tap changes at most two tiles (previous and current).
             // Avoid allocating new GradientDrawables and invalidating every tile.
             if(tile.isSelected()!=wrong){
@@ -6483,8 +6483,8 @@ public final class MainActivity extends Activity {
                     wrong?0xFFE6B4A7:0xFFFFF9F0));
             }
         }
-        if(lessonBuildAction!=null&&lessonBuildAction.isEnabled()!=(lessonPicked==lessonBuildRequired))
-            styleAssemblyContinue(lessonBuildAction,lessonPicked==lessonBuildRequired);
+        if(lessonBuildAction!=null&&lessonBuildAction.isEnabled()!=(lessonAssembly.picked()==lessonBuildRequired))
+            styleAssemblyContinue(lessonBuildAction,lessonAssembly.picked()==lessonBuildRequired);
     }
     /** Choose a balanced random mask once per exercise, never once per screen redraw. */
     private int[] lessonMissingPositions(String[] tokens,LessonCurriculumLogic.Variant kind){
@@ -6533,9 +6533,7 @@ public final class MainActivity extends Activity {
         // do not add an instruction card for any assembly variant.
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
-        if(!SessionIntegrityLogic.validAssemblyPrefix(tokens,missing,lessonPicked,lessonUsedTiles)){
-            lessonPicked=0;lessonUsedTiles.clear();lessonWrongTile=-1;
-        }
+        lessonAssembly.validatePrefix(tokens,missing);
         WrapLayout prompt=new WrapLayout(this,dp(7),true);
         prompt.setPadding(dp(14),dp(16),dp(14),dp(16));
         prompt.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
@@ -6568,15 +6566,11 @@ public final class MainActivity extends Activity {
             String caption=tokens[targetPos].replaceAll("[^\\p{L}\\p{N}\\p{M}\\s]", "").trim();
             TextView tile=wordTile(caption,0xFFFFEEDC,BUILD_INK,0xFFFFF9F0,()->{
                 // The target and bank occupy fixed views. Never call render() on a tile tap.
-                if(lessonUsedTiles.contains(pressed)||lessonPicked>=missing.length)return;
-                int wanted=missing[lessonPicked];
-                if(WordOrderLogic.comparable(tokens[wanted]).equals(WordOrderLogic.comparable(tokens[targetPos]))){
-                    lessonPicked++;lessonUsedTiles.add(pressed);lessonWrongTile=-1;
-                }else lessonWrongTile=pressed;
+                if(lessonAssembly.tap(tokens,missing,pressed)==LessonAssemblyState.Tap.IGNORED)return;
                 updateLessonBuildView();
                 // The progress bar advances per completed exercise, not per word.
                 // Avoid re-querying mastery and recomputing every layout on each tap.
-                if(lessonPicked==lessonBuildRequired)
+                if(lessonAssembly.picked()==lessonBuildRequired)
                     refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
                 saveTrainingSession();
             });
@@ -6589,7 +6583,7 @@ public final class MainActivity extends Activity {
         }
         add(content,choices,14);
         updateLessonBuildView();
-        return lessonPicked==missing.length;
+        return lessonAssembly.picked()==missing.length;
     }
     private void advanceLessonBuild(LocalStore.Entry e){
         List<String> source=new ArrayList<>();
