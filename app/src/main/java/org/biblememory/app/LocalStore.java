@@ -650,6 +650,29 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
         } finally{db.endTransaction();}
     }
+    /** One successful answer is committed as one unit. Nested SQLite transactions
+     * join this outer transaction, so a failed schedule/mastery write rolls back
+     * the recall counter and attempt history too. */
+    public void commitSuccessfulRecall(long id,String stage,int start,int end,
+            boolean verseRun,boolean finishLesson,long now){
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try{
+            if(verseRun){
+                for(int i=start;i<end;i++){
+                    recordRecall(id,"VERSE",i,i+1,100,false,now);
+                    scheduleReview(id,"VERSE",i,i+1,100,false,now);
+                }
+            }else{
+                recordRecall(id,stage,start,end,100,false,now);
+                // The first schedule must be calculated before mastery is written.
+                scheduleReview(id,stage,start,end,100,false,now);
+                if(finishLesson)finishExercise(id,start,5);
+                if(!isStepMastered(id,stage,start,end))markMastered(id,start,end,100,stage);
+            }
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
     /** Every typed attempt is retained locally, with delayed recall recorded separately. */
     public void recordRecall(long entryId,String stage,int start,int end,int accuracy,
                              boolean assisted,long now) {
