@@ -11,9 +11,11 @@ public final class CollectionProgressSnapshot {
         final boolean canonical;
         final int book;
         final boolean[] mastered,consolidated;
+        final int[] completed;
         int exercises,linked,order=1000000;
         State(LocalStore.Entry e){entry=e;lines=e.lines();book=LocalStore.bibleBookFromReference(e.reference);canonical=book>0;
-            mastered=new boolean[lines.size()];consolidated=new boolean[lines.size()];}
+            mastered=new boolean[lines.size()];consolidated=new boolean[lines.size()];
+            completed=new int[lines.size()];}
     }
     private final Map<Long,State> states=new HashMap<>();
     private final Map<List<String>,List<long[]>> locations=new HashMap<>();
@@ -46,8 +48,16 @@ public final class CollectionProgressSnapshot {
                 if(s!=null&&pos>=0&&pos<s.lines.size()){s.consolidated[pos]=true;
                     if(s.canonical)result.consolidatedOwners.computeIfAbsent(key(s,pos),k->new HashSet<>()).add(s.entry.id);}}
         }
-        try(Cursor c=store.readQuery("SELECT entry_id,SUM(completed) FROM lesson_progress GROUP BY entry_id",null)){
-            while(c.moveToNext()){State s=result.states.get(c.getLong(0));if(s!=null)s.exercises=c.getInt(1);}}
+        try(Cursor c=store.readQuery("SELECT entry_id,position,completed FROM lesson_progress",null)){
+            while(c.moveToNext()){
+                State s=result.states.get(c.getLong(0));
+                if(s!=null){
+                    int pos=c.getInt(1),done=c.getInt(2);
+                    s.exercises+=done;
+                    if(pos>=0&&pos<s.completed.length)s.completed[pos]=done;
+                }
+            }
+        }
         try(Cursor c=store.readQuery("SELECT entry_id,COUNT(*) FROM stage_progress WHERE stage<>'VERSE' GROUP BY entry_id",null)){
             while(c.moveToNext()){State s=result.states.get(c.getLong(0));if(s!=null)s.linked=c.getInt(1);}}
         try(Cursor c=store.readQuery("SELECT entry_id,position FROM study_order",null)){
@@ -95,6 +105,19 @@ public final class CollectionProgressSnapshot {
     public int uniqueVerseCount(long group){return uniqueVerseCounts.getOrDefault(group,0);}
     public int verseCount(long id){State s=states.get(id);return s==null?0:s.lines.size();}
     public boolean mastered(long id,int pos){State s=states.get(id);return s!=null&&pos>=0&&pos<s.lines.size()&&(s.mastered[pos]||shared(s,pos,masteredOwners));}
+    /** Includes shared progress in identical verses, without another SQLite query. */
+    public int exerciseDone(long id,int position){
+        State s=states.get(id);
+        if(s==null||position<0||position>=s.completed.length)return 0;
+        if(mastered(id,position))return 5;
+        int done=s.completed[position];
+        if(s.canonical)for(long[] loc:locations.getOrDefault(key(s,position),Collections.emptyList())){
+            if(loc[0]==id)continue;
+            State owner=states.get(loc[0]);
+            if(owner!=null)done=Math.max(done,owner.completed[(int)loc[1]]);
+        }
+        return done;
+    }
     public long canonicalId(long id){State s=states.get(id);return s==null||!s.canonical?id:canonicalEntries.getOrDefault(passage(s.entry),id);}
     public List<LocalStore.Entry> entries(long group){return Collections.unmodifiableList(groups.getOrDefault(group,Collections.emptyList()));}
     public List<Bible.Verse> verses(long id){
