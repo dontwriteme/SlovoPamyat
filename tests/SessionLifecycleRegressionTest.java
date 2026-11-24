@@ -415,7 +415,7 @@ public class SessionLifecycleRegressionTest {
         store.markMastered(id,1,2,100,"VERSE");
         store.recordRecall(id,"VERSE",1,2,100,false,1000L);
         store.recordRecall(id,"VERSE",1,2,100,false,86402000L);
-        store.scheduleReview(id,"VERSE",1,2,100,true,86402000L);
+        store.scheduleReview(id,"VERSE",1,2,100,false,86402000L);
         assertTrue(store.isStepMastered(id,"VERSE",1,2));
         assertEquals(5,store.exerciseDone(id,1));
         long oldDue;
