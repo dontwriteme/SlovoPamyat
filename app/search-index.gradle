@@ -60,7 +60,8 @@ def stemWord = { String word ->
 }
 
 def bibleFile = file('src/main/assets/synodal.json')
-def indexFile = file('src/main/assets/synodal.sidx')
+def bundledIndex = file('src/main/assets/synodal.sidx')
+def indexFile = layout.buildDirectory.file('synodal-verification/synodal.sidx').get().asFile
 
 tasks.register('createSynodalSearchIndex') {
     dependsOn tasks.named('prepareSynodal')
@@ -222,13 +223,20 @@ tasks.register('createSynodalSearchIndex') {
     }
 }
 
-tasks.named('preBuild').configure {
-    dependsOn tasks.named('createSynodalSearchIndex')
+// Explicit regeneration writes only a candidate; never modifies checked-in assets.
+tasks.register('verifySynodalSearchIndex') {
+    dependsOn tasks.named('createSynodalSearchIndex'), tasks.named('verifyBundledSynodal')
+    doLast {
+        if (java.nio.file.Files.mismatch(indexFile.toPath(), bundledIndex.toPath()) != -1L) {
+            throw new GradleException('Regenerated search index differs from the approved bundled index. See docs/BUILD.md.')
+        }
+        logger.lifecycle('Regenerated search index is byte-identical to the bundled index.')
+    }
 }
 
 tasks.matching {
     it.name.startsWith('merge') &&
             it.name.endsWith('Assets')
 }.configureEach {
-    dependsOn tasks.named('createSynodalSearchIndex')
+    dependsOn tasks.named('verifyBundledSynodal')
 }

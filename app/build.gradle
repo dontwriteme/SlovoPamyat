@@ -21,42 +21,53 @@ android {
     }
 }
 
-// The public-domain Russian Synodal text is bundled into the APK during build.
-// The application itself needs no network permission or runtime connection.
+// Normal builds never fetch or replace Bible data. The tracked assets are the
+// approved offline corpus and its corresponding search index.
 def bibleAsset = file('src/main/assets/synodal.json')
-tasks.register('prepareSynodal') {
-    outputs.file(bibleAsset)
-    doLast {
-        if (bibleAsset.exists() && bibleAsset.length() > 1000000L) {
-            logger.lifecycle('Using bundled Synodal text: ' + bibleAsset.length() + ' bytes')
-            return
-        }
-        def url = 'https://raw.githubusercontent.com/midvash/bible-data/main/versions/ru/synodal/synodal.json'
-        logger.lifecycle('Downloading public-domain Synodal Bible once for packaging...')
-        bibleAsset.parentFile.mkdirs()
-        def tmp = new File(bibleAsset.parentFile, 'synodal.json.tmp')
-        try {
-            def connection = new URL(url).openConnection()
-            connection.setConnectTimeout(20000)
-            connection.setReadTimeout(60000)
-            connection.setRequestProperty('User-Agent','SlovoPamyat-Android-Build/0.1')
-            connection.inputStream.withCloseable { source ->
-                tmp.withOutputStream { target -> target << source }
-            }
-            def parsed = new groovy.json.JsonSlurper().parse(tmp)
-            if (!(parsed.books instanceof List) || parsed.books.size() != 66 ||
-                    parsed.books[0].bookId != 1 || parsed.books[65].bookId != 66) {
-                throw new GradleException('Invalid Bible file: expected 66 books')
-            }
-            java.nio.file.Files.move(tmp.toPath(), bibleAsset.toPath(),
-                 java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        } catch (Exception e) {
-            tmp.delete()
-            throw new GradleException('Could not download full Synodal text for the APK. Connect the development computer to the Internet and rebuild.', e)
+def indexAsset = file('src/main/assets/synodal.sidx')
+def corpusSha256 = '553df7df63cff838fabac65b480aaf1a07ad59d536c14c140c93e1b29d801bb4'
+// The Git blob identifier includes the canonical "blob <size>\0" header.
+def indexGitBlob = '806cc16621f67ae506063b38123bf48c7b611a96'
+
+def digestFile = { File asset, String algorithm, boolean gitBlob ->
+    def digest = java.security.MessageDigest.getInstance(algorithm)
+    if (gitBlob) {
+        digest.update(("blob " + asset.length() + "\u0000").getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
+    asset.withInputStream { stream ->
+        byte[] buffer = new byte[65536]
+        int count
+        while ((count = stream.read(buffer)) != -1) {
+            digest.update(buffer, 0, count)
         }
     }
+    digest.digest().encodeHex().toString()
 }
-tasks.named('preBuild').configure { dependsOn(tasks.named('prepareSynodal')) }
 
+def requireAsset = { File asset, String expected, String algorithm, boolean gitBlob ->
+    if (!asset.isFile()) {
+        throw new GradleException("Missing approved Bible asset: ${asset.name}. Restore it from the checked-in revision; see docs/BUILD.md.")
+    }
+    String actual = digestFile(asset, algorithm, gitBlob)
+    if (actual != expected) {
+        throw new GradleException("Unexpected Bible asset: ${asset.name}; expected ${expected}, got ${actual}. Restore it from Git or follow the reviewed update procedure in docs/BUILD.md.")
+    }
+}
+
+// No outputs: always check the assets, including when other tasks are up-to-date.
+tasks.register('prepareSynodal') {
+    doLast {
+        requireAsset(bibleAsset, corpusSha256, 'SHA-256', false)
+    }
+}
+tasks.register('verifyBundledSynodal') {
+    dependsOn tasks.named('prepareSynodal')
+    doLast {
+        requireAsset(indexAsset, indexGitBlob, 'SHA-1', true)
+    }
+}
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('verifyBundledSynodal')
+}
 
 apply from: 'search-index.gradle'

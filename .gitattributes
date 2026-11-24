@@ -1,0 +1,4 @@
+# Preserve approved Bible bytes across Windows and Unix checkouts.
+app/src/main/assets/synodal.json -text
+app/src/main/assets/synodal.sidx -text
+gradlew text eol=lf
