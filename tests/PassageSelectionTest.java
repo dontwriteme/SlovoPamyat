@@ -50,8 +50,7 @@ public class PassageSelectionTest {
     @Test public void actualPassageTraversalCountsChapterBoundaries()throws Exception {
         Bible bible=new Bible();
         java.lang.reflect.Field f=Bible.class.getDeclaredField("books");f.setAccessible(true);
-        @SuppressWarnings("unchecked") java.util.Map<Integer,java.util.SortedMap<Integer,java.util.List<Bible.Verse>>> books=
-            (java.util.Map<Integer,java.util.SortedMap<Integer,java.util.List<Bible.Verse>>>)f.get(bible);
+        java.util.Map<Integer,java.util.SortedMap<Integer,java.util.List<Bible.Verse>>> books=new java.util.HashMap<>();
         java.util.SortedMap<Integer,java.util.List<Bible.Verse>> chapters=new java.util.TreeMap<>();
         int[] lengths={48,34,29};
         for(int c=5;c<=7;c++){
@@ -62,6 +61,7 @@ public class PassageSelectionTest {
         // chapterCount uses contiguous canonical chapter maps.
         for(int c=1;c<5;c++)chapters.put(c,java.util.Collections.singletonList(new Bible.Verse(c+":1","text")));
         books.put(40,chapters);
+        f.set(bible,books);
         java.util.List<Bible.Verse> range=bible.collectionPassage(40,5,3,7,29);
         assertEquals(109,range.size());assertEquals("5:3",range.get(0).ref);assertEquals("7:29",range.get(108).ref);
         assertEquals(10,bible.collectionPassage(40,5,3,5,12).size());

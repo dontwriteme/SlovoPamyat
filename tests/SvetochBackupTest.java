@@ -29,6 +29,7 @@ public class SvetochBackupTest {
         for(String name:new String[]{"study_session","collection_study_queue","card_sessions",
                 "gap_rotation","unified_library_ui","home_ui","home_verse","bible_last_chapter"})
             context.getSharedPreferences(name,Context.MODE_PRIVATE).edit().clear().commit();
+        Bible.shared().load(context);
         store=new LocalStore(context);
         backup=File.createTempFile("svetoch-backup-",SvetochBackup.EXTENSION,context.getCacheDir());
     }

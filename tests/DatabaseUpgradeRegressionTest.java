@@ -42,7 +42,8 @@ public class DatabaseUpgradeRegressionTest {
         assertNull(store.group(2));
         assertIntegrity();
     }
-    @Test public void versionEightUpgradePreservesDataAndAddsBookMembershipTable(){
+    @Test public void versionEightUpgradePreservesDataAndAddsBookMembershipTable()throws Exception{
+        Bible.shared().load(context);
         store=new LocalStore(context);
         LocalStore.UnifiedCollection u=store.unifiedCollection(store.createUnifiedCollection("Сохранить"));
         long id=store.add(u.groupId,"Бытие","Бытие 1:1",

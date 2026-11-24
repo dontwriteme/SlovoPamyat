@@ -19,12 +19,13 @@ public class LearningDurabilityTest {
     private LocalStore store;
     private long uid,id;
 
-    @Before public void setup(){
+    @Before public void setup()throws Exception{
         context=RuntimeEnvironment.getApplication();
         context.deleteDatabase("slovo_pamyat.db");
         for(String group:Arrays.asList("learning_reset_journal","study_session",
                 "collection_study_queue","gap_rotation","card_sessions","unified_library_ui"))
             prefs(group).edit().clear().commit();
+        Bible.shared().load(context);
         store=new LocalStore(context);
         uid=store.createUnifiedCollection("Сохранить коллекцию");
         LocalStore.UnifiedCollection u=store.unifiedCollection(uid);

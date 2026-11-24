@@ -69,7 +69,8 @@ public final class MainActivity extends Activity {
     private boolean runChecked=false,runPassed=false;
 
     private LocalStore store;
-    private final Bible bible=new Bible();
+    private final Bible bible=Bible.shared();
+    private java.util.concurrent.CompletableFuture<Void> bibleStartup;
     private volatile String bibleError="";
     private int selectedBook=40,selectedChapter=5, mask=0,stepCursor=0;
     private int focusVerse=-1;
@@ -504,20 +505,32 @@ public final class MainActivity extends Activity {
         render();
         // The worker owns collectionStore until its queued close in onDestroy.
         if(resumed)scheduleHomeRefresh();
-        collectionExecutor.execute(this::loadBibleAndSyncCollections);
+        bibleStartup=loadBibleForScreen(bible,getApplicationContext(),this);
     }
 
-    private void loadBibleAndSyncCollections(){
-        try{
-            bible.load(getApplicationContext());
-        }catch(Exception error){
-            collectionHandler.post(()->{
-                if(isDestroyed()||isFinishing())return;
-                bibleError=error.getMessage()==null?"Невозможно открыть текст":error.getMessage();
-                refreshAfterBibleLoad();
-            });
-            return;
+    private static java.util.concurrent.CompletableFuture<Void> loadBibleForScreen(
+            Bible bible,Context context,MainActivity activity){
+        java.lang.ref.WeakReference<MainActivity> target=new java.lang.ref.WeakReference<>(activity);
+        Handler main=new Handler(Looper.getMainLooper());
+        return bible.loadInBackground(context).whenComplete((ignored,failure)->
+            main.post(()->{
+                MainActivity current=target.get();
+                if(current!=null)current.onBibleLoaded(failure);
+            }));
+    }
+
+    private void onBibleLoaded(Throwable failure){
+        if(isDestroyed()||isFinishing()||!ownsData||backupInProgress)return;
+        if(failure!=null){
+            Throwable cause=failure.getCause()==null?failure:failure.getCause();
+            bibleError=cause.getMessage()==null?"Невозможно открыть текст":cause.getMessage();
+            android.util.Log.e("BibleLoader","Unable to load Bible corpus",cause);
         }
+        refreshAfterBibleLoad();
+        if(failure==null)collectionExecutor.execute(this::syncCollectionsAfterBibleLoad);
+    }
+
+    private void syncCollectionsAfterBibleLoad(){
         try{BibleSearchLogic.prepare(getApplicationContext());}
         catch(Exception error){android.util.Log.w("BibleLoader","Unable to prepare Bible search",error);}
         try{
@@ -526,11 +539,14 @@ public final class MainActivity extends Activity {
                 catch(RuntimeException error){android.util.Log.w("BibleLoader","Unable to sync collection "+u.id,error);}
             }
         }catch(RuntimeException error){android.util.Log.w("BibleLoader","Unable to list collections",error);}
-        collectionHandler.post(this::refreshAfterBibleLoad);
+        collectionHandler.post(()->{
+            if(screen==Screen.HOME||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL||
+                isPickerScreen(screen))refreshAfterBibleLoad();
+        });
     }
 
     private void refreshAfterBibleLoad(){
-        if(isDestroyed()||isFinishing())return;
+        if(isDestroyed()||isFinishing()||backupInProgress)return;
         if(isBibleSearchScreen())renderBibleSearchKeepingInput();
         else if(screen==Screen.HOME||screen==Screen.CHAPTERS||screen==Screen.VERSES
                 ||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||isPickerScreen(screen)
@@ -1421,8 +1437,12 @@ public final class MainActivity extends Activity {
             List<BibleSearchLogic.Hit> results;
             String error="";
             try{
-                bible.load(getApplicationContext());BibleSearchLogic.prepare(getApplicationContext());
+                bible.loadInBackground(getApplicationContext()).get();
+                BibleSearchLogic.prepare(getApplicationContext());
                 results=BibleSearchLogic.search(bible,search);
+            }catch(InterruptedException cancelled){
+                Thread.currentThread().interrupt();
+                return;
             }catch(Exception failure){results=java.util.Collections.emptyList();error="Не удалось выполнить поиск.";}
             if(Thread.currentThread().isInterrupted())return;
             final List<BibleSearchLogic.Hit> ready=results;
@@ -4743,6 +4763,7 @@ public final class MainActivity extends Activity {
     }
     /** Pressing 'Повторить изученное' starts the first due exercise immediately. */
     private void startReviewSession() {
+        if(!bibleReadyForRecall())return;
         reviewQueue.clear();reviewPointer=0;
         long now=System.currentTimeMillis();
         ReviewSchedule schedule=store.reviewSchedule();
@@ -5466,6 +5487,7 @@ public final class MainActivity extends Activity {
         boolean finalStage=!reviewMode&&!groupMode && studyStage==StudyPlanLogic.Stage.VERSE &&
             store.exerciseDone(e.id,step.start)==4;
         boolean independent=reviewMode||groupMode||finalStage;
+        if(independent&&!bibleReadyForRecall())return;
         passed=AcceptedTextLogic.exact(expected,draft,special) && (!independent||!testAssisted);
         lastAccuracy=accuracy;lastExpected=closest;lastTestRef=step.title;
         lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
@@ -6724,7 +6746,14 @@ public final class MainActivity extends Activity {
         render();
     }
 
+    private boolean bibleReadyForRecall(){
+        if(bible.isReady())return true;
+        toast(bibleError.isEmpty()?"Библия ещё загружается":"Ошибка встроенного текста: "+bibleError);
+        return false;
+    }
+
     private void showRecallSaveError(RuntimeException error){
+        if(error instanceof Bible.Unavailable){bibleReadyForRecall();return;}
         android.util.Log.e("Learning","Unable to save recall",error);
         toast("Не удалось сохранить ответ. Попробуй ещё раз.");
     }
@@ -7780,6 +7809,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy(){
         BackupCoordinator.detach(this);
+        if(bibleStartup!=null)bibleStartup.cancel(false);
         if(backupDialog!=null)backupDialog.dismiss();
         tabWarmGeneration++;
         tabWarmHandler.removeCallbacksAndMessages(null);

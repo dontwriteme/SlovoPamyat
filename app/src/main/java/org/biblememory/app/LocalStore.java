@@ -65,14 +65,11 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
         return progressSnapshot;
     }
-    private static final Bible REVIEW_BIBLE=new Bible();
-    private final Context context;
     private final Bible reviewBible;
 
-    public LocalStore(Context context){this(context,REVIEW_BIBLE);}
+    public LocalStore(Context context){this(context,Bible.shared());}
     LocalStore(Context context,Bible bible){
         super(context,"slovo_pamyat.db",null,9);
-        this.context=context.getApplicationContext();
         reviewBible=bible;
         setWriteAheadLoggingEnabled(true);
     }
@@ -81,8 +78,6 @@ public final class LocalStore extends SQLiteOpenHelper {
         int book=bibleBookFromReference(entry.reference);
         int[] coordinate=verseNumbers(verse.ref);
         if(book==0||coordinate==null||coordinate[0]<1||coordinate[1]<1)return false;
-        try{reviewBible.load(context);}
-        catch(java.io.IOException error){throw new IllegalStateException("Не удалось сверить стих с Библией",error);}
         return reviewBible.matchesVerse(book,coordinate[0],coordinate[1],verse);
     }
 

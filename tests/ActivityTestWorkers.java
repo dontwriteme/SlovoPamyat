@@ -19,6 +19,10 @@ final class ActivityTestWorkers {
     }
 
     static void awaitStartup(MainActivity activity)throws Exception{
+        Field field=MainActivity.class.getDeclaredField("bibleStartup");
+        field.setAccessible(true);
+        ((java.util.concurrent.Future<?>)field.get(activity)).get(30,TimeUnit.SECONDS);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
         awaitCollectionWork(activity);
     }
 

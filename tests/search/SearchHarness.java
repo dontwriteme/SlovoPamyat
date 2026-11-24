@@ -1,11 +1,11 @@
 package org.biblememory.app;
 import java.util.*;import java.nio.*;import java.nio.file.*;import java.lang.reflect.*;import java.security.*;
 public class SearchHarness {
- @SuppressWarnings("unchecked") public static Bible fixture(String fixture,String indexFile)throws Exception {
+ public static Bible fixture(String fixture,String indexFile)throws Exception {
   Bible b=new Bible();Field f=Bible.class.getDeclaredField("books");f.setAccessible(true);
-  Map<Integer,SortedMap<Integer,List<Bible.Verse>>> books=(Map<Integer,SortedMap<Integer,List<Bible.Verse>>>)f.get(b);
+  Map<Integer,SortedMap<Integer,List<Bible.Verse>>> books=new HashMap<>();
   for(String line:Files.readAllLines(Path.of(fixture))){String[] a=line.split("\t");int book=Integer.parseInt(a[0]),c=Integer.parseInt(a[1]);books.computeIfAbsent(book,k->new TreeMap<>()).computeIfAbsent(c,k->new ArrayList<>()).add(new Bible.Verse(c+":"+a[2],new String(Base64.getDecoder().decode(a[3]),java.nio.charset.StandardCharsets.UTF_8)));}
-  f=Bible.class.getDeclaredField("ready");f.setAccessible(true);f.set(b,true);
+  f.set(b,books);
   Class<?> idx=Class.forName("org.biblememory.app.BibleSearchLogic$Index");Constructor<?> constructor=idx.getDeclaredConstructor(ByteBuffer.class);constructor.setAccessible(true);
   Object index=constructor.newInstance(ByteBuffer.wrap(Files.readAllBytes(Path.of(indexFile))).order(ByteOrder.BIG_ENDIAN));
   f=BibleSearchLogic.class.getDeclaredField("INDEX");f.setAccessible(true);f.set(null,index);return b;
