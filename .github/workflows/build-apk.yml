@@ -5,6 +5,10 @@ on:
   push:
     branches: [main, master, work]
 
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -44,6 +48,7 @@ jobs:
           gradle --no-daemon -I tests/validation.init.gradle :app:testDebugUnitTest
           --tests org.biblememory.app.SvetochBackupTest
           --tests org.biblememory.app.SessionIntegrityLogicTest
+          --tests org.biblememory.app.SessionLifecycleRegressionTest
           --tests org.biblememory.app.CollectionProgressSnapshotTest
           --tests org.biblememory.app.OrthographyContractTest
           --tests org.biblememory.app.AnswerReviewLogicTest
