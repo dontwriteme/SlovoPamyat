@@ -34,6 +34,41 @@ public class CollectionProgressSnapshotTest {
   try(android.database.Cursor c=store.getReadableDatabase().rawQuery("SELECT due FROM review_schedule WHERE entry_id=?",new String[]{""+b})){assertTrue(c.moveToFirst());assertEquals(123456789,c.getLong(0));}
   try(android.database.Cursor c=store.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM review_attempts",null)){c.moveToFirst();assertEquals(1,c.getInt(0));}
  }
+ @Test public void recommendationAndBridgePlanningUseOneSnapshotWithIdenticalResults(){
+  List<Bible.Verse> verses=new ArrayList<>();List<String> refs=new ArrayList<>();
+  for(int i=1;i<=120;i++){String ref="1:"+i;refs.add(ref);verses.add(new Bible.Verse(ref,"Слово "+i));}
+  long id=store.add(group,"Длинный отрывок","Свой текст",verses);
+  for(int i=0;i<120;i++)store.markMastered(id,i,i+1,100,"VERSE");
+  for(int i=0;i<119;i++)store.markMastered(id,i,i+2,100,"CHAIN");
+  store.recordRecall(id,"VERSE",119,120,50,false,1000L);
+  CollectionProgressSnapshot snapshot=store.collectionProgress();
+  AdaptiveLearningLogic.Recommendation expected=AdaptiveLearningLogic.recommend(
+      refs,false,store.progressFor(id),2000L);
+  long before=store.readQueryCount();
+  AdaptiveLearningLogic.Recommendation actual=AdaptiveLearningLogic.recommend(
+      refs,false,snapshot.recommendationProgress(id),2000L);
+  GroupLearningLogic.Candidate candidate=GroupLearningLogic.next(refs,snapshot.groupProgress(id),false);
+  assertEquals(expected.stage,actual.stage);assertEquals(expected.index,actual.index);
+  assertEquals(expected.reason,actual.reason);
+  assertNotNull(candidate);assertEquals("CHAIN",candidate.stage);
+  assertEquals(0,candidate.start);assertEquals(3,candidate.end);
+  assertEquals("Planning must not perform SQL per verse",0L,store.readQueryCount()-before);
+ }
+ @Test public void combinedRecallDoesNotRebuildSnapshotForEveryVerse(){
+  List<Bible.Verse> verses=new ArrayList<>();
+  for(int i=1;i<=80;i++)verses.add(new Bible.Verse("1:"+i,"Слово "+i));
+  long id=store.add(group,"Длинное повторение","Свой текст",verses);
+  for(int i=0;i<80;i++)store.markMastered(id,i,i+1,100,"VERSE");
+  long before=store.readQueryCount();
+  store.commitSuccessfulRecall(id,"CHAIN",0,80,true,false,10000L);
+  long reads=store.readQueryCount()-before;
+  assertTrue("Repeated progress snapshot reads: "+reads,reads<=10);
+  try(android.database.Cursor c=store.getReadableDatabase().rawQuery(
+      "SELECT COUNT(*) FROM review_schedule WHERE entry_id=?",new String[]{""+id})){
+      assertTrue(c.moveToFirst());assertEquals(80,c.getInt(0));
+  }
+  assertEquals(80,store.masteryCount(id));
+ }
  @Test public void rollbackDoesNotPublishOrPoisonCachedProgress(){
   long a=add(group,"Галатам 1:1","один");CollectionProgressSnapshot before=store.collectionProgress();
   android.database.sqlite.SQLiteDatabase db=store.getWritableDatabase();db.beginTransaction();
