@@ -104,7 +104,7 @@ public class WritingWorkerTest {
         assertNull(field("pendingWritingCheck"));
         ActivityTestWorkers.awaitWriting(activity);
         assertEquals(1,attempts());
-        assertEquals(ANSWER,field("draft"));
+        assertEquals(ANSWER,((LessonWritingState)field("lessonWriting")).draft);
         assertNull(field("answerReview"));
     }
 
@@ -135,7 +135,7 @@ public class WritingWorkerTest {
         Method start=MainActivity.class.getDeclaredMethod("startReviewSession");start.setAccessible(true);
         start.invoke(activity);
         assertEquals(1,attempts());
-        assertEquals(ANSWER,field("draft"));
+        assertEquals(ANSWER,((LessonWritingState)field("lessonWriting")).draft);
         assertNull(field("answerReview"));
     }
 
