@@ -41,7 +41,7 @@ public class LessonHotbarIntegrationTest {
         assertOnlyStrip(LessonCurriculumLogic.Phase.INTRO);
         store.finishExercise(id,0,1);invoke("render");
         assertOnlyStrip(LessonCurriculumLogic.Phase.BUILD);
-        assertNotNull(text((View)get("root"),LearningHelp.BUILD_PROMPT));
+        assertNull(text((View)get("root"),LearningHelp.BUILD_PROMPT));
         assertFalse(java.util.regex.Pattern.compile("\\d+\\s*/\\s*\\d+\\s+слов")
             .matcher(visibleText((View)get("root"))).find());
         store.finishExercise(id,0,3);invoke("render");
@@ -77,7 +77,7 @@ public class LessonHotbarIntegrationTest {
         assertSame(root,get("root"));
         assertEquals(0,get("lessonPicked"));
         assertEquals(0xFF923C37,wrong.getCurrentTextColor());
-        assertNotNull(text(root,LearningHelp.BUILD_ERROR));
+        assertNull(text(root,"Это слово сейчас не подходит. Попробуй выбрать другое."));
         assertEquals(before.completedCount,model(LessonCurriculumLogic.Phase.BUILD).completedCount);
         for(String word:new String[]{"Слово","истины","живо"}){
             TextView tile=assemblyTiles().stream().filter(t->word.contentEquals(t.getText())).findFirst().get();
@@ -121,7 +121,7 @@ public class LessonHotbarIntegrationTest {
         call("openGroup",new Class<?>[]{GroupLearningLogic.Candidate.class},
             GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
         text((View)get("root"),"Продолжить").performClick();
-        assertNotNull(text((View)get("root"),"Восстанови пропущенные слова в правильном порядке."));
+        assertNull(text((View)get("root"),"Восстанови пропущенные слова в правильном порядке."));
         // Advance through the first short verse to the longer second fragment of the same group.
         set("lessonPicked",get("lessonBuildRequired"));invoke("updateLessonBuildView");
         ((TextView)get("lessonBuildAction")).performClick();
