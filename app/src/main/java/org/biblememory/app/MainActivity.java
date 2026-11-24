@@ -4708,8 +4708,9 @@ public final class MainActivity extends Activity {
             old.getString("review_review_stage","").equals(first.stage);
         openReview(first);
         if(restore){
-            draft=resumableWritingDraft(old.getString("review_draft",""),
-                old.getBoolean("review_lesson_had_feedback",false));
+            draft=old.getBoolean("review_practice_weak",false)?"":
+                resumableWritingDraft(old.getString("review_draft",""),
+                    old.getBoolean("review_lesson_had_feedback",false));
             render();
         }
     }
@@ -7341,31 +7342,21 @@ public final class MainActivity extends Activity {
 
     // ===== Independent writing run: diagnostic only, never modifies lesson/review tables. =====
     private String runKey(long collection){return "writing_run_"+collection+"_";}
-    private static String runVerseKey(LocalStore.Entry e,Bible.Verse v){
-        boolean canonical=false;
-        for(String book:Bible.NAMES)if(e.reference.startsWith(book+" ")){canonical=true;break;}
-        String bookName="";
-        if(canonical)for(String book:Bible.NAMES)if(e.reference.startsWith(book+" ")){
-            bookName=book;break;
-        }
-        return canonical?bookName+"|"+v.ref+"|"+v.text:
-            "custom:"+e.id+":"+v.ref;
-    }
     private void buildRunLines(LocalStore.UnifiedCollection u){
         runLines.clear();
-        Map<String,Boolean> confirmed=new HashMap<>();
-        for(LocalStore.Entry e:store.allEntries()){
-            List<Bible.Verse> lines=e.lines();
-            for(int i=0;i<lines.size();i++)if(store.consolidated(e.id,"VERSE",i,i+1))
-                confirmed.put(runVerseKey(e,lines.get(i)),true);
-        }
-        Set<String> seen=new HashSet<>();
-        for(LocalStore.Entry e:store.entries(u.groupId)){
+        // A transactionally consistent snapshot replaces thousands of per-verse
+        // lookups and resolves shared progress across collections once.
+        CollectionProgressSnapshot snapshot=store.collectionProgress();
+        Set<List<String>> seen=new HashSet<>();
+        for(LocalStore.Entry e:snapshot.entries(u.groupId)){
             int book=bookForEntry(e);
-            List<Bible.Verse> lines=e.lines();
+            List<Bible.Verse> lines=snapshot.verses(e.id);
             for(int i=0;i<lines.size();i++){
-                Bible.Verse line=lines.get(i);String key=runVerseKey(e,line);
-                if(!seen.add(key) || !confirmed.containsKey(key))continue;
+                Bible.Verse line=lines.get(i);
+                List<String> key=book>0?
+                    Arrays.asList("bible",Integer.toString(book),line.ref,line.text):
+                    Arrays.asList("custom",Long.toString(e.id),Integer.toString(i));
+                if(!snapshot.verseConsolidated(e.id,i)||!seen.add(key))continue;
                 String reference=book>0?Bible.NAMES[book-1]+" "+line.ref:
                     e.reference+(lines.size()>1?" · "+(i+1):"");
                 runLines.add(new RunLine(e.id,i,reference,line.text));
