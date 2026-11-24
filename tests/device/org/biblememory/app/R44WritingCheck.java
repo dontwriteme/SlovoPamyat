@@ -135,7 +135,7 @@ public final class R44WritingCheck extends Instrumentation {
                     Method open=MainActivity.class.getDeclaredMethod("openReview",LocalStore.DueItem.class);
                     open.setAccessible(true);
                     open.invoke(activity,new LocalStore.DueItem(entry,"VERSE",0,1,0));
-                    field("draft").set(activity,text.toString());
+                    ((LessonWritingState)field("lessonWriting").get(activity)).draft=text.toString();
                     Method validate=MainActivity.class.getDeclaredMethod("validateLessonWriting",LocalStore.Entry.class);
                     validate.setAccessible(true);validate.invoke(activity,store.entry(entry));
                     require(field("pendingWritingCheck").get(activity)!=null,"submission queued");
