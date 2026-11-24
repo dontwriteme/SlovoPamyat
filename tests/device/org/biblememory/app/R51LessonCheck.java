@@ -182,7 +182,7 @@ public final class R51LessonCheck extends Instrumentation {
             checkLesson(id);
             LocalStore.DueItem item=(LocalStore.DueItem)get("currentReview");
             require((run?"VERSE_RUN":"VERSE").equals(item.stage),"Review kind");
-            require("Незавершённое повторение".equals(get("draft")),"Review draft");
+            require("Незавершённое повторение".equals(((LessonWritingState)get("lessonWriting")).draft),"Review draft");
             activity.onBackPressed();
             return null;
         });
