@@ -22,8 +22,14 @@ jobs:
         run: |
           # GitHub Ubuntu runners already include Android cmdline tools.
           # The previous setup action requested the obsolete "tools" package.
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install 'platforms;android-35' 'build-tools;35.0.0'
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDK_MANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          if [ -z "$SDK_MANAGER" ]; then
+            echo "Android SDK command-line tools not found under $SDK_ROOT" >&2
+            exit 1
+          fi
+          yes | "$SDK_MANAGER" --licenses >/dev/null || true
+          "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --install 'platforms;android-35' 'build-tools;35.0.0'
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
