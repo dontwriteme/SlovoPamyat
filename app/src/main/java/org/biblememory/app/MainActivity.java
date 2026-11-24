@@ -453,6 +453,16 @@ public final class MainActivity extends Activity {
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         store=new LocalStore(this);
         collectionStore=new LocalStore(getApplicationContext());
+        try{
+            LearningReset.recover(getApplicationContext(),store);
+        }catch(Exception error){
+            android.util.Log.e("LearningReset","Interrupted reset could not be completed",error);
+            new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                .setTitle("Не удалось завершить сброс")
+                .setMessage("Закрой приложение и открой снова, чтобы завершить начатый сброс прогресса.")
+                .setCancelable(false).setPositiveButton("Закрыть",(d,w)->finish()).show();
+            return;
+        }
         activeUnifiedId=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).getLong("active",-1);
         ensureActiveUnified();
         restoreCollectionQueue();
@@ -523,7 +533,7 @@ public final class MainActivity extends Activity {
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
-        if(store!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
+        if(store!=null && root!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
         dismissModeInfo(false);
@@ -4852,7 +4862,7 @@ public final class MainActivity extends Activity {
                 !store.isStepMastered(id,stage,a,b)){
                 GroupLearningLogic.Candidate cand=GroupLearningLogic.candidate(stage,a,b,"Продолжить связку");
                 returnVerseCursor=linked.getInt(lk+"return_cursor",0);
-                openGroup(cand);restoreTrainingSession(id,true);
+                prepareGroup(cand);restoreTrainingSession(id,true);
                 returnVerseCursor=linked.getInt(lk+"return_cursor",0);render();return;
             }
             linked.edit().remove(lk+"pending").apply();
@@ -5417,17 +5427,23 @@ public final class MainActivity extends Activity {
         },current,isSermon(e));
     }
     private void openGroup(GroupLearningLogic.Candidate group){
+        prepareGroup(group);
+        saveTrainingSession();
+        render();
+    }
+    private void prepareGroup(GroupLearningLogic.Candidate group){
         if(!groupMode) returnVerseCursor=studyStage==StudyPlanLogic.Stage.VERSE?stepCursor:
             store.firstUnmastered(selectedEntry,store.entry(selectedEntry).lines().size());
         reviewMode=false;groupMode=true;currentReview=null;
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().putBoolean("linked_"+selectedEntry+"_pending",true).apply();
         studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
         forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
         stepCursor=0;resetWordTiles();mask=0;draft="";checked=false;passed=false;
         lessonVariant=0;lessonChunk=0;savedAssemblyFingerprint="";
         testAssisted=false;lessonWriteHadFeedback=false;lessonPracticeAgain=false;
         lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;practiceWeakFragment=false;weakFragmentText="";resetLessonTiles();
-        trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;render();
+        activeStep=forcedStep;
+        answerReview=null;
+        trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;
     }
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderFullscreenLesson() {
@@ -7042,23 +7058,19 @@ public final class MainActivity extends Activity {
             .setNegativeButton("Отмена",null).create());
     }
     private void resetAllLearningProgress(){
-        if(resetInProgress)return;
+        if(resetInProgress||backupInProgress)return;
         resetInProgress=true;
+        AlertDialog resetting=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            .setTitle("Сброс прогресса").setMessage("Удаляем историю изучения…")
+            .setCancelable(false).create();
+        styledDialog(resetting);
         new Thread(()->{
-            try{
-                store.resetLearningProgress();
-                // Clear only learning sessions and test results, not saved content/UI preferences.
-                getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().clear().commit();
-                getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE).edit().clear().commit();
-                getSharedPreferences("gap_rotation",MODE_PRIVATE).edit().clear().commit();
-                getSharedPreferences("card_sessions",MODE_PRIVATE).edit().clear().commit();
-                android.content.SharedPreferences unified=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-                android.content.SharedPreferences.Editor editor=unified.edit();
-                for(String key:unified.getAll().keySet())
-                    if(key.startsWith("run_history_")||key.startsWith("writing_run_"))editor.remove(key);
-                editor.commit();
+            // Independent helper survives destruction of this Activity.
+            try(LocalStore worker=new LocalStore(getApplicationContext())){
+                LearningReset.request(getApplicationContext(),worker);
                 runOnUiThread(()->{
                     if(isDestroyed())return;
+                    resetting.dismiss();
                     collectionQueue.clear();collectionQueueCursor=-1;collectionQueueGroup=-1;
                     executingCollectionQueue=false;collectionQueueNewStep=false;
                     cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
@@ -7077,8 +7089,14 @@ public final class MainActivity extends Activity {
             }catch(Exception error){
                 android.util.Log.e("Settings","Unable to reset learning progress",error);
                 runOnUiThread(()->{
-                    resetInProgress=false;
-                    if(!isDestroyed())toast("Не удалось сбросить прогресс");
+                    if(isDestroyed())return;
+                    resetting.dismiss();
+                    // An interrupted operation is still pending. Do not allow a
+                    // new lesson to be saved until it has been recovered.
+                    new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                        .setTitle("Не удалось завершить сброс")
+                        .setMessage("Закрой приложение и открой снова для завершения операции.")
+                        .setCancelable(false).setPositiveButton("Закрыть",(d,w)->finish()).show();
                 });
             }
         },"ResetLearningProgress").start();
