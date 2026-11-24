@@ -12,10 +12,22 @@ public final class CollectionProgressSnapshot {
         final int book;
         final boolean[] mastered,consolidated;
         final int[] completed;
+        final Set<List<Object>> masteredSteps=new HashSet<>();
+        final Map<List<Object>,RecallState> recalls=new HashMap<>();
         int exercises,linked,order=1000000;
         State(LocalStore.Entry e){entry=e;lines=e.lines();book=LocalStore.bibleBookFromReference(e.reference);canonical=book>0;
             mastered=new boolean[lines.size()];consolidated=new boolean[lines.size()];
             completed=new int[lines.size()];}
+    }
+    private static final class RecallState {
+        final long lastSuccess;
+        final int successes,failures;
+        RecallState(long lastSuccess,int successes,int failures){
+            this.lastSuccess=lastSuccess;this.successes=successes;this.failures=failures;
+        }
+    }
+    private static List<Object> stepKey(String stage,int start,int end){
+        return Arrays.<Object>asList(stage,start,end);
     }
     private final Map<Long,State> states=new HashMap<>();
     private final Map<List<String>,List<long[]>> locations=new HashMap<>();
@@ -43,10 +55,19 @@ public final class CollectionProgressSnapshot {
                 if(s!=null&&pos>=0&&pos<s.lines.size()){s.mastered[pos]=true;
                     if(s.canonical)result.masteredOwners.computeIfAbsent(key(s,pos),k->new HashSet<>()).add(s.entry.id);}}
         }
-        try(Cursor c=store.readQuery("SELECT entry_id,first_line FROM recall_activity WHERE stage='VERSE' AND last_line=first_line+1 AND first_success>0 AND last_success-first_success>=86400000 AND success_count>=2 AND fail_streak=0",null)){
-            while(c.moveToNext()){State s=result.states.get(c.getLong(0));int pos=c.getInt(1);
-                if(s!=null&&pos>=0&&pos<s.lines.size()){s.consolidated[pos]=true;
-                    if(s.canonical)result.consolidatedOwners.computeIfAbsent(key(s,pos),k->new HashSet<>()).add(s.entry.id);}}
+        try(Cursor c=store.readQuery("SELECT entry_id,stage,first_line,last_line,first_success,last_success,success_count,fail_streak FROM recall_activity",null)){
+            while(c.moveToNext()){
+                State s=result.states.get(c.getLong(0));if(s==null)continue;
+                String stage=c.getString(1);int pos=c.getInt(2),end=c.getInt(3);
+                long first=c.getLong(4),last=c.getLong(5);
+                int successes=c.getInt(6),failures=c.getInt(7);
+                s.recalls.put(stepKey(stage,pos,end),new RecallState(last,successes,failures));
+                if("VERSE".equals(stage)&&end==pos+1&&pos>=0&&pos<s.lines.size()&&
+                    first>0&&last-first>=86400000L&&successes>=2&&failures==0){
+                    s.consolidated[pos]=true;
+                    if(s.canonical)result.consolidatedOwners.computeIfAbsent(key(s,pos),k->new HashSet<>()).add(s.entry.id);
+                }
+            }
         }
         try(Cursor c=store.readQuery("SELECT entry_id,position,completed FROM lesson_progress",null)){
             while(c.moveToNext()){
@@ -58,8 +79,14 @@ public final class CollectionProgressSnapshot {
                 }
             }
         }
-        try(Cursor c=store.readQuery("SELECT entry_id,COUNT(*) FROM stage_progress WHERE stage<>'VERSE' GROUP BY entry_id",null)){
-            while(c.moveToNext()){State s=result.states.get(c.getLong(0));if(s!=null)s.linked=c.getInt(1);}}
+        try(Cursor c=store.readQuery("SELECT entry_id,stage,first_line,last_line FROM stage_progress",null)){
+            while(c.moveToNext()){
+                State s=result.states.get(c.getLong(0));if(s==null)continue;
+                String stage=c.getString(1);
+                s.masteredSteps.add(stepKey(stage,c.getInt(2),c.getInt(3)));
+                if(!"VERSE".equals(stage))s.linked++;
+            }
+        }
         try(Cursor c=store.readQuery("SELECT entry_id,position FROM study_order",null)){
             while(c.moveToNext()){State s=result.states.get(c.getLong(0));if(s!=null)s.order=c.getInt(1);}}
         for(State s:result.states.values()){
@@ -117,6 +144,42 @@ public final class CollectionProgressSnapshot {
             if(owner!=null)done=Math.max(done,owner.completed[(int)loc[1]]);
         }
         return done;
+    }
+    public boolean stepMastered(long id,String stage,int start,int end){
+        if("VERSE".equals(stage)&&end==start+1)return mastered(id,start);
+        State s=states.get(id);
+        return s!=null&&s.masteredSteps.contains(stepKey(stage,start,end));
+    }
+    public int recentFailures(long id,String stage,int start,int end){
+        State s=states.get(id);
+        RecallState recall=s==null?null:s.recalls.get(stepKey(stage,start,end));
+        return recall==null?0:recall.failures;
+    }
+    public boolean recallDue(long id,String stage,int start,int end,long now){
+        State s=states.get(id);
+        RecallState recall=s==null?null:s.recalls.get(stepKey(stage,start,end));
+        if(recall==null||recall.lastSuccess<=0)return false;
+        long days=recall.successes>=2?3L:1L;
+        return now>=recall.lastSuccess&&now-recall.lastSuccess>=days*86400000L;
+    }
+    public GroupLearningLogic.Progress groupProgress(long id){
+        return new GroupLearningLogic.Progress(){
+            public boolean verseMastered(int i){return mastered(id,i);}
+            public boolean groupMastered(String stage,int a,int b){return stepMastered(id,stage,a,b);}
+        };
+    }
+    public AdaptiveLearningLogic.Progress recommendationProgress(long id){
+        return new AdaptiveLearningLogic.Progress(){
+            public boolean mastered(StudyPlanLogic.Stage stage,int a,int b){
+                return stepMastered(id,stage.name(),a,b);
+            }
+            public boolean isDue(StudyPlanLogic.Stage stage,int a,int b,long now){
+                return recallDue(id,stage.name(),a,b,now);
+            }
+            public int recentFailures(StudyPlanLogic.Stage stage,int a,int b){
+                return CollectionProgressSnapshot.this.recentFailures(id,stage.name(),a,b);
+            }
+        };
     }
     public long canonicalId(long id){State s=states.get(id);return s==null||!s.canonical?id:canonicalEntries.getOrDefault(passage(s.entry),id);}
     public List<LocalStore.Entry> entries(long group){return Collections.unmodifiableList(groups.getOrDefault(group,Collections.emptyList()));}
