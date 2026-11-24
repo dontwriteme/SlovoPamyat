@@ -1,0 +1,9 @@
+// Apply after tests/validation.init.gradle from the root of the checkout.
+allprojects {
+    afterEvaluate { project ->
+        if (project.path == ':app') {
+            project.android.sourceSets.test.java.srcDir(rootProject.file('docs/audit/evidence/repro'))
+            project.android.sourceSets.test.java.exclude('AuditProbe.java')
+        }
+    }
+}
