@@ -4646,6 +4646,9 @@ public final class MainActivity extends Activity {
                 return;
             }
         }
+        editCustomStudyEntry(e);
+    }
+    private void editCustomStudyEntry(LocalStore.Entry e){
         EditText source=input("Название / источник",false);source.setText(e.reference);
         EditText words=input("Текст",true);words.setMinLines(5);
         StringBuilder original=new StringBuilder();
@@ -4655,18 +4658,21 @@ public final class MainActivity extends Activity {
         words.setText(original.toString());
         LinearLayout fields=column();fields.setPadding(dp(20),dp(5),dp(20),dp(12));
         add(fields,source,0);add(fields,words,10);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Изменить свой текст").setView(fields)
-            .setPositiveButton("Сохранить",(d,w)->{
-                if(value(source).isEmpty()||value(words).isEmpty()){toast("Заполни поля");return;}
-                String[] fragments=value(words).split("\\n");
-                List<Bible.Verse> lines=new ArrayList<>();
-                for(int i=0;i<fragments.length;i++)if(!fragments[i].trim().isEmpty()){
-                    lines.add(new Bible.Verse("свой:"+(i+1),fragments[i].trim()));
-                }
-                store.reviseStudyPassage(e.id,value(source),lines);
-                render();
-            }).setNegativeButton("Отмена",null).create());
+            .setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        styledDialog(dialog);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(value(source).isEmpty()){source.setError("Укажи название");source.requestFocus();return;}
+            List<Bible.Verse> lines;
+            try{lines=CustomStudyText.parse(value(words),e.lines());}
+            catch(IllegalArgumentException invalid){
+                words.setError(invalid.getMessage());words.requestFocus();return;
+            }
+            store.reviseStudyPassage(e.id,value(source),lines);
+            dialog.dismiss();
+            render();
+        });
     }
     private void editCardEntry(LocalStore.Flashcard card){
         if(card.bookId>0){
@@ -4786,14 +4792,10 @@ public final class MainActivity extends Activity {
         action(form,"Сохранить в коллекцию",true,()->{
             String t=value(title),r=value(ref),s=value(lines);
             if(t.isEmpty()||s.isEmpty()){toast("Введи название и текст");return;}
-            List<Bible.Verse> items=new ArrayList<>();
-            for(String raw:s.split("\\R")) if(!raw.trim().isEmpty())
-                items.add(new Bible.Verse(String.valueOf(items.size()+1),raw.trim()));
-            if(items.isEmpty()){lines.setError("Введите текст для изучения");return;}
-            if(items.size()>500){lines.setError("Максимум 500 строк");return;}
-            for(int i=0;i<items.size();i++)if(ReviewLogic.words(items.get(i).text).isEmpty()){
-                lines.setError("Строка "+(i+1)+" должна содержать хотя бы одно слово или число");
-                lines.requestFocus();return;
+            List<Bible.Verse> items;
+            try{items=CustomStudyText.parse(s,null);}
+            catch(IllegalArgumentException invalid){
+                lines.setError(invalid.getMessage());lines.requestFocus();return;
             }
             if(customTargetGroupId>0){
                 long groupId=customTargetGroupId;
@@ -5768,6 +5770,22 @@ public final class MainActivity extends Activity {
         trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;
     }
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
+    private void renderUnlearnableLine(LocalStore.Entry entry,int invalidLine){
+        root=column();root.setBackground(pageBackground());
+        root.setPadding(dp(22),dp(24),dp(22),dp(24));
+        currentScroller=null;
+        activeTextArea=null;activeWorkArea=null;activePassage=null;
+        LinearLayout panel=card(root);
+        add(panel,displayText("Текст требует исправления",22),0);
+        helper(panel,CustomStudyText.message(invalidLine)+". Исправь строку, чтобы продолжить обучение.");
+        action(panel,"Изменить текст",true,()->{
+            onBackPressed();
+            editCustomStudyEntry(entry);
+        });
+        action(panel,"Выйти из урока",false,this::onBackPressed);
+        setContentView(root);
+    }
+
     private void renderFullscreenLesson() {
         LocalStore.Entry e=store.entry(selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
@@ -5784,6 +5802,8 @@ public final class MainActivity extends Activity {
             LessonCurriculumLogic.Phase.COMPLETE:lessonPhase(e);
         if(phase!=LessonCurriculumLogic.Phase.WRITE)answerReview=null;
         if(phase==LessonCurriculumLogic.Phase.COMPLETE){renderCompletion(e);return;}
+        int invalidLine=CustomStudyText.firstUnlearnable(e.lines(),activeStep.start,activeStep.end);
+        if(invalidLine>=0){renderUnlearnableLine(e,invalidLine);return;}
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
         root=column();root.setBackground(assembling?assemblyBackground():pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
