@@ -230,7 +230,7 @@ public final class R456Profile extends Instrumentation {
             ()->number("lessonBuildRequired")>0);
         measure("esther_tile",this::pickNextTile,()->true);
         main(()->{
-            while(number("lessonPicked")<number("lessonBuildRequired"))pickNextTile();
+            while(((LessonAssemblyState)field("lessonAssembly")).picked()<number("lessonBuildRequired"))pickNextTile();
         });
         measure("esther_next",()->((View)field("lessonBuildAction")).performClick(),()->true);
         measure("answer_review",()->{
@@ -251,7 +251,7 @@ public final class R456Profile extends Instrumentation {
     }
 
     private void pickNextTile()throws Exception{
-        int position=number("lessonPicked");
+        int position=((LessonAssemblyState)field("lessonAssembly")).picked();
         View slot=((List<View>)field("lessonBuildSlots")).get(position);
         Field answer=slot.getClass().getDeclaredField("token");answer.setAccessible(true);
         String key=WordOrderLogic.comparable((String)answer.get(slot));
@@ -259,7 +259,7 @@ public final class R456Profile extends Instrumentation {
             TextView tile=(TextView)item;
             if(tile.getVisibility()==View.VISIBLE&&key.equals(WordOrderLogic.comparable(tile.getText().toString()))){
                 tile.performClick();
-                require(number("lessonPicked")==position+1,"tile accepted");
+                require(((LessonAssemblyState)field("lessonAssembly")).picked()==position+1,"tile accepted");
                 return;
             }
         }
