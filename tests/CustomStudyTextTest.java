@@ -45,11 +45,14 @@ public class CustomStudyTextTest {
         assertEquals(-1,CustomStudyText.firstUnlearnable(old,2,3));
         List<Bible.Verse> fixed=CustomStudyText.parse("Начало\nСередина\nКонец",old);
         assertEquals("1",fixed.get(0).ref);
-        assertNotEquals("2",fixed.get(1).ref);
+        assertEquals("2",fixed.get(1).ref);
+        assertEquals("Середина",fixed.get(1).text);
         assertEquals("3",fixed.get(2).ref);
         assertEquals(-1,CustomStudyText.firstUnlearnable(fixed,0,3));
         List<Bible.Verse> shortened=CustomStudyText.parse("Начало\nКонец",old);
         assertEquals("3",shortened.get(1).ref);
+        List<Bible.Verse> appended=CustomStudyText.parse("Начало\nСередина\nКонец\nДалее",fixed);
+        assertEquals("4",appended.get(3).ref);
     }
 
     @Test public void doesNotAssignAmbiguousMovedDuplicateHistory(){
