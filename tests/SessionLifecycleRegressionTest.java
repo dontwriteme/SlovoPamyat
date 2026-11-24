@@ -356,6 +356,7 @@ public class SessionLifecycleRegressionTest {
         assertEquals(false,get("checked"));
         assertFalse(store.isStepMastered(id,"VERSE",1,2));
         assertEquals(0,store.exerciseDone(id,1));
+        assertEquals("",store.recallCheckpoint(id,"VERSE",1,2));
     }
 
     @Test public void finalStandaloneBridgeReturnsHomeAfterAllGroupsAreMastered()throws Exception{
