@@ -489,35 +489,8 @@ public final class LocalStore extends SQLiteOpenHelper {
             this.entryId=id;this.stage=stage;this.start=start;this.end=end;this.due=due;
         }
     }
-    private List<long[]> matchingVerseLocations(long id,int position){
-        return collectionProgress().matches(id,position);
-    }
-    private int sharedVerseCompletion(long entryId,int position){
-        int completed=0;
-        for(long[] match:matchingVerseLocations(entryId,position)){
-            try(Cursor c=readQuery(
-                "SELECT completed FROM lesson_progress WHERE entry_id=? AND position=?",
-                new String[]{String.valueOf(match[0]),String.valueOf(match[1])})){
-                if(c.moveToFirst())completed=Math.max(completed,c.getInt(0));
-            }
-            try(Cursor c=readQuery(
-                "SELECT 1 FROM verse_progress WHERE entry_id=? AND position=?",
-                new String[]{String.valueOf(match[0]),String.valueOf(match[1])})){
-                if(c.moveToFirst())completed=Math.max(completed,5);
-            }
-        }
-        return completed;
-    }
-
     public int exerciseDone(long id,int position) {
-        int direct=0;
-        try(Cursor c=readQuery("SELECT completed FROM lesson_progress WHERE entry_id=? AND position=?",
-            new String[]{String.valueOf(id),String.valueOf(position)})){
-            if(c.moveToFirst())direct=c.getInt(0);
-        }
-        int shared=sharedVerseCompletion(id,position);
-        // A familiar verse in a second collection must not be locked again.
-        return Math.max(Math.max(direct,shared),isStepMastered(id,"VERSE",position,position+1)?5:0);
+        return collectionProgress().exerciseDone(id,position);
     }
     public int unlockedPosition(long id,int count) {
         if(count==0)return 0;
@@ -535,7 +508,9 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public void finishExercise(long id,int position,int completed) {
         if(completed<1||completed>5)throw new IllegalArgumentException("Invalid lesson stage");
-        int old=exerciseDone(id,position);
+        finishExerciseIfNeeded(id,position,completed,exerciseDone(id,position));
+    }
+    private void finishExerciseIfNeeded(long id,int position,int completed,int old){
         if(completed>old){
             ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("position",position);
             cv.put("completed",completed);
@@ -543,6 +518,16 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
     }
     public void scheduleReview(long id,String stage,int start,int end,int accuracy,boolean assisted,long now) {
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try{
+            boolean mastered=accuracy!=100||assisted||isStepMastered(id,stage,start,end);
+            scheduleReviewKnownMastery(id,stage,start,end,accuracy,assisted,now,mastered);
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+    private void scheduleReviewKnownMastery(long id,String stage,int start,int end,
+            int accuracy,boolean assisted,long now,boolean mastered){
         SQLiteDatabase db=getWritableDatabase();
         db.beginTransaction();try{
             ContentValues a=new ContentValues();a.put("entry_id",id);a.put("stage",stage);
@@ -556,7 +541,7 @@ public final class LocalStore extends SQLiteOpenHelper {
                     if(c.moveToFirst())level=c.getInt(0);
                 }
                 // A failed attempt before first mastery must not advance the initial interval.
-                if(accuracy==100 && !isStepMastered(id,stage,start,end))level=-1;
+                if(accuracy==100 && !mastered)level=-1;
                 SpacedReviewLogic.State r=SpacedReviewLogic.update(level,accuracy,false,now);
                 ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("stage",stage);
                 cv.put("first_line",start);cv.put("last_line",end);
@@ -624,7 +609,8 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public int masteryCount(long entryId){return collectionProgress().masteryCount(entryId);}
     public int firstUnmastered(long entryId,int length){
-        for(int i=0;i<length;i++)if(!isStepMastered(entryId,"VERSE",i,i+1))return i;
+        CollectionProgressSnapshot snapshot=collectionProgress();
+        for(int i=0;i<length;i++)if(!snapshot.mastered(entryId,i))return i;
         return 0;
     }
     public boolean isStepMastered(long entryId,String stage,int start,int end){
@@ -658,17 +644,20 @@ public final class LocalStore extends SQLiteOpenHelper {
         SQLiteDatabase db=getWritableDatabase();
         db.beginTransaction();
         try{
+            // Mastery cannot change during this transaction except through the
+            // explicit final write below. Read it once, not once for every verse.
+            CollectionProgressSnapshot before=collectionProgress();
             if(verseRun){
                 for(int i=start;i<end;i++){
                     recordRecall(id,"VERSE",i,i+1,100,false,now);
-                    scheduleReview(id,"VERSE",i,i+1,100,false,now);
+                    scheduleReviewKnownMastery(id,"VERSE",i,i+1,100,false,now,before.mastered(id,i));
                 }
             }else{
+                boolean mastered=before.stepMastered(id,stage,start,end);
                 recordRecall(id,stage,start,end,100,false,now);
-                // The first schedule must be calculated before mastery is written.
-                scheduleReview(id,stage,start,end,100,false,now);
-                if(finishLesson)finishExercise(id,start,5);
-                if(!isStepMastered(id,stage,start,end))markMastered(id,start,end,100,stage);
+                scheduleReviewKnownMastery(id,stage,start,end,100,false,now,mastered);
+                if(finishLesson)finishExerciseIfNeeded(id,start,5,before.exerciseDone(id,start));
+                if(!mastered)markMastered(id,start,end,100,stage);
             }
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
@@ -714,12 +703,9 @@ public final class LocalStore extends SQLiteOpenHelper {
         }
     }
     public boolean consolidated(long id,String stage,int start,int end){
-        if(consolidatedLocal(id,stage,start,end))return true;
-        if("VERSE".equals(stage)&&end==start+1){
-            for(long[] loc:matchingVerseLocations(id,start))
-                if(consolidatedLocal(loc[0],"VERSE",(int)loc[1],(int)loc[1]+1))return true;
-        }
-        return false;
+        if("VERSE".equals(stage)&&end==start+1)
+            return collectionProgress().verseConsolidated(id,start);
+        return consolidatedLocal(id,stage,start,end);
     }
     public boolean recallDue(long id,String stage,int start,int end,long now) {
         try(Cursor c=readQuery(
