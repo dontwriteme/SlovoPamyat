@@ -75,7 +75,7 @@ public class LessonHotbarIntegrationTest {
         TextView wrong=assemblyTiles().stream().filter(tile->"живо".contentEquals(tile.getText())).findFirst().get();
         wrong.performClick();
         assertSame(root,get("root"));
-        assertEquals(0,get("lessonPicked"));
+        assertEquals(0,((LessonAssemblyState)get("lessonAssembly")).picked());
         assertEquals(0xFF923C37,wrong.getCurrentTextColor());
         assertNull(text(root,"Это слово сейчас не подходит. Попробуй выбрать другое."));
         assertEquals(before.completedCount,model(LessonCurriculumLogic.Phase.BUILD).completedCount);
@@ -123,7 +123,8 @@ public class LessonHotbarIntegrationTest {
         text((View)get("root"),"Продолжить").performClick();
         assertNull(text((View)get("root"),"Восстанови пропущенные слова в правильном порядке."));
         // Advance through the first short verse to the longer second fragment of the same group.
-        set("lessonPicked",get("lessonBuildRequired"));invoke("updateLessonBuildView");
+        Field picked=LessonAssemblyState.class.getDeclaredField("picked");picked.setAccessible(true);
+        picked.setInt(get("lessonAssembly"),(Integer)get("lessonBuildRequired"));invoke("updateLessonBuildView");
         ((TextView)get("lessonBuildAction")).performClick();
         ViewGroup root=(ViewGroup)get("root");
         ViewGroup bank=root.findViewWithTag("assembly-word-bank");
