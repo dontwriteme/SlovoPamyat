@@ -355,7 +355,7 @@ public class LessonHotbarIntegrationTest {
         assertEquals("Непроверенный черновик",edit((View)get("root")).getText().toString());
         submit("Ошибочный ответ");
         assertNotNull(text((View)get("root"),"Твой ответ"));
-        assertEquals("Ошибочный ответ",get("draft"));
+        assertEquals("Ошибочный ответ",((LessonWritingState)get("lessonWriting")).draft);
         activity.onBackPressed();
         call("openTraining",new Class<?>[]{long.class},id);
         assertEquals("",edit((View)get("root")).getText().toString());
