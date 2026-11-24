@@ -1,0 +1,10 @@
+// Framework lifecycle checks use a disposable database and a separate launcher package.
+allprojects {
+    afterEvaluate { p ->
+        if (p.path == ':app') {
+            p.android.defaultConfig.applicationId = 'org.biblememory.app.r51fixture'
+            p.android.defaultConfig.testInstrumentationRunner = 'org.biblememory.app.R51LessonCheck'
+            p.android.sourceSets.androidTest.java.srcDirs = [rootProject.file('tests/device')]
+        }
+    }
+}

@@ -736,6 +736,20 @@ public final class LocalStore extends SQLiteOpenHelper {
             return c.moveToFirst()?c.getInt(0):0;
         }
     }
+    /** A saved route must not replay an answer committed after Android saved the task. */
+    String recallCheckpoint(long id,String stage,int start,int end){
+        boolean run="VERSE_RUN".equals(stage);
+        String bounds=run?"first_line>=? AND last_line<=? AND last_line=first_line+1":
+            "first_line=? AND last_line=?";
+        StringBuilder result=new StringBuilder();
+        try(Cursor c=readQuery("SELECT first_line,last_attempt,last_success,last_score FROM recall_activity "+
+                "WHERE entry_id=? AND stage=? AND "+bounds+" ORDER BY first_line",
+                new String[]{String.valueOf(id),run?"VERSE":stage,String.valueOf(start),String.valueOf(end)})){
+            while(c.moveToNext())result.append(c.getInt(0)).append(':').append(c.getLong(1))
+                .append(':').append(c.getLong(2)).append(':').append(c.getInt(3)).append(';');
+        }
+        return result.toString();
+    }
     private boolean consolidatedLocal(long id,String stage,int start,int end) {
         try(Cursor c=readQuery(
             "SELECT first_success,last_success,success_count,fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",

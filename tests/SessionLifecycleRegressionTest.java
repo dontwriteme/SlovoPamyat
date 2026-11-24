@@ -1,6 +1,7 @@
 package org.biblememory.app;
 
 import android.content.Context;
+import android.os.Bundle;
 import android.os.Looper;
 import java.lang.reflect.*;
 import java.util.*;
@@ -117,6 +118,162 @@ public class SessionLifecycleRegressionTest {
         call("openTraining",new Class<?>[]{long.class},id);
         assertEquals("TRAIN",get("screen").toString());
         assertEquals("В начале сотворил",get("draft"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    @Test public void recreationReturnsDirectlyToActiveLesson()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Активный урок");
+        long id=add(u,"Бытие 1:1","В начале сотворил Бог небо и землю");
+        store.finishExercise(id,0,3);
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("draft","В начале сотворил");
+        recreate();
+        assertEquals("TRAIN",get("screen").toString());
+        assertEquals(id,get("selectedEntry"));
+        assertEquals("В начале сотворил",get("draft"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    private void recreate()throws Exception{
+        ActivityTestWorkers.recreate(controller);
+        activity=controller.get();
+        store=(LocalStore)get("store");
+    }
+
+    private void createFrom(Bundle state)throws Exception{
+        ActivityTestWorkers.destroy(controller);
+        controller=Robolectric.buildActivity(MainActivity.class).create(state).start().restoreInstanceState(state).resume();
+        activity=controller.get();
+        ActivityTestWorkers.awaitStartup(activity);
+        store=(LocalStore)get("store");
+    }
+
+    @Test public void activeGroupKeepsItsRangeAndReturnPosition()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Связка");
+        long id=store.add(u.groupId,"Свой текст","Связка",Arrays.asList(
+            new Bible.Verse("1:1","Первый стих"),new Bible.Verse("1:2","Второй стих"),
+            new Bible.Verse("1:3","Третий стих")));
+        store.markMastered(id,0,1,100,"VERSE");
+        store.markMastered(id,1,2,100,"VERSE");
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("stepCursor",1);
+        call("openGroup",new Class<?>[]{GroupLearningLogic.Candidate.class},
+            GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
+        set("groupIntroDone",true);
+        set("groupBuildDone",true);
+        set("draft","Первый стих");
+        recreate();
+        StudyPlanLogic.Step step=(StudyPlanLogic.Step)get("activeStep");
+        assertEquals(0,step.start);assertEquals(2,step.end);
+        assertEquals(1,get("returnVerseCursor"));
+        assertEquals(true,get("groupMode"));
+        assertEquals(true,get("groupIntroDone"));
+        assertEquals(true,get("groupBuildDone"));
+        assertEquals("Первый стих",get("draft"));
+        assertFalse(store.isStepMastered(id,"CHAIN",0,2));
+    }
+
+    @Test public void activeRunReviewRestoresDraftAndRetainsFollowingDueItem()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Повторения");
+        long id=store.add(u.groupId,"Свой текст","Первый отрывок",Arrays.asList(
+            new Bible.Verse("1:1","Первый стих"),new Bible.Verse("1:2","Второй стих")));
+        long following=add(u,"Отдельный","Третий стих");
+        for(int pos=0;pos<2;pos++){
+            store.markMastered(id,pos,pos+1,100,"VERSE");
+            store.scheduleReview(id,"VERSE",pos,pos+1,100,false,1000L);
+        }
+        store.markMastered(following,0,1,100,"VERSE");
+        store.scheduleReview(following,"VERSE",0,1,100,false,1000L);
+        set("reviewCollectionGroup",u.groupId);
+        invoke("startReviewSession");
+        set("draft","Первый стих");
+        recreate();
+        assertEquals("TRAIN",get("screen").toString());
+        assertEquals(true,get("reviewMode"));
+        assertEquals(u.groupId,get("reviewCollectionGroup"));
+        assertEquals("VERSE_RUN",((LocalStore.DueItem)get("currentReview")).stage);
+        assertEquals("Первый стих",get("draft"));
+        invoke("advanceReviewSession");
+        assertEquals(following,get("selectedEntry"));
+    }
+
+    @Test public void completedWritingReopensCompletionWithoutRepeatingAttempt()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Завершение");
+        long id=add(u,"Свой текст","Текст для обучения");
+        store.finishExercise(id,0,3);
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("draft","Текст для обучения");
+        call("validateLessonWriting",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        ActivityTestWorkers.awaitWriting(activity);
+        assertEquals(true,get("passed"));
+        String completed=store.recallCheckpoint(id,"VERSE",0,1);
+        assertFalse(completed.isEmpty());
+        recreate();
+        assertEquals("TRAIN",get("screen").toString());
+        assertEquals(true,get("passed"));
+        assertEquals("",get("draft"));
+        assertEquals(completed,store.recallCheckpoint(id,"VERSE",0,1));
+        assertEquals(5,store.exerciseDone(id,0));
+    }
+
+    @Test public void oldTaskSnapshotCannotReplayAttemptCommittedAfterSave()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Снимок");
+        long id=add(u,"Свой текст","Текст для обучения");
+        store.finishExercise(id,0,3);
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("draft","Текст для обучения");
+        Bundle state=new Bundle();
+        controller.saveInstanceState(state);
+        store.commitSuccessfulRecall(id,"VERSE",0,1,false,true,1000L);
+        createFrom(state);
+        assertEquals("HOME",get("screen").toString());
+        assertEquals(5,store.exerciseDone(id,0));
+    }
+
+    @Test public void archivedSourceCannotRestoreEvenThoughItsEntrySurvives()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Удаляемая коллекция");
+        long id=add(u,"Свой текст","Текст для обучения");
+        call("openTraining",new Class<?>[]{long.class},id);
+        store.deleteUnifiedCollection(u.id);
+        recreate();
+        assertEquals("HOME",get("screen").toString());
+        assertNotNull(store.entry(id));
+    }
+
+    @Test public void changedMaterialCannotInheritTheOldTaskDraft()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Изменяемый текст");
+        long id=add(u,"Свой текст","Старый текст стиха");
+        store.finishExercise(id,0,3);
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("draft","Старый текст");
+        store.getWritableDatabase().execSQL("UPDATE entries SET lines=? WHERE id=?",
+            new Object[]{"[{\"ref\":\"1:1\",\"text\":\"Другой текст стиха\"}]",id});
+        recreate();
+        assertEquals("HOME",get("screen").toString());
+        assertEquals("",get("draft"));
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertEquals("",get("draft"));
+    }
+
+    @Test public void importedCopyRejectsOldTaskEvenWhenEntryAndDraftStillMatch()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Копия");
+        long id=add(u,"Свой текст","Текст для обучения");
+        store.finishExercise(id,0,3);
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("draft","Черновик");
+        Bundle state=new Bundle();
+        controller.saveInstanceState(state);
+        assertNotNull(state.getBundle("active_lesson"));
+        Context context=RuntimeEnvironment.getApplication();
+        android.net.Uri uri=android.net.Uri.fromFile(
+            new java.io.File(context.getCacheDir(),"r51-same-material.svbackup"));
+        SvetochBackup.exportTo(context,store,uri);
+        String previous=SvetochBackup.generation(context);
+        SvetochBackup.restoreFrom(context,store,uri);
+        assertNotEquals(previous,SvetochBackup.generation(context));
+        createFrom(state);
+        assertEquals("HOME",get("screen").toString());
+        assertNotNull(store.entry(id));
         assertEquals(3,store.exerciseDone(id,0));
     }
 
