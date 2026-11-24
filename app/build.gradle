@@ -32,7 +32,8 @@ def indexGitBlob = '806cc16621f67ae506063b38123bf48c7b611a96'
 def digestFile = { File asset, String algorithm, boolean gitBlob ->
     def digest = java.security.MessageDigest.getInstance(algorithm)
     if (gitBlob) {
-        digest.update(("blob " + asset.length() + "\u0000").getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        digest.update(("blob " + asset.length()).getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        digest.update((byte) 0)
     }
     asset.withInputStream { stream ->
         byte[] buffer = new byte[65536]
