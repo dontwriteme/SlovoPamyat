@@ -6,7 +6,7 @@ import static org.junit.Assert.*;
 
 public class SessionIntegrityLogicTest {
     @Test public void changedTextOrBoundariesInvalidateSavedAssembly(){
-        List<String> verse=Collections.singletonList("Один два три четыре пять шесть семь восемь девять десять одиннадцать двенадцать тринадцать четырнадцать пятнадцать шестнадцать");
+        List<String> verse=Collections.singletonList("Один два три четыре пять шесть семь восемь девять десять одиннадцать двенадцать тринадцать четырнадцать пятнадцать шестнадцать семнадцать восемнадцать девятнадцать двадцать двадцать один двадцать два");
         List<String[]> original=WordOrderLogic.chunksForBudget(verse,8);
         List<String[]> resized=WordOrderLogic.chunksForBudget(verse,12);
         String a=SessionIntegrityLogic.assemblyFingerprint(LessonCurriculumLogic.Variant.GAPS,original);
