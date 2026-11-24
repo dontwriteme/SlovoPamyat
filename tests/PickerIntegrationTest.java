@@ -460,8 +460,10 @@ public class PickerIntegrationTest {
             View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));
         decor.layout(0,0,1080,1920);
         View root=(View)field("root");
-        String[] names={"Изучение стихов","Карточки","Повторение стихов","Проверка памяти","Повторить все коллекции"};
-        String[] descriptions={"без текста перед глазами","значок глаза","из выбранной коллекции","отсроченным повторением","из всех коллекций"};
+        String[] names={"Изучение стихов","Карточки","Закрепление стихов","Проверка знаний","Общее повторение"};
+        String[] headings={"Ознакомление","Как пользоваться","Что повторять","Что проверяется","Что повторять"};
+        String[] descriptions={"постепенно убирая подсказки","Нажми на глаз","выбранной коллекции",
+            "закреплённые отложенным повторением","из всех коллекций"};
         for(int i=0;i<names.length;i++){
             TextView label=text(root,names[i]);assertNotNull(label);
             android.view.ViewGroup row=(android.view.ViewGroup)((View)label.getParent()).getParent();
@@ -480,7 +482,7 @@ public class PickerIntegrationTest {
             anchor.getWindowVisibleDisplayFrame(frame);
             assertNotNull("Popover for "+names[i]+" in "+frame,popup);assertFalse(popup.isFocusable());
             assertNotNull(text(popup.getContentView(),names[i]));
-            assertNotNull(text(popup.getContentView(),"Зачем"));
+            assertNotNull(text(popup.getContentView(),headings[i]));
             assertTrue(textContains(popup.getContentView(),descriptions[i]));
             assertEquals("HOME",field("screen").toString());
         }

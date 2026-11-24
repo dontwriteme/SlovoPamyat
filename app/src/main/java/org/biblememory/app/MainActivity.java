@@ -3,6 +3,8 @@ package org.biblememory.app;
 import android.app.*;
 import android.os.*;
 import android.content.*;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.BlurMaskFilter;
@@ -830,10 +832,31 @@ public final class MainActivity extends Activity {
             new int[]{0xFFFFFCF8,0xFFFFF5EF,0xFFFBE9DD});
         d.setCornerRadius(dp(22));d.setStroke(dp(1),HOME_BORDER);return d;
     }
+    private static final int MAX_LANDSCAPE_THUMBNAIL_DP=96;
+    // The six bundled landscape resources are shared only by thumbnails in this Activity.
+    private final android.util.SparseArray<Bitmap> landscapeThumbnails=new android.util.SparseArray<>(6);
+
     /** A small decorative scenic preview; accessible names remain the collection labels. */
     private ImageView landscapeThumbnail(long index){
         ImageView thumb=new ImageView(this);
-        thumb.setImageResource(landscapeFor(index));
+        int resource=landscapeFor(index);
+        Bitmap bitmap=landscapeThumbnails.get(resource);
+        if(bitmap==null){
+            BitmapFactory.Options options=new BitmapFactory.Options();
+            options.inScaled=false;
+            options.inJustDecodeBounds=true;
+            BitmapFactory.decodeResource(getResources(),resource,options);
+            int side=Math.min(options.outWidth,options.outHeight);
+            int minimum=dp(MAX_LANDSCAPE_THUMBNAIL_DP);
+            options.inSampleSize=1;
+            // CENTER_CROP still receives enough source pixels for the largest thumbnail.
+            while(side/(options.inSampleSize*2)>=minimum)options.inSampleSize*=2;
+            options.inJustDecodeBounds=false;
+            bitmap=BitmapFactory.decodeResource(getResources(),resource,options);
+            if(bitmap!=null)landscapeThumbnails.put(resource,bitmap);
+        }
+        if(bitmap!=null)thumb.setImageBitmap(bitmap);
+        else thumb.setImageResource(resource);
         thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         thumb.setBackground(shape(CARD_ALT,14));
         thumb.setClipToOutline(true);
@@ -2486,7 +2509,7 @@ public final class MainActivity extends Activity {
             panel.setBackground(homeSurface());
             LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
             ImageView illustration=landscapeThumbnail(deck.id);
-            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(dp(79),dp(96));
+            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(dp(79),dp(MAX_LANDSCAPE_THUMBNAIL_DP));
             imageP.rightMargin=dp(12);line.addView(illustration,imageP);
             LinearLayout details=column();
             TextView name=displayText(deck.title,18);name.setMaxLines(2);

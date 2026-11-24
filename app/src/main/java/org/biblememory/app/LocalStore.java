@@ -54,10 +54,12 @@ public final class LocalStore extends SQLiteOpenHelper {
 
     /** Called with the primary connection pinned by the caller. */
     private synchronized CollectionProgressSnapshot readProgressSnapshot(boolean nested){
+        // A caller-owned transaction builds a private snapshot. It must never
+        // consult or update the cache based on uncommitted data.
+        if(nested)return CollectionProgressSnapshot.load(this);
         long changes,version;
         try(Cursor c=readQuery("SELECT total_changes()",null)){changes=c.moveToFirst()?c.getLong(0):-1;}
         try(Cursor c=readQuery("PRAGMA data_version",null)){version=c.moveToFirst()?c.getLong(0):-1;}
-        if(nested)return CollectionProgressSnapshot.load(this);
         if(changes<0||version<0||progressSnapshot==null||changes!=snapshotChanges||version!=snapshotDataVersion){
             progressSnapshot=CollectionProgressSnapshot.load(this);
             snapshotChanges=changes;

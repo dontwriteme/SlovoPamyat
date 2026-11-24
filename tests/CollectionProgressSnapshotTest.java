@@ -72,8 +72,12 @@ public class CollectionProgressSnapshotTest {
  @Test public void rollbackDoesNotPublishOrPoisonCachedProgress(){
   long a=add(group,"Галатам 1:1","один");CollectionProgressSnapshot before=store.collectionProgress();
   android.database.sqlite.SQLiteDatabase db=store.getWritableDatabase();db.beginTransaction();
-  try{store.markMastered(a,0,1,100,"VERSE");assertEquals(1,store.collectionProgress().masteryCount(a));}
-  finally{db.endTransaction();}
+  try{
+   store.markMastered(a,0,1,100,"VERSE");
+   long reads=store.readQueryCount();
+   assertEquals(1,store.collectionProgress().masteryCount(a));
+   assertEquals("Nested snapshots skip cache revision queries",6L,store.readQueryCount()-reads);
+  }finally{db.endTransaction();}
   assertEquals(0,store.collectionProgress().masteryCount(a));
   db.beginTransaction();try{store.markMastered(a,0,1,100,"VERSE");assertEquals(1,store.collectionProgress().masteryCount(a));db.setTransactionSuccessful();}finally{db.endTransaction();}
   assertEquals(1,store.collectionProgress().masteryCount(a));
