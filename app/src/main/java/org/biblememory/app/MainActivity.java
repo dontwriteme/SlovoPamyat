@@ -2292,7 +2292,8 @@ public final class MainActivity extends Activity {
         getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE).edit().clear().apply();
     }
     private void startStudyCollection(long groupId){
-        List<LocalStore.Entry> entries=store.entries(groupId);
+        CollectionProgressSnapshot snapshot=store.collectionProgress();
+        List<LocalStore.Entry> entries=snapshot.entries(groupId);
         if(entries.isEmpty()){
             if(collectionQueueGroup==groupId)clearCollectionQueue();
             toast("Коллекция пока пустая");return;
@@ -2310,8 +2311,8 @@ public final class MainActivity extends Activity {
         executingCollectionQueue=true;
         for(int i=0;i<entries.size();i++){
             LocalStore.Entry item=entries.get(i);
-            if(store.masteryCount(store.canonicalStudyEntryId(item.id))<item.lines().size() ||
-                nextGroup(item)!=null){collectionQueueCursor=i;break;}
+            if(snapshot.masteryCount(snapshot.canonicalId(item.id))<snapshot.verseCount(item.id) ||
+                nextGroup(item,snapshot)!=null){collectionQueueCursor=i;break;}
         }
         collectionQueueNewStep=true;
         persistCollectionQueue();openTraining(collectionQueue.get(collectionQueueCursor));
@@ -4894,7 +4895,7 @@ public final class MainActivity extends Activity {
         List<String> refs=new ArrayList<>();
         for(Bible.Verse v:e.lines())refs.add(v.ref);
         AdaptiveLearningLogic.Recommendation advice=AdaptiveLearningLogic.recommend(
-            refs,isSermon(e),store.progressFor(e.id),System.currentTimeMillis());
+            refs,isSermon(e),store.collectionProgress().recommendationProgress(e.id),System.currentTimeMillis());
         studyStage=advice.stage;stepCursor=advice.index;
         return advice;
     }
@@ -5412,19 +5413,17 @@ public final class MainActivity extends Activity {
         return -1;
     }
     private GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e){
-        List<String> refs=new ArrayList<>();for(Bible.Verse line:e.lines())refs.add(line.ref);
-        return GroupLearningLogic.next(refs,new GroupLearningLogic.Progress(){
-            @Override public boolean verseMastered(int i){return store.isStepMastered(e.id,"VERSE",i,i+1);}
-            @Override public boolean groupMastered(String stage,int a,int b){return store.isStepMastered(e.id,stage,a,b);}
-        },isSermon(e));
+        return nextGroup(e,store.collectionProgress());
+    }
+    private GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e,CollectionProgressSnapshot snapshot){
+        List<String> refs=new ArrayList<>();for(Bible.Verse line:snapshot.verses(e.id))refs.add(line.ref);
+        return GroupLearningLogic.next(refs,snapshot.groupProgress(e.id),isSermon(e));
     }
     private GroupLearningLogic.Candidate pendingAfterCurrent(LocalStore.Entry e,int current){
         if(current<0||current>=e.lines().size())return null;
         List<String> refs=new ArrayList<>();for(Bible.Verse v:e.lines())refs.add(v.ref);
-        return GroupLearningLogic.afterVerse(refs,new GroupLearningLogic.Progress(){
-            @Override public boolean verseMastered(int i){return store.isStepMastered(e.id,"VERSE",i,i+1);}
-            @Override public boolean groupMastered(String stage,int a,int b){return store.isStepMastered(e.id,stage,a,b);}
-        },current,isSermon(e));
+        return GroupLearningLogic.afterVerse(refs,store.collectionProgress().groupProgress(e.id),
+            current,isSermon(e));
     }
     private void openGroup(GroupLearningLogic.Candidate group){
         prepareGroup(group);
@@ -5707,13 +5706,13 @@ public final class MainActivity extends Activity {
         }
         int writingTotal=Math.max(1,writingVariants(e).size());
         // In a scheduled review the lesson legitimately starts at writing.
+        int completed=groupMode?0:store.exerciseDone(e.id,activeStep.start);
         boolean previouslyLearned=executingCollectionQueue &&
-            studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(e.id,activeStep.start)>=5;
+            studyStage==StudyPlanLogic.Stage.VERSE && completed>=5;
         boolean writingOnly=!groupMode && (reviewMode || lessonPracticeAgain ||
             studyStage!=StudyPlanLogic.Stage.VERSE || previouslyLearned);
         int introDone=groupMode?(groupIntroDone?1:0):
-            (store.exerciseDone(e.id,activeStep.start)>=1?1:0);
+            (completed>=1?1:0);
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
             introDone,buildDone,lessonWriteVariant,writingOnly);
     }
