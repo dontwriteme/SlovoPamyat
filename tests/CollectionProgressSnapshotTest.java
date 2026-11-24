@@ -43,6 +43,21 @@ public class CollectionProgressSnapshotTest {
   db.beginTransaction();try{store.markMastered(a,0,1,100,"VERSE");assertEquals(1,store.collectionProgress().masteryCount(a));db.setTransactionSuccessful();}finally{db.endTransaction();}
   assertEquals(1,store.collectionProgress().masteryCount(a));
  }
+ @Test public void identicalCoordinatesAndTextInDifferentBooksNeverShareProgress(){
+  long first=add(group,"Бытие 1:1","Одинаковый текст");
+  long other=add(group,"Матфея 1:1","Одинаковый текст");
+  long sameBook=add(group,"Бытие 1:1","Одинаковый текст");
+  store.markMastered(first,0,1,100,"VERSE");
+  store.recordRecall(first,"VERSE",0,1,100,false,1000L);
+  store.recordRecall(first,"VERSE",0,1,100,false,86402000L);
+  CollectionProgressSnapshot snapshot=store.collectionProgress();
+  assertTrue(snapshot.mastered(first,0));assertTrue(snapshot.mastered(sameBook,0));
+  assertFalse(snapshot.mastered(other,0));
+  assertTrue(snapshot.verseConsolidated(first,0));assertTrue(snapshot.verseConsolidated(sameBook,0));
+  assertFalse(snapshot.verseConsolidated(other,0));
+  assertFalse(store.consolidated(other,"VERSE",0,1));
+  assertEquals(0,store.exerciseDone(other,0));
+ }
  @Test public void repeatedPositionsDoNotShareWithinSameEntryAndChangedTextDoesNotMatch(){
   List<Bible.Verse> repeated=Arrays.asList(new Bible.Verse("1:1","один"),new Bible.Verse("1:1","один"));
   long a=store.add(group,"a","Галатам 1:1",repeated);store.markMastered(a,0,1,100,"VERSE");
