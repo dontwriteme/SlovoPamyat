@@ -6459,7 +6459,11 @@ public final class MainActivity extends Activity {
     private AnswerReview answerReview;
 
     private void openAnswerReview(String expected,String actual,boolean special){
-        answerReview=new AnswerReview(expected,actual,special);
+        openAnswerReview(new AnswerReview(expected,actual,special));
+    }
+
+    private void openAnswerReview(AnswerReview review){
+        answerReview=review;
         saveTrainingSession();
         View focused=getCurrentFocus();
         if(focused!=null){
@@ -6606,39 +6610,38 @@ public final class MainActivity extends Activity {
             return;
         }
         if(!exact){
-            weakVerse=-1;weakTransitionFrom=-1;
-            if(!(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)))
-                store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
-            lessonWriteHadFeedback=true;
-            saveTrainingSession();
-            lastAccuracy=accuracy;lastExpected=original;
+            WeakTransitionLogic.WeakSpot weak=null;
             if(activeStep.end-activeStep.start>1){
                 List<String> sources=new ArrayList<>();
-                for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))sources.add(v.text);
-                WeakTransitionLogic.WeakSpot weak=WeakTransitionLogic.locate(sources,entered);
-                weakVerse=activeStep.start+weak.verseIndex;
-                weakTransitionFrom=weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
-                if(weakVerse>=activeStep.start && weak.errors>0){
-                    store.rescheduleWeakVerse(e.id,weakVerse,now);
-                    if(weakTransitionFrom>=0)
-                        store.recordWeakTransition(e.id,weakTransitionFrom,weakVerse,now);
-                }
+                for(Bible.Verse verse:e.lines().subList(activeStep.start,activeStep.end))sources.add(verse.text);
+                weak=WeakTransitionLogic.locate(sources,entered);
             }
-            if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
-                // A failed combined attempt is attributed only to the weak verse.
-                // Other due verses remain due; none is falsely marked as successfully recalled.
-                if(weakVerse>=activeStep.start && weakVerse<activeStep.end){
-                    store.recordRecall(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
-                    store.scheduleReview(e.id,"VERSE",weakVerse,weakVerse+1,0,false,now);
-                }
-            } else if(reviewMode || groupMode || studyStage!=StudyPlanLogic.Stage.VERSE)
-                store.scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,accuracy,false,now);
-            openAnswerReview(expected,entered,special);
+            AnswerReview feedback=new AnswerReview(expected,entered,special);
+            boolean verseRun=reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage);
+            try{
+                store.commitFailedRecall(e.id,verseRun?"VERSE_RUN":studyStage.name(),
+                    activeStep.start,activeStep.end,accuracy,
+                    reviewMode||groupMode||studyStage!=StudyPlanLogic.Stage.VERSE,weak,now);
+            }catch(RuntimeException error){
+                showRecallSaveError(error);
+                return;
+            }
+            weakVerse=weak==null?-1:activeStep.start+weak.verseIndex;
+            weakTransitionFrom=weak==null||weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
+            lessonWriteHadFeedback=true;
+            lastAccuracy=accuracy;
+            lastExpected=original;
+            openAnswerReview(feedback);
             return;
         }
         if(lessonWriteHadFeedback){
             // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
-            store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,true,now);
+            try{
+                store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,true,now);
+            }catch(RuntimeException error){
+                showRecallSaveError(error);
+                return;
+            }
             lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
             render();
             toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
@@ -6649,8 +6652,7 @@ public final class MainActivity extends Activity {
                 reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage),
                 !reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE,now);
         }catch(RuntimeException error){
-            android.util.Log.e("Learning","Unable to save successful recall",error);
-            toast("Не удалось сохранить ответ. Попробуй ещё раз.");
+            showRecallSaveError(error);
             return;
         }
         lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
@@ -6658,6 +6660,11 @@ public final class MainActivity extends Activity {
             .remove("review_pending").apply();
         if(!reviewMode&&!groupMode)saveTrainingSession();
         render();
+    }
+
+    private void showRecallSaveError(RuntimeException error){
+        android.util.Log.e("Learning","Unable to save recall",error);
+        toast("Не удалось сохранить ответ. Попробуй ещё раз.");
     }
 
     // ===== Unified Collections (v0.21) =====

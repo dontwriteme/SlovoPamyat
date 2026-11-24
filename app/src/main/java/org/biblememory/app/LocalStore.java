@@ -459,18 +459,16 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
 
     /** Keep known weak transitions as independent diagnostic state. */
-    public void recordWeakTransition(long entryId,int from,int to,long now){
+    private void recordWeakTransition(SQLiteDatabase db,long entryId,int from,int to,long now){
         if(from<0||to!=from+1)return;
-        SQLiteDatabase db=getWritableDatabase();
         db.execSQL("INSERT OR IGNORE INTO transition_issues(entry_id,from_position,to_position) VALUES(?,?,?)",
             new Object[]{entryId,from,to});
         db.execSQL("UPDATE transition_issues SET failures=failures+1,last_failed=? WHERE entry_id=? AND from_position=? AND to_position=?",
             new Object[]{now,entryId,from,to});
     }
     /** Reschedule a mastered weak verse sooner; never make a new verse 'mastered'. */
-    public void rescheduleWeakVerse(long id,int position,long now){
+    private void rescheduleWeakVerse(SQLiteDatabase db,long id,int position,long now){
         if(!isStepMastered(id,"VERSE",position,position+1))return;
-        SQLiteDatabase db=getWritableDatabase();
         long due=now+86400000L;
         ContentValues v=new ContentValues();v.put("entry_id",id);v.put("stage","VERSE");
         v.put("first_line",position);v.put("last_line",position+1);
@@ -480,7 +478,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             new String[]{String.valueOf(id),String.valueOf(position),String.valueOf(position+1)})){
             if(c.moveToFirst() && c.getLong(0)>0 && c.getLong(0)<due)return;
         }
-        db.insertWithOnConflict("review_schedule",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+        db.replaceOrThrow("review_schedule",null,v);
     }
     public static final class DueItem {
         public long entryId, due;
@@ -522,34 +520,30 @@ public final class LocalStore extends SQLiteOpenHelper {
         db.beginTransaction();
         try{
             boolean mastered=accuracy!=100||assisted||isStepMastered(id,stage,start,end);
-            scheduleReviewKnownMastery(id,stage,start,end,accuracy,assisted,now,mastered);
+            scheduleReviewKnownMastery(db,id,stage,start,end,accuracy,assisted,now,mastered);
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
-    private void scheduleReviewKnownMastery(long id,String stage,int start,int end,
+    private void scheduleReviewKnownMastery(SQLiteDatabase db,long id,String stage,int start,int end,
             int accuracy,boolean assisted,long now,boolean mastered){
-        SQLiteDatabase db=getWritableDatabase();
-        db.beginTransaction();try{
-            ContentValues a=new ContentValues();a.put("entry_id",id);a.put("stage",stage);
-            a.put("first_line",start);a.put("last_line",end);
-            a.put("attempted_at",now);a.put("accuracy",accuracy);a.put("assisted",assisted?1:0);
-            db.insertOrThrow("review_attempts",null,a);
-            if(!assisted){
-                int level=-1;
-                try(Cursor c=db.rawQuery("SELECT level FROM review_schedule WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
-                    new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})){
-                    if(c.moveToFirst())level=c.getInt(0);
-                }
-                // A failed attempt before first mastery must not advance the initial interval.
-                if(accuracy==100 && !mastered)level=-1;
-                SpacedReviewLogic.State r=SpacedReviewLogic.update(level,accuracy,false,now);
-                ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("stage",stage);
-                cv.put("first_line",start);cv.put("last_line",end);
-                cv.put("level",r.level);cv.put("due",r.due);cv.put("last_score",accuracy);
-                db.insertWithOnConflict("review_schedule",null,cv,SQLiteDatabase.CONFLICT_REPLACE);
+        ContentValues a=new ContentValues();a.put("entry_id",id);a.put("stage",stage);
+        a.put("first_line",start);a.put("last_line",end);
+        a.put("attempted_at",now);a.put("accuracy",accuracy);a.put("assisted",assisted?1:0);
+        db.insertOrThrow("review_attempts",null,a);
+        if(!assisted){
+            int level=-1;
+            try(Cursor c=db.rawQuery("SELECT level FROM review_schedule WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
+                new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})){
+                if(c.moveToFirst())level=c.getInt(0);
             }
-            db.setTransactionSuccessful();
-        }finally{db.endTransaction();}
+            // A failed attempt before first mastery must not advance the initial interval.
+            if(accuracy==100 && !mastered)level=-1;
+            SpacedReviewLogic.State r=SpacedReviewLogic.update(level,accuracy,false,now);
+            ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("stage",stage);
+            cv.put("first_line",start);cv.put("last_line",end);
+            cv.put("level",r.level);cv.put("due",r.due);cv.put("last_score",accuracy);
+            db.replaceOrThrow("review_schedule",null,cv);
+        }
     }
     /** Each due verse/group is independent. Never include unmastered, new material. */
     public List<DueItem> dueItems(long now) {
@@ -638,9 +632,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
         } finally{db.endTransaction();}
     }
-    /** One successful answer is committed as one unit. Nested SQLite transactions
-     * join this outer transaction, so a failed schedule/mastery write rolls back
-     * the recall counter and attempt history too. */
+    /** One successful answer is committed as one unit. */
     public void commitSuccessfulRecall(long id,String stage,int start,int end,
             boolean verseRun,boolean finishLesson,long now){
         SQLiteDatabase db=getWritableDatabase();
@@ -651,43 +643,75 @@ public final class LocalStore extends SQLiteOpenHelper {
             CollectionProgressSnapshot before=collectionProgress();
             if(verseRun){
                 for(int i=start;i<end;i++){
-                    recordRecall(id,"VERSE",i,i+1,100,false,now);
-                    scheduleReviewKnownMastery(id,"VERSE",i,i+1,100,false,now,before.mastered(id,i));
+                    recordRecall(db,id,"VERSE",i,i+1,100,false,now);
+                    scheduleReviewKnownMastery(db,id,"VERSE",i,i+1,100,false,now,before.mastered(id,i));
                 }
             }else{
                 boolean mastered=before.stepMastered(id,stage,start,end);
-                recordRecall(id,stage,start,end,100,false,now);
-                scheduleReviewKnownMastery(id,stage,start,end,100,false,now,mastered);
+                recordRecall(db,id,stage,start,end,100,false,now);
+                scheduleReviewKnownMastery(db,id,stage,start,end,100,false,now,mastered);
                 if(finishLesson)finishExerciseIfNeeded(id,start,5,before.exerciseDone(id,start));
                 if(!mastered)markMastered(id,start,end,100,stage);
             }
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
+    /** Record a failed full answer without advancing mastery or lesson progress. */
+    public void commitFailedRecall(long id,String stage,int start,int end,int accuracy,
+            boolean schedule,WeakTransitionLogic.WeakSpot weak,long now){
+        boolean verseRun="VERSE_RUN".equals(stage);
+        int weakVerse=weak==null||weak.verseIndex<0?-1:start+weak.verseIndex;
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try{
+            if(!verseRun)recordRecall(db,id,stage,start,end,accuracy,false,now);
+            if(weak!=null&&weakVerse>=start&&weakVerse<end&&weak.errors>0){
+                rescheduleWeakVerse(db,id,weakVerse,now);
+                if(weak.transitionFrom>=0)
+                    recordWeakTransition(db,id,start+weak.transitionFrom,weakVerse,now);
+            }
+            if(verseRun){
+                // Only the weak verse receives a failed attempt. Other verses remain due.
+                if(weakVerse>=start&&weakVerse<end){
+                    recordRecall(db,id,"VERSE",weakVerse,weakVerse+1,0,false,now);
+                    scheduleReviewKnownMastery(db,id,"VERSE",weakVerse,weakVerse+1,0,false,now,true);
+                }
+            }else if(schedule){
+                scheduleReviewKnownMastery(db,id,stage,start,end,accuracy,false,now,true);
+            }
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+
     /** Every typed attempt is retained locally, with delayed recall recorded separately. */
     public void recordRecall(long entryId,String stage,int start,int end,int accuracy,
                              boolean assisted,long now) {
         SQLiteDatabase db=getWritableDatabase();
         db.beginTransaction();
         try {
-            long first=0,last=0;int successes=0,fails=0;
-            try(Cursor c=db.rawQuery("SELECT first_success,last_success,success_count,fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
-                new String[]{String.valueOf(entryId),stage,String.valueOf(start),String.valueOf(end)})) {
-                if(c.moveToFirst()){first=c.getLong(0);last=c.getLong(1);successes=c.getInt(2);fails=c.getInt(3);}
-            }
-            if(accuracy==100 && !assisted) {
-                if(first==0)first=now;
-                // Repeating immediately is practice, not evidence of delayed retention.
-                if(successes==0 || (last>0 && now-last>=24L*3600000L))successes++;
-                last=now;fails=0;
-            } else if(accuracy<90)fails++;
-            ContentValues v=new ContentValues();v.put("entry_id",entryId);v.put("stage",stage);
-            v.put("first_line",start);v.put("last_line",end);v.put("last_attempt",now);
-            v.put("first_success",first);v.put("last_success",last);v.put("success_count",successes);
-            v.put("fail_streak",fails);v.put("last_score",accuracy);
-            db.insertWithOnConflict("recall_activity",null,v,SQLiteDatabase.CONFLICT_REPLACE);
+            recordRecall(db,entryId,stage,start,end,accuracy,assisted,now);
             db.setTransactionSuccessful();
         } finally{db.endTransaction();}
+    }
+
+    private void recordRecall(SQLiteDatabase db,long entryId,String stage,int start,int end,
+                              int accuracy,boolean assisted,long now){
+        long first=0,last=0;int successes=0,fails=0;
+        try(Cursor c=db.rawQuery("SELECT first_success,last_success,success_count,fail_streak FROM recall_activity WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
+            new String[]{String.valueOf(entryId),stage,String.valueOf(start),String.valueOf(end)})) {
+            if(c.moveToFirst()){first=c.getLong(0);last=c.getLong(1);successes=c.getInt(2);fails=c.getInt(3);}
+        }
+        if(accuracy==100 && !assisted) {
+            if(first==0)first=now;
+            // Repeating immediately is practice, not evidence of delayed retention.
+            if(successes==0 || (last>0 && now-last>=24L*3600000L))successes++;
+            last=now;fails=0;
+        } else if(accuracy<90)fails++;
+        ContentValues v=new ContentValues();v.put("entry_id",entryId);v.put("stage",stage);
+        v.put("first_line",start);v.put("last_line",end);v.put("last_attempt",now);
+        v.put("first_success",first);v.put("last_success",last);v.put("success_count",successes);
+        v.put("fail_streak",fails);v.put("last_score",accuracy);
+        db.replaceOrThrow("recall_activity",null,v);
     }
     public int recentFailures(long id,String stage,int start,int end) {
         try(Cursor c=readQuery(
