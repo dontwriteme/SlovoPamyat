@@ -384,6 +384,7 @@ public final class MainActivity extends Activity {
     private boolean tabSwitchInProgress=false;
     private final String COLLECTION_PREFS="collection_study_queue";
     private boolean resetInProgress=false;
+    private boolean backupInProgress=false;
     private float swipeStartX,swipeStartY;
     private boolean swipeIntercepted=false;
     private int lastNavIndex=0;
@@ -561,7 +562,7 @@ public final class MainActivity extends Activity {
         if(rerender&&screen==Screen.HOME&&homeIndex!=old)render();
     }
     @Override public void onBackPressed() {
-        if(resetInProgress)return;
+        if(resetInProgress||backupInProgress)return;
         if(dismissModeInfo(true))return;
         switch(screen) {
             case HOME: super.onBackPressed(); break;
@@ -6980,6 +6981,25 @@ public final class MainActivity extends Activity {
         TextView heading=displayText("Настройки",28);
         heading.setGravity(Gravity.CENTER);
         add(content,heading,18);
+
+        LinearLayout backup=column();
+        backup.setPadding(dp(18),dp(18),dp(18),dp(18));
+        backup.setBackground(homeSurface());
+        backup.setElevation(dp(2));
+        add(backup,displayText("Резервная копия",20),0);
+        TextView backupHint=txt(
+            "Сохраните коллекции, собственные тексты, карточки, прогресс и "+
+            "расписание повторений в один файл. Всё работает без интернета.",14,MUTED,false);
+        backupHint.setLineSpacing(dp(3),1.1f);
+        add(backup,backupHint,9);
+        add(backup,button("Создать резервную копию",true,this::exportFile),14);
+        add(backup,button("Восстановить из копии",false,this::importFile),10);
+        TextView warning=txt(
+            "При восстановлении текущие данные заменятся содержимым файла. "+
+            "Перед этим рекомендуется сохранить новую копию.",13,MUTED,false);
+        add(backup,warning,12);
+        add(content,backup,14);
+
         LinearLayout section=column();
         section.setPadding(dp(18),dp(18),dp(18),dp(18));
         section.setBackground(homeSurface());
@@ -7476,44 +7496,78 @@ public final class MainActivity extends Activity {
         action(content,"На главную",true,()->{screen=Screen.HOME;render();});
     }
 
+    /** Android system picker: the app never requests access to other storage. */
     private void exportFile() {
+        if(backupInProgress||resetInProgress)return;
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/json");
-        i.putExtra(Intent.EXTRA_TITLE,"slovo-pamyat-backup.json");
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/octet-stream");
+        String date=new SimpleDateFormat("yyyy-MM-dd_HH-mm",Locale.ROOT)
+            .format(new Date());
+        i.putExtra(Intent.EXTRA_TITLE,"Светоч_"+date+SvetochBackup.EXTENSION);
         startActivityForResult(i,EXPORT);
     }
     private void importFile() {
+        if(backupInProgress||resetInProgress)return;
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/json");
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
         startActivityForResult(i,IMPORT);
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
-        try {
-            if(request==EXPORT) {
-                byte[] json=store.exportJson().toString(2).getBytes(StandardCharsets.UTF_8);
-                try(OutputStream stream=getContentResolver().openOutputStream(uri)) {
-                    if(stream==null)throw new IOException("Cannot write file");
-                    stream.write(json);
-                }
-                toast("Копия сохранена");
-            } else if(request==IMPORT) {
-                ByteArrayOutputStream buffer=new ByteArrayOutputStream();
-                try(InputStream stream=getContentResolver().openInputStream(uri)) {
-                    if(stream==null)throw new IOException("Cannot read file");
-                    byte[] chunk=new byte[8192];int n;
-                    while((n=stream.read(chunk))!=-1) {
-                        if(buffer.size()+n>20_000_000)throw new IOException("Файл больше 20 МБ");
-                        buffer.write(chunk,0,n);
-                    }
-                }
-                store.importJson(buffer.toString("UTF-8"));
-                toast("Подборки импортированы");render();
+        if(request==EXPORT)runBackupTask(uri,false);
+        else if(request==IMPORT){
+            styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                .setTitle("Восстановить резервную копию?")
+                .setMessage("Все текущие коллекции, стихи, карточки, прогресс "+
+                    "и незавершённые уроки будут заменены данными из выбранного "+
+                    "файла. Это действие нельзя отменить.\n\n"+
+                    "Рекомендуется сначала создать отдельную копию текущих данных.")
+                .setPositiveButton("Восстановить",(d,w)->runBackupTask(uri,true))
+                .setNegativeButton("Отмена",null).create());
+        }
+    }
+    private void runBackupTask(Uri uri,boolean restore){
+        if(backupInProgress||resetInProgress)return;
+        backupInProgress=true;
+        AlertDialog progress=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            .setTitle(restore?"Восстановление":"Резервное копирование")
+            .setMessage(restore?"Проверяем файл и восстанавливаем данные…":
+                "Сохраняем коллекции, карточки и прогресс…")
+            .setCancelable(false).create();
+        styledDialog(progress);
+        new Thread(()->{
+            Exception failure=null;
+            try {
+                if(restore)SvetochBackup.restoreFrom(getApplicationContext(),store,uri);
+                else SvetochBackup.exportTo(getApplicationContext(),store,uri);
+            }catch(Exception error){
+                failure=error;
+                android.util.Log.e("SvetochBackup","Backup action failed",error);
             }
-        }catch(Exception ex){new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Ошибка файла")
-            .setMessage(ex.getMessage()).setPositiveButton("OK",null).show();}
+            final Exception outcome=failure;
+            runOnUiThread(()->{
+                if(isDestroyed())return;
+                progress.dismiss();
+                backupInProgress=false;
+                if(outcome!=null){
+                    styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                        .setTitle(restore?"Не удалось восстановить копию":
+                            "Не удалось сохранить копию")
+                        .setMessage(outcome.getMessage()==null?"Ошибка файла":
+                            outcome.getMessage())
+                        .setPositiveButton("Понятно",null).create());
+                }else if(restore){
+                    toast("Резервная копия восстановлена");
+                    // Discard all caches and stale references, reinitialize both DB
+                    // helpers and restore selection/session from imported preferences.
+                    recreate();
+                }else toast("Резервная копия создана");
+            });
+        },restore?"SvetochBackupRestore":"SvetochBackupExport").start();
     }
     @Override protected void onDestroy(){
         collectionGeneration++;
