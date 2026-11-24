@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     }
     private final List<RunLine> runLines=new ArrayList<>();
     private long runCollectionId=-1;
+    private String runMaterialFingerprint="";
     private int runCursor=0,runCorrect=0;
     private final List<String> runMistakes=new ArrayList<>();
     private String runDraft="";
@@ -130,6 +131,7 @@ public final class MainActivity extends Activity {
     private final EnumMap<LessonCurriculumLogic.Variant,List<String[]>> lessonChunkCache=
         new EnumMap<>(LessonCurriculumLogic.Variant.class);
     private String lessonChunkCacheKey="";
+    private String savedAssemblyFingerprint="";
     // Presentation only: one adaptive strip, independent of text/answer Views.
     private LessonSegmentedBar lessonHotbarStrip;
 
@@ -2245,7 +2247,8 @@ public final class MainActivity extends Activity {
     /** Archived entries still exist: a saved queue is valid only while its entire
      * ordered membership matches the currently selected collection. */
     private boolean collectionQueueMatches(long groupId,List<LocalStore.Entry> entries){
-        if(groupId<0||collectionQueueGroup!=groupId||collectionQueueCursor<0||
+        if(groupId<0||store.unifiedForGroup(groupId)==null||
+            collectionQueueGroup!=groupId||collectionQueueCursor<0||
             collectionQueueCursor>=collectionQueue.size()||collectionQueue.size()!=entries.size())
             return false;
         for(int i=0;i<entries.size();i++)
@@ -4701,7 +4704,8 @@ public final class MainActivity extends Activity {
         LocalStore.DueItem first=reviewQueue.get(0);
         boolean restore=old.getBoolean("review_pending",false) &&
             old.getLong("review_review_entry",-1)==first.entryId &&
-            old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end;
+            old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end&&
+            old.getString("review_review_stage","").equals(first.stage);
         openReview(first);
         if(restore){
             draft=resumableWritingDraft(old.getString("review_draft",""),
@@ -4728,9 +4732,9 @@ public final class MainActivity extends Activity {
         forcedStep=new StudyPlanLogic.Step(item.start,item.end,"Повторение · "+e.lines().get(item.start).ref);
         currentReview=item;groupMode=false;reviewMode=true;stepCursor=0;
         weakVerse=-1;weakTransitionFrom=-1;
-        mask=0;checked=false;passed=false;draft="";testAssisted=false;lastAccuracy=-1;
-        lessonWriteHadFeedback=false;lessonPracticeAgain=false;
-        trainingMode=TrainingMode.TYPE;resetWordTiles();screen=Screen.TRAIN;render();
+        resetTrainingStep(e);
+        inlineDrafts=new String[0];
+        trainingMode=TrainingMode.TYPE;screen=Screen.TRAIN;render();
     }
     private void advanceReviewSession(){
         reviewPointer++;
@@ -4771,6 +4775,7 @@ public final class MainActivity extends Activity {
             .putInt(key+"blur_seed",blurSeed)
             .putInt(key+"lesson_variant",lessonVariant).putInt(key+"lesson_chunk",lessonChunk)
             .putInt(key+"lesson_picked",lessonPicked).putLong(key+"lesson_seed",lessonSeed)
+            .putString(key+"assembly_fingerprint",savedAssemblyFingerprint)
             .putString(key+"rotation_exercise_key",rotationExerciseKey)
             .putLong(key+"rotation_exercise_seed",rotationExerciseSeed)
             .putString(key+"rotation_mask",rotationMask)
@@ -4806,6 +4811,7 @@ public final class MainActivity extends Activity {
         lessonVariant=Math.max(0,pref.getInt(key+"lesson_variant",0));
         lessonChunk=Math.max(0,pref.getInt(key+"lesson_chunk",0));
         lessonPicked=Math.max(0,pref.getInt(key+"lesson_picked",0));
+        savedAssemblyFingerprint=pref.getString(key+"assembly_fingerprint","");
         lessonSeed=pref.getLong(key+"lesson_seed",new Random().nextLong());
         rotationExerciseKey=pref.getString(key+"rotation_exercise_key","");
         rotationExerciseSeed=pref.getLong(key+"rotation_exercise_seed",0L);
@@ -4910,6 +4916,7 @@ public final class MainActivity extends Activity {
         return StudyPlanLogic.build(refs,studyStage,isSermon(e));
     }
     private void resetTrainingStep(LocalStore.Entry e) {
+        savedAssemblyFingerprint="";
         lessonVariant=0;lessonChunk=0;lessonPicked=0;lessonWrongTile=-1;lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;
         practiceWeakFragment=false;weakFragmentText="";
         lessonSeed=new Random().nextLong();lessonUsedTiles.clear();lessonPracticeAgain=false;
@@ -5416,7 +5423,7 @@ public final class MainActivity extends Activity {
         studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
         forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
         stepCursor=0;resetWordTiles();mask=0;draft="";checked=false;passed=false;
-        lessonVariant=0;lessonChunk=0;
+        lessonVariant=0;lessonChunk=0;savedAssemblyFingerprint="";
         testAssisted=false;lessonWriteHadFeedback=false;lessonPracticeAgain=false;
         lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;practiceWeakFragment=false;weakFragmentText="";resetLessonTiles();
         trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;render();
@@ -5498,6 +5505,7 @@ public final class MainActivity extends Activity {
                 saveTrainingSession();render();
             });
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
+            trainingMode=TrainingMode.ORDER;
             assemblyReference(e);
             boolean complete=renderLessonBuild(e);
             mainAction=button("Продолжить",true,()->{
@@ -5509,6 +5517,7 @@ public final class MainActivity extends Activity {
             styleAssemblyContinue(mainAction,complete);
             lessonBuildAction=mainAction;
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
+            trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
                 renderAnswerReview(answerReview);
                 mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
@@ -6154,14 +6163,22 @@ public final class MainActivity extends Activity {
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
         List<String[]> chunks=lessonChunks(src,kind);
         if(chunks.isEmpty())return true;
-        lessonChunk=Math.min(lessonChunk,chunks.size()-1);
+        String fingerprint=SessionIntegrityLogic.assemblyFingerprint(kind,chunks);
+        if(!fingerprint.equals(savedAssemblyFingerprint)||
+            lessonChunk<0||lessonChunk>=chunks.size()){
+            // A different screen/font/layout or older saved format must never
+            // skip words or transfer selected indices to another fragment.
+            lessonChunk=0;resetLessonTiles();
+            rotationExerciseKey="";rotationMask="";
+        }
+        savedAssemblyFingerprint=fingerprint;
         String[] tokens=chunks.get(lessonChunk);
         // The assembly tiles and answer slots show the task directly;
         // do not add an instruction card for any assembly variant.
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
-        if(lessonPicked>missing.length || lessonUsedTiles.size()!=lessonPicked){
-            lessonPicked=0;lessonUsedTiles.clear();
+        if(!SessionIntegrityLogic.validAssemblyPrefix(tokens,missing,lessonPicked,lessonUsedTiles)){
+            lessonPicked=0;lessonUsedTiles.clear();lessonWrongTile=-1;
         }
         WrapLayout prompt=new WrapLayout(this,dp(7),true);
         prompt.setPadding(dp(14),dp(16),dp(14),dp(16));
@@ -7041,7 +7058,7 @@ public final class MainActivity extends Activity {
                 android.content.SharedPreferences unified=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
                 android.content.SharedPreferences.Editor editor=unified.edit();
                 for(String key:unified.getAll().keySet())
-                    if(key.startsWith("run_history_"))editor.remove(key);
+                    if(key.startsWith("run_history_")||key.startsWith("writing_run_"))editor.remove(key);
                 editor.commit();
                 runOnUiThread(()->{
                     if(isDestroyed())return;
@@ -7050,6 +7067,8 @@ public final class MainActivity extends Activity {
                     cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                     reviewQueue.clear();reviewPointer=0;reviewMode=false;
                     runLines.clear();runMistakes.clear();runCursor=0;runCorrect=0;
+                    runCollectionId=-1;runMaterialFingerprint="";
+                    savedAssemblyFingerprint="";lessonChunkCache.clear();lessonChunkCacheKey="";
                     runDraft="";runChecked=false;runPassed=false;
                     draft="";checked=false;passed=false;answerReview=null;
                     lessonWriteHadFeedback=false;lessonPracticeAgain=false;
@@ -7146,7 +7165,8 @@ public final class MainActivity extends Activity {
                     .remove("run_history_"+u.id).remove(run+"active")
                     .remove(run+"cursor").remove(run+"correct")
                     .remove(run+"draft").remove(run+"checked")
-                    .remove(run+"passed").remove(run+"missed").apply();
+                    .remove(run+"passed").remove(run+"missed").remove(run+"fingerprint").apply();
+                if(collectionQueueGroup==u.groupId)clearCollectionQueue();
                 if(runCollectionId==u.id){runLines.clear();runCollectionId=-1;}
                 render();toast("Коллекция очищена");
             }).setNegativeButton("Отмена",null).create());
@@ -7166,7 +7186,10 @@ public final class MainActivity extends Activity {
             .setTitle("Удалить коллекцию из списка?")
             .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteUnifiedCollection(u.id);ensureActiveUnified();
+                store.deleteUnifiedCollection(u.id);
+                if(collectionQueueGroup==u.groupId)clearCollectionQueue();
+                clearRunState(u.id);
+                ensureActiveUnified();
                 screen=Screen.COLLECTIONS;render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -7356,14 +7379,35 @@ public final class MainActivity extends Activity {
             toast("В коллекции пока нет стихов, закреплённых отложенным повторением");return;
         }
         runCollectionId=u.id;
+        List<String> material=new ArrayList<>();
+        for(RunLine line:runLines){
+            material.add(Long.toString(line.entryId));
+            material.add(Integer.toString(line.position));
+            material.add(line.reference);material.add(line.text);
+        }
+        runMaterialFingerprint=SessionIntegrityLogic.fingerprint(material);
         android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-        if(p.getBoolean(runKey(u.id)+"active",false)){
+        String key=runKey(u.id);
+        boolean active=p.getBoolean(key+"active",false);
+        if(active&&SessionIntegrityLogic.canResumeRun(p.getString(key+"fingerprint",""),
+                runMaterialFingerprint,p.getInt(key+"cursor",-1),p.getInt(key+"correct",-1),runLines.size())){
             styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Незавершённая проверка памяти")
                 .setMessage("Продолжить с сохранённого стиха или начать проверку заново?")
                 .setPositiveButton("Продолжить",(d,w)->{restoreRunSession();screen=Screen.RUN;render();})
                 .setNegativeButton("Сначала",(d,w)->{resetRun();screen=Screen.RUN;render();}).create());
-        }else{resetRun();screen=Screen.RUN;render();}
+        }else{
+            if(active)toast("Состав стихов изменился. Начинаем новую проверку.");
+            resetRun();screen=Screen.RUN;render();
+        }
+    }
+    private void clearRunState(long collectionId){
+        android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
+        android.content.SharedPreferences.Editor edit=p.edit();
+        String prefix=runKey(collectionId);
+        for(String key:p.getAll().keySet())if(key.startsWith(prefix))edit.remove(key);
+        edit.apply();
+        if(runCollectionId==collectionId){runLines.clear();runCollectionId=-1;runMaterialFingerprint="";}
     }
     private void resetRun(){
         runCursor=0;runCorrect=0;runMistakes.clear();runChecked=false;runPassed=false;runDraft="";
@@ -7386,7 +7430,8 @@ public final class MainActivity extends Activity {
         if(runCollectionId<0||runLines.isEmpty())return;
         String key=runKey(runCollectionId);
         getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-            .putBoolean(key+"active",true).putInt(key+"cursor",runCursor)
+            .putBoolean(key+"active",true).putString(key+"fingerprint",runMaterialFingerprint)
+            .putInt(key+"cursor",runCursor)
             .putInt(key+"correct",runCorrect).putString(key+"draft",runDraft)
             .putBoolean(key+"checked",runChecked).putBoolean(key+"passed",runPassed)
             .putString(key+"missed",new JSONArray(runMistakes).toString()).apply();
