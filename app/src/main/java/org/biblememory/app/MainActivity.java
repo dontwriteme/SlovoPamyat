@@ -6722,15 +6722,15 @@ public final class MainActivity extends Activity {
         chooser.setOnClickListener(v->showUnifiedSelector());
         add(panel,chooser,0);
         int verses=0,learned=0;
-        Set<String> seenVerses=new HashSet<>();
-        for(LocalStore.Entry e:store.entries(active.groupId)){
-            List<Bible.Verse> lines=e.lines();
+        CollectionProgressSnapshot snapshot=store.collectionProgress();
+        Set<List<String>> seenVerses=new HashSet<>();
+        for(LocalStore.Entry e:snapshot.entries(active.groupId)){
+            List<Bible.Verse> lines=snapshot.verses(e.id);
+            int book=bookForEntry(e);
             for(int i=0;i<lines.size();i++){
-                String identity=runVerseKey(e,lines.get(i));
-                if(!seenVerses.add(identity))continue;
+                if(!seenVerses.add(verseIdentity(e,book,i,lines.get(i))))continue;
                 verses++;
-                if(store.isStepMastered(e.id,"VERSE",i,i+1) ||
-                    store.exerciseDone(e.id,i)>=5)learned++;
+                if(snapshot.exerciseDone(e.id,i)>=5)learned++;
             }
         }
         addHelpLabel(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
@@ -7342,6 +7342,10 @@ public final class MainActivity extends Activity {
 
     // ===== Independent writing run: diagnostic only, never modifies lesson/review tables. =====
     private String runKey(long collection){return "writing_run_"+collection+"_";}
+    private static List<String> verseIdentity(LocalStore.Entry e,int book,int position,Bible.Verse line){
+        return book>0?Arrays.asList("bible",Integer.toString(book),line.ref,line.text):
+            Arrays.asList("custom",Long.toString(e.id),Integer.toString(position));
+    }
     private void buildRunLines(LocalStore.UnifiedCollection u){
         runLines.clear();
         // A transactionally consistent snapshot replaces thousands of per-verse
@@ -7353,9 +7357,7 @@ public final class MainActivity extends Activity {
             List<Bible.Verse> lines=snapshot.verses(e.id);
             for(int i=0;i<lines.size();i++){
                 Bible.Verse line=lines.get(i);
-                List<String> key=book>0?
-                    Arrays.asList("bible",Integer.toString(book),line.ref,line.text):
-                    Arrays.asList("custom",Long.toString(e.id),Integer.toString(i));
+                List<String> key=verseIdentity(e,book,i,line);
                 if(!snapshot.verseConsolidated(e.id,i)||!seen.add(key))continue;
                 String reference=book>0?Bible.NAMES[book-1]+" "+line.ref:
                     e.reference+(lines.size()>1?" · "+(i+1):"");
