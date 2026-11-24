@@ -407,6 +407,48 @@ public class SessionLifecycleRegressionTest {
         assertTrue(store.isStepMastered(id,"VERSE",2,3));
     }
 
+    @Test public void movingUnchangedLineInSameLengthEditPreservesItsHistory()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Перемещение");
+        long id=store.add(u.groupId,"Текст","Свой текст",Arrays.asList(
+            new Bible.Verse("1","Начало"),new Bible.Verse("2","Середина"),new Bible.Verse("3","Конец")));
+        store.finishExercise(id,1,5);
+        store.markMastered(id,1,2,100,"VERSE");
+        store.recordRecall(id,"VERSE",1,2,100,false,1000L);
+        store.recordRecall(id,"VERSE",1,2,100,false,86402000L);
+        store.scheduleReview(id,"VERSE",1,2,100,true,86402000L);
+        assertTrue(store.isStepMastered(id,"VERSE",1,2));
+        assertEquals(5,store.exerciseDone(id,1));
+        long oldDue;
+        try(android.database.Cursor c=store.getReadableDatabase().rawQuery(
+            "SELECT due FROM review_schedule WHERE entry_id=? AND stage='VERSE' AND first_line=1 AND last_line=2",
+            new String[]{String.valueOf(id)})){
+            assertTrue(c.moveToFirst());oldDue=c.getLong(0);
+        }
+        call("editCustomStudyEntry",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        android.app.AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        android.widget.EditText words=(android.widget.EditText)findCustomTextView(
+            dialog.getWindow().getDecorView(),"Начало\nСередина\nКонец");
+        assertNotNull(words);
+        words.setText("Середина\nКонец\nДобавление");
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        assertFalse(dialog.isShowing());
+        assertEquals("2",store.entry(id).lines().get(0).ref);
+        assertTrue(store.isStepMastered(id,"VERSE",0,1));
+        assertEquals(5,store.exerciseDone(id,0));
+        assertFalse(store.isStepMastered(id,"VERSE",2,3));
+        assertEquals(0,store.exerciseDone(id,2));
+        try(android.database.Cursor c=store.getReadableDatabase().rawQuery(
+            "SELECT last_success,success_count FROM recall_activity WHERE entry_id=? AND stage='VERSE' AND first_line=0 AND last_line=1",
+            new String[]{String.valueOf(id)})){
+            assertTrue(c.moveToFirst());assertEquals(86402000L,c.getLong(0));assertEquals(2,c.getInt(1));
+        }
+        try(android.database.Cursor c=store.getReadableDatabase().rawQuery(
+            "SELECT due FROM review_schedule WHERE entry_id=? AND stage='VERSE' AND first_line=0 AND last_line=1",
+            new String[]{String.valueOf(id)})){
+            assertTrue(c.moveToFirst());assertEquals(oldDue,c.getLong(0));
+        }
+    }
+
     @Test public void wordlessFlashcardStaysAvailableAsCardButCannotCreateLesson()throws Exception{
         LocalStore.UnifiedCollection u=collection("Карточки");
         store.addCustomFlashcard(u.deckId,"Знак","…");
