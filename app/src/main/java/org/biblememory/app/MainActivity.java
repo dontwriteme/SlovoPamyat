@@ -6955,77 +6955,55 @@ public final class MainActivity extends Activity {
         if(isDestroyed()||isFinishing()||backupInProgress||resetInProgress||screen!=Screen.TRAIN||
             selectedEntry!=e.id||activeStep!=check.step()||!draft.equals(check.draft()))return;
         WritingAssessment.Input input=check.input();
-        boolean exact=result.exact(),full=input.full();
-        AnswerReview feedback=exact?null:new AnswerReview(input.expected(),input.actual(),result.feedback());
-        if(input.actual().trim().isEmpty()){openAnswerReview(feedback);return;}
-        if(practiceWeakFragment){
-            if(!exact){
-                openAnswerReview(feedback);
-                return;
-            }
-            practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
-            lessonWriteVariant=LessonCurriculumLogic.variants(
-                ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
-            if(reviewMode)lessonWriteVariant=0;
-            saveTrainingSession();render();
-            toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");
-            return;
-        }
-        if(exact && !full){
-            lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
-            lessonSeed=new Random().nextLong();saveTrainingSession();render();return;
-        }
-        long now=System.currentTimeMillis();
-        if(!exact && !full){
-            openAnswerReview(feedback);
-            return;
-        }
-        if(!exact){
-            WeakTransitionLogic.WeakSpot weak=result.weak();
-            int accuracy=result.accuracy();
-            boolean verseRun=reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage);
-            try{
-                store.commitFailedRecall(e.id,verseRun?"VERSE_RUN":studyStage.name(),
-                    activeStep.start,activeStep.end,accuracy,
-                    reviewMode||groupMode||studyStage!=StudyPlanLogic.Stage.VERSE,weak,now);
-            }catch(RuntimeException error){
-                showRecallSaveError(error);
-                return;
-            }
-            weakVerse=weak==null?-1:activeStep.start+weak.verseIndex;
-            weakTransitionFrom=weak==null||weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
-            lessonWriteHadFeedback=true;
-            lastAccuracy=accuracy;
-            lastExpected=result.closest();
-            openAnswerReview(feedback);
-            return;
-        }
-        if(lessonWriteHadFeedback){
-            // Correcting a visible diff is practice, not unaided recall. Demand a fresh clean attempt.
-            try{
-                store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,true,now);
-            }catch(RuntimeException error){
-                showRecallSaveError(error);
-                return;
-            }
-            lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
-            render();
-            toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
-            return;
-        }
+        AnswerReview feedback=result.exact()?null:new AnswerReview(input.expected(),input.actual(),result.feedback());
+        LessonWritingFlow.Context context=new LessonWritingFlow.Context(
+            e.id,studyStage,activeStep.start,activeStep.end,reviewMode,groupMode,
+            reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage),
+            practiceWeakFragment,lessonWriteHadFeedback);
+        LessonWritingFlow.Transition transition=LessonWritingFlow.decide(context,input,result);
         try{
-            store.commitSuccessfulRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,
-                reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage),
-                !reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE,now);
+            transition.persist(store,System.currentTimeMillis());
         }catch(RuntimeException error){
             showRecallSaveError(error);
             return;
         }
-        lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
-        if(reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
-            .remove("review_pending").apply();
-        if(!reviewMode&&!groupMode)saveTrainingSession();
-        render();
+        switch(transition.outcome()){
+            case FEEDBACK:
+                openAnswerReview(feedback);
+                return;
+            case FRAGMENT_PRACTICED:
+                practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
+                lessonWriteVariant=LessonCurriculumLogic.variants(
+                    ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
+                if(reviewMode)lessonWriteVariant=0;
+                saveTrainingSession();render();
+                toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");
+                return;
+            case NEXT_VARIANT:
+                lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
+                lessonSeed=new Random().nextLong();saveTrainingSession();render();
+                return;
+            case FAILED_RECALL:
+                weakVerse=transition.weakVerse();
+                weakTransitionFrom=transition.weakTransitionFrom();
+                lessonWriteHadFeedback=true;
+                lastAccuracy=result.accuracy();
+                lastExpected=result.closest();
+                openAnswerReview(feedback);
+                return;
+            case ASSISTED_CORRECTION:
+                lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
+                render();
+                toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
+                return;
+            case SUCCESSFUL_RECALL:
+                lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
+                if(reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
+                    .remove("review_pending").apply();
+                if(!reviewMode&&!groupMode)saveTrainingSession();
+                render();
+                return;
+        }
     }
 
     private boolean bibleReadyForRecall(){
