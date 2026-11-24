@@ -67,4 +67,29 @@ public class CustomStudyTextTest {
         assertEquals("1",same.get(0).ref);
         assertEquals("3",same.get(2).ref);
     }
+
+    @Test public void sameLengthShiftPreservesUnchangedLinesBeforeAllocatingNewIds(){
+        List<Bible.Verse> old=Arrays.asList(verse("1","Начало"),verse("2","Середина"),
+            verse("3","Конец"));
+        List<Bible.Verse> shifted=CustomStudyText.parse("Середина\nКонец\nДобавление",old);
+        assertEquals("2",shifted.get(0).ref);
+        assertEquals("3",shifted.get(1).ref);
+        assertEquals("4",shifted.get(2).ref);
+        List<Bible.Verse> reordered=CustomStudyText.parse("Конец\nНачало\nСередина",old);
+        assertEquals("3",reordered.get(0).ref);
+        assertEquals("1",reordered.get(1).ref);
+        assertEquals("2",reordered.get(2).ref);
+    }
+
+    @Test public void ambiguousCopiesDoNotInheritAnUnrelatedIdentity(){
+        List<Bible.Verse> old=Arrays.asList(verse("1","Слово"),verse("2","Другое"),
+            verse("3","Слово"));
+        List<Bible.Verse> shifted=CustomStudyText.parse("Другое\nСлово\nСлово",old);
+        assertEquals("2",shifted.get(0).ref);
+        assertNotEquals("1",shifted.get(1).ref);
+        assertNotEquals("3",shifted.get(1).ref);
+        assertNotEquals("1",shifted.get(2).ref);
+        assertNotEquals("3",shifted.get(2).ref);
+        assertNotEquals(shifted.get(1).ref,shifted.get(2).ref);
+    }
 }
