@@ -472,18 +472,40 @@ public final class MainActivity extends Activity {
         refreshHomeIndex(false);
         restorePickerState(savedInstanceState);
         render();
-        new Thread(()->{
-            try { bible.load(getApplicationContext());
-                try{BibleSearchLogic.prepare(getApplicationContext());}
-                catch(Exception ignored){ /* Search failure never blocks Bible or collections. */ }
-                for(LocalStore.UnifiedCollection u:store.unifiedCollections())try{
-                    store.syncUnifiedCollection(u.id,bible);
-                }catch(Exception ignored){ /* Preserve legacy rows for later recovery. */ }
-            }
-            catch(Exception ex) {bibleError=ex.getMessage()==null?"Невозможно открыть текст":ex.getMessage();}
-            runOnUiThread(()->{if(screen==Screen.HOME||screen==Screen.BOOKS||screen==Screen.CHAPTERS||screen==Screen.VERSES||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||screen==Screen.BIBLE_PICKER||isPickerScreen(screen)||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL){if(isBibleSearchScreen())renderBibleSearchKeepingInput();else render();}});
-        },"BibleLoader").start();
+        // The worker owns collectionStore until its queued close in onDestroy.
+        collectionExecutor.execute(this::loadBibleAndSyncCollections);
     }
+
+    private void loadBibleAndSyncCollections(){
+        try{
+            bible.load(getApplicationContext());
+        }catch(Exception error){
+            collectionHandler.post(()->{
+                if(isDestroyed()||isFinishing())return;
+                bibleError=error.getMessage()==null?"Невозможно открыть текст":error.getMessage();
+                refreshAfterBibleLoad();
+            });
+            return;
+        }
+        try{BibleSearchLogic.prepare(getApplicationContext());}
+        catch(Exception error){android.util.Log.w("BibleLoader","Unable to prepare Bible search",error);}
+        try{
+            for(LocalStore.UnifiedCollection u:collectionStore.unifiedCollections()){
+                try{collectionStore.syncUnifiedCollection(u.id,bible);}
+                catch(RuntimeException error){android.util.Log.w("BibleLoader","Unable to sync collection "+u.id,error);}
+            }
+        }catch(RuntimeException error){android.util.Log.w("BibleLoader","Unable to list collections",error);}
+        collectionHandler.post(this::refreshAfterBibleLoad);
+    }
+
+    private void refreshAfterBibleLoad(){
+        if(isDestroyed()||isFinishing())return;
+        if(isBibleSearchScreen())renderBibleSearchKeepingInput();
+        else if(screen==Screen.HOME||screen==Screen.CHAPTERS||screen==Screen.VERSES
+                ||screen==Screen.CHAPTER||screen==Screen.CARD_PICK||isPickerScreen(screen)
+                ||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL)render();
+    }
+
     private boolean isPickerScreen(Screen value){
         return value==Screen.PICKER_BOOKS||value==Screen.PICKER_CHAPTERS||
             value==Screen.PICKER_VERSES||value==Screen.PICKER_TEXT||value==Screen.BIBLE_PICKER;
@@ -7222,11 +7244,16 @@ public final class MainActivity extends Activity {
             .setTitle("Удалить коллекцию из списка?")
             .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteUnifiedCollection(u.id);
-                if(collectionQueueGroup==u.groupId)clearCollectionQueue();
-                clearRunState(u.id);
-                ensureActiveUnified();
-                screen=Screen.COLLECTIONS;render();
+                Screen origin=screen;
+                runCollectionMutation(()->collectionStore.deleteUnifiedCollection(u.id),success->{
+                    if(!success)return;
+                    if(collectionQueueGroup==u.groupId)clearCollectionQueue();
+                    clearRunState(u.id);
+                    ensureActiveUnified();
+                    if(screen==origin&&(origin!=Screen.COLLECTION_DETAIL||openUnifiedId==u.id)){
+                        screen=Screen.COLLECTIONS;render();
+                    }
+                });
             }).setNegativeButton("Отмена",null).create());
     }
     private void renderUnifiedCollectionDetail(){

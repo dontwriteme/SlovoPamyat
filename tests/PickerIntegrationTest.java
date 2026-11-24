@@ -54,7 +54,8 @@ public class PickerIntegrationTest {
     String ref(int a,int b,int c,int d){return Bible.reference(40,a,b,c,d);}
     @Before public void setup()throws Exception {
         controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();activity=controller.get();
-        bible=(Bible)field("bible");bible.load(activity);
+        ActivityTestWorkers.awaitStartup(activity);
+        bible=(Bible)field("bible");
         store=(LocalStore)field("store");
         long id=store.createUnifiedCollection("Picker test");
         LocalStore.UnifiedCollection u=store.unifiedCollection(id);group=u.groupId;
@@ -63,7 +64,7 @@ public class PickerIntegrationTest {
         call("openBiblePicker",new Class<?>[]{target.getClass(),long.class,back.getClass()},target,group,back);
         set("selectedBook",40);chapter(5);
     }
-    @After public void finish(){if(controller!=null)controller.pause().stop().destroy();}
+    @After public void finish()throws Exception{if(controller!=null)ActivityTestWorkers.destroy(controller);}
     @Test public void quickTogglePreservesRowsAndHistory()throws Exception {
         ScrollView before=(ScrollView)field("currentScroller");
         @SuppressWarnings("unchecked") List<View> buttons=(List<View>)field("pickerQuickButtons");
@@ -94,7 +95,31 @@ public class PickerIntegrationTest {
         assertEquals(10,store.flashcards(store.unifiedForGroup(group).deckId).size());
         assertFalse((Boolean)call("savePickedPassageFor",new Class<?>[]{int.class,int.class,int.class,int.class,int.class},40,5,3,5,12));
         assertEquals(2,store.entries(group).size());
-        store.deleteUnifiedCollection(store.unifiedForGroup(group).id);
+        LocalStore.UnifiedCollection collection=store.unifiedForGroup(group);
+        // Wait for the automatic snapshot first, then hold the same kind of worker
+        // transaction while the UI requests deletion to make the overlap deterministic.
+        ActivityTestWorkers.awaitCollectionWork(activity);
+        LocalStore workerStore=(LocalStore)field("collectionStore");
+        java.util.concurrent.CountDownLatch transactionOpen=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release=new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.Future<?> reader=ActivityTestWorkers.executor(activity,"collectionExecutor").submit(()->{
+            android.database.sqlite.SQLiteDatabase db=workerStore.getReadableDatabase();
+            db.beginTransactionNonExclusive();
+            try{
+                transactionOpen.countDown();
+                assertTrue(release.await(30,java.util.concurrent.TimeUnit.SECONDS));
+            }finally{db.endTransaction();}
+            return null;
+        });
+        try{
+            assertTrue(transactionOpen.await(30,java.util.concurrent.TimeUnit.SECONDS));
+            call("deleteUnified",new Class<?>[]{LocalStore.UnifiedCollection.class},collection);
+            org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+                .getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        }finally{release.countDown();}
+        reader.get(30,java.util.concurrent.TimeUnit.SECONDS);
+        ActivityTestWorkers.awaitCollectionWork(activity);
+        assertNull(store.unifiedForGroup(group));
         assertFalse((Boolean)call("savePickedPassageFor",new Class<?>[]{int.class,int.class,int.class,int.class,int.class},40,5,13,5,15));
         assertEquals(2,store.entries(group).size());
     }
@@ -112,7 +137,7 @@ public class PickerIntegrationTest {
     }
     @Test public void recreateKeepsSelectionAndCollection()throws Exception {
         invoke("openPickerRange");choose(false,5,3);choose(true,7,29);
-        controller.recreate();activity=controller.get();
+        ActivityTestWorkers.recreate(controller);activity=controller.get();
         ((Bible)field("bible")).load(activity);invoke("render");
         assertEquals(group,field("pickerTargetId"));assertEquals("BIBLE_PICKER",field("screen").toString());
         assertTrue(selection().active);assertArrayEquals(new int[]{5,3,7,29},selection().bounds());
@@ -291,8 +316,7 @@ public class PickerIntegrationTest {
         assertTrue(((List<?>)field("bibleSearchHits")).isEmpty());
     }
     @Test public void nonemptyNoMatchKeepsQueryUntilClear()throws Exception {
-        manualSearch();set("bibleSearchQuery","qzxvnotfound");set("bibleSearchActive",true);
-        set("bibleSearchLoading",false);set("bibleSearchHits",Collections.emptyList());invoke("render");
+        searchThroughInput(manualSearch(),"qzxvnotfound");
         assertEquals("qzxvnotfound",searchInput().getText().toString());
         assertNotNull(text((View)field("root"),"Ничего не найдено"));
         assertNull(text((View)field("root"),"Бытие"));
@@ -315,15 +339,37 @@ public class PickerIntegrationTest {
         assertFalse((Boolean)field("bibleSearchActive"));assertNotNull(text("Бытие"));
     }
     @Test public void clearingVirtualResultsPreservesCatalogScroll()throws Exception {
-        manualSearch();set("bibleSearchQuery","бог");set("bibleSearchActive",true);set("bibleSearchLoading",false);
-        set("bibleSearchHits",Collections.singletonList(new BibleSearchLogic.Hit(40,5,3,ref(5,3,5,3),bible.chapter(40,5).get(2).text,10)));
-        invoke("render");assertNull(field("currentScroller"));
-        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)field("savedScrollY");
-        Object books=option("Screen","BOOKS");saved.put(books,123);
-        @SuppressWarnings("unchecked") Map<Object,Object> tabs=(Map<Object,Object>)field("readyTabs");
-        Object tab=tabs.get(books);Field scroller=tab.getClass().getDeclaredField("scroller");scroller.setAccessible(true);
-        assertNull(scroller.get(tab));searchInput().setText("");
-        assertEquals(Integer.valueOf(123),saved.get(books));assertNotNull(text("Бытие"));
+        ManualSearchExecutor executor=manualSearch();
+        layoutReader();
+        ScrollView catalog=(ScrollView)field("currentScroller");
+        catalog.scrollTo(0,123);
+        assertEquals(123,catalog.getScrollY());
+
+        searchThroughInput(executor,"бог");
+        assertNull(field("currentScroller"));
+        Object books=option("Screen","BOOKS");
+        Map<?,?> tabs=(Map<?,?>)field("readyTabs");
+        Object tab=tabs.get(books);
+        Field scroller=tab.getClass().getDeclaredField("scroller");
+        scroller.setAccessible(true);
+        assertNull(scroller.get(tab));
+        assertNotNull(text((View)field("root"),"Найдено стихов: "+((List<?>)field("bibleSearchHits")).size()));
+        assertFalse(((List<?>)field("bibleSearchHits")).isEmpty());
+        searchInput().setText("");
+        layoutReader();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        assertEquals(Integer.valueOf(123),((Map<?,?>)field("savedScrollY")).get(books));
+        assertEquals(123,((ScrollView)field("currentScroller")).getScrollY());
+        assertNotNull(text("Бытие"));
+    }
+    private void searchThroughInput(ManualSearchExecutor executor,String query)throws Exception{
+        searchInput().setText(query);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
+        assertEquals(1,executor.queued.size());
+        executor.queued.remove(0).run();
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        layoutReader();
+        assertNotNull("Search header must be attached after layout",searchInput());
     }
     private void reader(String destination,int book,int chapter)throws Exception {
         set("selectedBook",book);set("selectedChapter",chapter);
@@ -342,6 +388,7 @@ public class PickerIntegrationTest {
         page.getViewTreeObserver().dispatchOnGlobalLayout();
     }
     @Test public void ordinaryReaderUsesAll176VerseNumbersAndBackStack()throws Exception {
+        controller.visible();
         reader("HOME",19,1);
         tapBibleTab();assertEquals("BOOKS",field("screen").toString());
         for(String book:Bible.NAMES)assertNotNull(text(book));
@@ -359,7 +406,10 @@ public class PickerIntegrationTest {
         TextView last=text(bible.chapter(19,118).get(175).text);assertNotNull(last);
         View card=(View)last.getParent();Object highlighted=card.getBackground();
         layoutReader();
-        assertTrue(((ScrollView)field("currentScroller")).getScrollY()>0);
+        ScrollView chapter=(ScrollView)field("currentScroller");
+        assertTrue(chapter.getScrollY()>0);
+        assertTrue(card.getTop()<chapter.getScrollY()+chapter.getHeight());
+        assertTrue(card.getBottom()>chapter.getScrollY());
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1200));
         assertNotSame(highlighted,card.getBackground());
         activity.onBackPressed();assertEquals("VERSES",field("screen").toString());

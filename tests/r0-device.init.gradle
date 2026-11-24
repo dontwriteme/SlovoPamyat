@@ -1,0 +1,9 @@
+// Framework-only regression on an isolated Android install.
+allprojects {
+    afterEvaluate { project ->
+        if (project.path == ':app') {
+            project.android.defaultConfig.testInstrumentationRunner = 'org.biblememory.app.R0PickerCheck'
+            project.android.sourceSets.androidTest.java.srcDirs = [rootProject.file('tests/device')]
+        }
+    }
+}

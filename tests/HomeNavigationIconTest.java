@@ -102,7 +102,7 @@ public class HomeNavigationIconTest {
         ActivityController<MainActivity> controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();
         try {
             MainActivity activity=controller.get();
-            ((Bible)activityField(activity,"bible")).load(activity);
+            ActivityTestWorkers.awaitStartup(activity);
             Class<?> screens=Class.forName("org.biblememory.app.MainActivity$Screen");
             Method prepare=MainActivity.class.getDeclaredMethod("prepareTab",screens);prepare.setAccessible(true);
             for(Object value:screens.getEnumConstants())
@@ -122,11 +122,11 @@ public class HomeNavigationIconTest {
             controller.pause();controller.resume();
             Field motion=HomeNavigationIcon.class.getDeclaredField("animator");motion.setAccessible(true);
             assertNull(motion.get(house));assertTrue(house.isSelected());
-            controller.recreate();
+            ActivityTestWorkers.recreate(controller);
             MainActivity restored=controller.get();View page=(View)activityField(restored,"root");
             Method current=MainActivity.class.getDeclaredMethod("mainTabIndex");current.setAccessible(true);
             assertEquals(((Integer)current.invoke(restored))==0,
                     ((HomeNavigationIcon)page.findViewWithTag(HomeNavigationIcon.TAG)).isSelected());
-        } finally {controller.pause().stop().destroy();}
+        } finally {ActivityTestWorkers.destroy(controller);}
     }
 }

@@ -98,7 +98,7 @@ public class BookNavigationIconTest {
                 Robolectric.buildActivity(MainActivity.class).create().start().resume();
         try {
             MainActivity activity=controller.get();
-            ((Bible)activityField(activity,"bible")).load(activity);
+            ActivityTestWorkers.awaitStartup(activity);
             // Warm the two destination pages synchronously, just as the existing warm-up does.
             Class<?> screens=Class.forName("org.biblememory.app.MainActivity$Screen");
             Method prepare=MainActivity.class.getDeclaredMethod("prepareTab",screens);
@@ -123,13 +123,13 @@ public class BookNavigationIconTest {
             Field animator=BookNavigationIcon.class.getDeclaredField("animator");animator.setAccessible(true);
             assertNull(animator.get(book));
             controller.resume();assertTrue(book.isSelected());
-            controller.recreate();
+            ActivityTestWorkers.recreate(controller);
             MainActivity restored=controller.get();
             View restoredPage=(View)activityField(restored,"root");
             Method tab=MainActivity.class.getDeclaredMethod("mainTabIndex");tab.setAccessible(true);
             assertEquals(((Integer)tab.invoke(restored))==1,
                     ((BookNavigationIcon)restoredPage.findViewWithTag(BookNavigationIcon.TAG)).isSelected());
-        } finally {controller.pause().stop().destroy();}
+        } finally {ActivityTestWorkers.destroy(controller);}
     }
 
 }

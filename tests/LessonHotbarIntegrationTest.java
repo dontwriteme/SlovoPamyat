@@ -28,7 +28,7 @@ public class LessonHotbarIntegrationTest {
         if(root instanceof ViewGroup)for(int i=0;i<((ViewGroup)root).getChildCount();i++){TextView found=text(((ViewGroup)root).getChildAt(i),value);if(found!=null)return found;}
         return null;
     }
-    void waitLoader()throws Exception{for(Thread t:Thread.getAllStackTraces().keySet())if(t.getName().equals("BibleLoader"))t.join(10000);}
+    void waitLoader()throws Exception{ActivityTestWorkers.awaitStartup(activity);}
     @Before public void setup()throws Exception{
         lifecycle=Robolectric.buildActivity(MainActivity.class).create().start().resume();activity=lifecycle.get();
         ((Bible)get("bible")).load(activity);waitLoader();Shadows.shadowOf(Looper.getMainLooper()).idle();
@@ -36,7 +36,7 @@ public class LessonHotbarIntegrationTest {
         id=store.add(store.unifiedCollection(collection).groupId,"Saved","Свой текст",Arrays.asList(new Bible.Verse("1:1","Слово истины живо"),new Bible.Verse("1:2","Слово дает свет")));
         call("openTraining",new Class<?>[]{long.class},id);
     }
-    @After public void close()throws Exception{waitLoader();if(lifecycle!=null)lifecycle.pause().stop().destroy();}
+    @After public void close()throws Exception{waitLoader();if(lifecycle!=null)ActivityTestWorkers.destroy(lifecycle);}
     @Test public void progressStripRemainsWithoutAnyVisibleCaptions()throws Exception{
         assertOnlyStrip(LessonCurriculumLogic.Phase.INTRO);
         store.finishExercise(id,0,1);invoke("render");

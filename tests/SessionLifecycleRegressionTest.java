@@ -35,12 +35,10 @@ public class SessionLifecycleRegressionTest {
             context.getSharedPreferences(name,Context.MODE_PRIVATE).edit().clear().commit();
         controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();
         activity=controller.get();
-        for(Thread thread:Thread.getAllStackTraces().keySet())
-            if(thread.getName().equals("BibleLoader"))thread.join(30000);
-        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        ActivityTestWorkers.awaitStartup(activity);
         store=(LocalStore)get("store");
     }
-    @After public void close(){if(controller!=null)controller.pause().stop().destroy();}
+    @After public void close()throws Exception{if(controller!=null)ActivityTestWorkers.destroy(controller);}
 
     private LocalStore.UnifiedCollection collection(String title){
         return store.unifiedCollection(store.createUnifiedCollection(title));
@@ -102,12 +100,10 @@ public class SessionLifecycleRegressionTest {
     }
 
     private void reopenActivity()throws Exception{
-        controller.pause().stop().destroy();
+        ActivityTestWorkers.destroy(controller);
         controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();
         activity=controller.get();
-        for(Thread thread:Thread.getAllStackTraces().keySet())
-            if(thread.getName().equals("BibleLoader"))thread.join(30000);
-        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        ActivityTestWorkers.awaitStartup(activity);
         store=(LocalStore)get("store");
     }
 

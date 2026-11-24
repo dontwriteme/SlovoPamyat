@@ -24,10 +24,36 @@ public class CollectionLoadingTest {
  @Before public void setup()throws Exception{
   RuntimeEnvironment.getApplication().deleteDatabase("slovo_pamyat.db");
   controller=Robolectric.buildActivity(MainActivity.class).create().start().resume().visible();activity=controller.get();store=(LocalStore)field("store");
-  for(Thread t:Thread.getAllStackTraces().keySet())if(t.getName().equals("BibleLoader"))t.join(30000);
-  Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+  ActivityTestWorkers.awaitStartup(activity);
  }
- @After public void close(){controller.pause().stop().destroy();Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();}
+ @After public void close()throws Exception{if(controller!=null)ActivityTestWorkers.destroy(controller);}
+ @Test public void destroyClosesWorkerDatabaseAfterPendingWorkAndIgnoresLateRefresh()throws Exception{
+  ExecutorService worker=ActivityTestWorkers.executor(activity,"collectionExecutor");
+  LocalStore helper=(LocalStore)field("collectionStore");
+  CountDownLatch opened=new CountDownLatch(1), release=new CountDownLatch(1);
+  Future<android.database.sqlite.SQLiteDatabase> pending=worker.submit(()->{
+   android.database.sqlite.SQLiteDatabase db=helper.getReadableDatabase();
+   opened.countDown();
+   assertTrue(release.await(30,TimeUnit.SECONDS));
+   assertTrue(db.isOpen());
+   helper.unifiedCollections();
+   new android.os.Handler(android.os.Looper.getMainLooper()).post(()->{
+    try{call("refreshAfterBibleLoad",new Class<?>[0]);}
+    catch(Exception error){throw new AssertionError(error);}
+   });
+   return db;
+  });
+  View page=(View)field("root");
+  try{
+   assertTrue(opened.await(30,TimeUnit.SECONDS));
+   controller.pause().stop().destroy();
+   controller=null;
+  }finally{release.countDown();}
+  android.database.sqlite.SQLiteDatabase db=pending.get(30,TimeUnit.SECONDS);
+  ActivityTestWorkers.awaitDestroyed(activity);
+  assertFalse(db.isOpen());
+  assertSame(page,field("root"));
+ }
  @Test public void openingReturningAndStudyStartKeepTheSelectedCollection()throws Exception{
   long uid=store.createUnifiedCollection("Галатам целиком");LocalStore.UnifiedCollection u=store.unifiedCollection(uid);
   Bible bible=(Bible)field("bible");List<Bible.Verse> lines=new ArrayList<>();for(int i=1;i<=6;i++)lines.addAll(bible.chapter(48,i));assertEquals(149,lines.size());
