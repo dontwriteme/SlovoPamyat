@@ -51,8 +51,11 @@ public final class R44WritingCheck extends Instrumentation {
         boolean special=label.equals("sermon")||label.equals("paste");
         WritingAssessment.Input input=new WritingAssessment.Input(expected,actual.toString(),special,true,false,
             texts,Collections.emptyList(),Collections.emptyList());
-        long[][] times=new long[2][7];
-        for(int i=-3;i<7;i++){
+        int samples=Integer.parseInt(options.getString("samples","7"));
+        int warmups=Integer.parseInt(options.getString("warmups","3"));
+        require(samples>0&&warmups>=0,"Invalid sample counts");
+        long[][] times=new long[2][samples];
+        for(int i=-warmups;i<samples;i++){
             int first=Math.floorMod(i,2);
             for(int k=0;k<2;k++){
                 int version=(first+k)%2;
@@ -63,7 +66,8 @@ public final class R44WritingCheck extends Instrumentation {
             }
         }
         for(long[] sample:times)Arrays.sort(sample);
-        report.putString(label,String.format(Locale.ROOT,"n=7 baseline_ms=%.3f current_ms=%.3f",times[0][3]/1e6,times[1][3]/1e6));
+        report.putString(label,String.format(Locale.ROOT,"n=%d baseline_ms=%.3f current_ms=%.3f",samples,
+            times[0][samples/2]/1e6,times[1][samples/2]/1e6));
     }
 
     private WritingAssessment.Result old(WritingAssessment.Input input){
