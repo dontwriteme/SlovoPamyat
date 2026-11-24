@@ -24,26 +24,45 @@ final class CustomStudyText {
             return result;
         }
 
-        // An in-place edit keeps the original coordinates, including adjacency.
-        // reviseStudyPassage retains progress only when both ref and text match.
-        if(texts.size()==previous.size()){
-            for(int i=0;i<texts.size();i++)
-                result.add(new Bible.Verse(previous.get(i).ref,texts.get(i)));
-            return result;
-        }
-
-        // On insertions/removals preserve unambiguous unchanged lines.
-        // Never infer a moved duplicate's identity.
+        // First reserve the identities of all unambiguous unchanged lines,
+        // even if the edit keeps the same number of lines but moves them.
         Map<String,Integer> oldCounts=new HashMap<>(),newCounts=new HashMap<>();
-        Map<String,Bible.Verse> oldByText=new HashMap<>();
+        Map<String,Integer> oldIndex=new HashMap<>();
         Set<String> reserved=new HashSet<>(),used=new HashSet<>();
-        for(Bible.Verse verse:previous){
+        for(int i=0;i<previous.size();i++){
+            Bible.Verse verse=previous.get(i);
             reserved.add(verse.ref);
             oldCounts.merge(verse.text,1,Integer::sum);
-            oldByText.put(verse.text,verse);
+            oldIndex.put(verse.text,i);
         }
         for(String text:texts)newCounts.merge(text,1,Integer::sum);
-        // Preserve numerical adjacency when appending to a numbered custom passage.
+        String[] refs=new String[texts.size()];
+        boolean moved=false;
+        for(int i=0;i<texts.size();i++){
+            String text=texts.get(i);
+            if(oldCounts.getOrDefault(text,0)==1&&newCounts.get(text)==1){
+                int from=oldIndex.get(text);
+                if(used.add(previous.get(from).ref))refs[i]=previous.get(from).ref;
+                if(from!=i)moved=true;
+            }
+        }
+
+        // In a positional correction retain the coordinates of unchanged
+        // duplicates at their own positions and of genuinely new text.
+        // Never reuse a moved/ambiguous duplicate's identity by position.
+        if(texts.size()==previous.size()&&!moved){
+            for(int i=0;i<texts.size();i++){
+                if(refs[i]!=null)continue;
+                Bible.Verse old=previous.get(i);
+                String text=texts.get(i);
+                boolean same=old.text.equals(text)&&
+                    oldCounts.getOrDefault(text,0).equals(newCounts.get(text));
+                if((same||!oldCounts.containsKey(text))&&used.add(old.ref))refs[i]=old.ref;
+            }
+        }
+
+        // Fresh identities cannot collide with any old identity. Preserve
+        // numerical adjacency when appending to a numbered custom passage.
         boolean numbered=true;
         int maxNumber=0;
         for(Bible.Verse verse:previous){
@@ -56,19 +75,14 @@ final class CustomStudyText {
         long nextNumber=(long)maxNumber+1;
         int next=1;
         for(int i=0;i<texts.size();i++){
-            String text=texts.get(i);
-            Bible.Verse match=null;
-            if(oldCounts.getOrDefault(text,0)==1&&newCounts.get(text)==1)
-                match=oldByText.get(text);
-            String ref;
-            if(match!=null&&used.add(match.ref))ref=match.ref;
-            else{
+            String ref=refs[i];
+            if(ref==null){
                 do{
                     ref=numbered&&nextNumber<=Integer.MAX_VALUE?
                         Long.toString(nextNumber++):"свой:"+(next++);
                 }while(reserved.contains(ref)||!used.add(ref));
             }
-            result.add(new Bible.Verse(ref,text));
+            result.add(new Bible.Verse(ref,texts.get(i)));
         }
         return result;
     }
