@@ -361,6 +361,52 @@ public class SessionLifecycleRegressionTest {
         assertTrue(store.isStepMastered(id,"CHAIN",0,2));
     }
 
+    private android.view.View findCustomTextView(android.view.View view,String text){
+        if(view instanceof android.widget.TextView&&
+            text.contentEquals(((android.widget.TextView)view).getText()))return view;
+        if(view instanceof android.view.ViewGroup){
+            android.view.ViewGroup group=(android.view.ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++){
+                android.view.View found=findCustomTextView(group.getChildAt(i),text);
+                if(found!=null)return found;
+            }
+        }
+        return null;
+    }
+
+    @Test public void legacyUnlearnableLineCanBeCorrectedWithoutLosingOtherProgress()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Свой текст");
+        long id=store.add(u.groupId,"Текст","Свой текст",Arrays.asList(
+            new Bible.Verse("1","Начало"),new Bible.Verse("2","…"),new Bible.Verse("3","Конец")));
+        store.markMastered(id,0,1,100,"VERSE");
+        store.markMastered(id,2,3,100,"VERSE");
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("studyStage",StudyPlanLogic.Stage.VERSE);
+        set("groupMode",false);set("reviewMode",false);set("forcedStep",null);
+        set("stepCursor",1);
+        call("resetTrainingStep",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        invoke("render");
+        assertEquals("TRAIN",get("screen").toString());
+        android.view.View repair=findCustomTextView((android.view.View)get("root"),"Изменить текст");
+        assertNotNull(repair);
+        repair.performClick();
+        android.app.AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        assertNotNull(dialog);
+        android.widget.EditText words=(android.widget.EditText)findCustomTextView(
+            dialog.getWindow().getDecorView(),"Начало\n…\nКонец");
+        assertNotNull(words);
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        assertTrue(dialog.isShowing());assertNotNull(words.getError());
+        assertEquals("…",store.entry(id).lines().get(1).text);
+        words.setText("Начало\nСередина\nКонец");
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        assertFalse(dialog.isShowing());
+        assertEquals("Середина",store.entry(id).lines().get(1).text);
+        assertTrue(store.isStepMastered(id,"VERSE",0,1));
+        assertFalse(store.isStepMastered(id,"VERSE",1,2));
+        assertTrue(store.isStepMastered(id,"VERSE",2,3));
+    }
+
     @Test public void warmMemoryRunBuildDoesNotQueryEachVerse()throws Exception{
         LocalStore.UnifiedCollection u=collection("Большая коллекция");
         for(int i=0;i<80;i++)consolidate(add(u,"Свой текст "+i,"Строка "+i));
