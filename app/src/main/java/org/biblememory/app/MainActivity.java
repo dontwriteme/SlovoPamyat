@@ -4949,7 +4949,7 @@ public final class MainActivity extends Activity {
         return ids;
     }
     private static String resumableWritingDraft(String draft,boolean checkedWithErrors){
-        return checkedWithErrors||draft==null?"":draft;
+        return LessonExerciseState.resumableDraft(draft,checkedWithErrors);
     }
     private Bundle saveActiveLesson(){
         if(activeEntry==null||activeEntry.id!=selectedEntry||activeStep==null||lessonSourceEntry<=0)
@@ -5095,24 +5095,16 @@ public final class MainActivity extends Activity {
     private void saveTrainingSession() {
         if(selectedEntry<=0 || (reviewMode&&checked&&passed))return;
         String key=reviewMode?"review_":(groupMode?"linked_":"entry_")+selectedEntry+"_";
-        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
+        SharedPreferences.Editor editor=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
             .putLong("entry",selectedEntry).putString(key+"stage",studyStage.name())
             .putInt(key+"step",stepCursor).putString(key+"mode",trainingMode.name())
-            .putInt(key+"mask",mask).putString(key+"draft",resumableWritingDraft(draft,answerReview!=null||lessonWriteHadFeedback))
-            .putInt(key+"blur_seed",blurSeed)
-            .putInt(key+"lesson_variant",lessonVariant).putInt(key+"lesson_chunk",lessonChunk)
-            .putInt(key+"lesson_picked",lessonPicked).putLong(key+"lesson_seed",lessonSeed)
-            .putString(key+"assembly_fingerprint",savedAssemblyFingerprint)
-            .putString(key+"rotation_exercise_key",rotationExerciseKey)
-            .putLong(key+"rotation_exercise_seed",rotationExerciseSeed)
-            .putString(key+"rotation_mask",rotationMask)
-            .putString(key+"lesson_tiles",lessonUsedTiles.toString())
-            .putBoolean(key+"lesson_had_feedback",false)
-            .putInt(key+"write_variant",lessonWriteVariant)
-            .putBoolean(key+"group_intro_done",groupIntroDone)
-            .putBoolean(key+"group_build_done",groupBuildDone)
-            .putBoolean(key+"practice_weak",practiceWeakFragment)
-            .putString(key+"weak_fragment",weakFragmentText)
+            .putInt(key+"mask",mask);
+        LessonExerciseState exercise=new LessonExerciseState(
+            resumableWritingDraft(draft,answerReview!=null||lessonWriteHadFeedback),
+            blurSeed,lessonVariant,lessonChunk,lessonPicked,lessonSeed,savedAssemblyFingerprint,
+            rotationExerciseKey,rotationExerciseSeed,rotationMask,lessonUsedTiles,lessonWriteVariant,
+            groupIntroDone,groupBuildDone,practiceWeakFragment,weakFragmentText);
+        LessonExercisePreferences.write(editor,key,exercise)
             .putBoolean(key+"pending",reviewMode||groupMode)
             .putLong(key+"review_entry",reviewMode?selectedEntry:0)
             .putString(key+"review_stage",reviewMode&&currentReview!=null?currentReview.stage:"")
@@ -5139,27 +5131,17 @@ public final class MainActivity extends Activity {
         }catch(IllegalArgumentException ex){studyStage=StudyPlanLogic.Stage.VERSE;trainingMode=TrainingMode.READ;}
         stepCursor=Math.max(0,pref.getInt(key+"step",0));
         mask=trainingMode==TrainingMode.HIDE?Math.max(0,Math.min(100,pref.getInt(key+"mask",0))):0;
-        blurSeed=pref.getInt(key+"blur_seed",new Random().nextInt());
-        draft=resumableWritingDraft(pref.getString(key+"draft",""),
-            pref.getBoolean(key+"lesson_had_feedback",false));
-        lessonVariant=Math.max(0,pref.getInt(key+"lesson_variant",0));
-        lessonChunk=Math.max(0,pref.getInt(key+"lesson_chunk",0));
-        lessonPicked=Math.max(0,pref.getInt(key+"lesson_picked",0));
-        savedAssemblyFingerprint=pref.getString(key+"assembly_fingerprint","");
-        lessonSeed=pref.getLong(key+"lesson_seed",new Random().nextLong());
-        rotationExerciseKey=pref.getString(key+"rotation_exercise_key","");
-        rotationExerciseSeed=pref.getLong(key+"rotation_exercise_seed",0L);
-        rotationMask=pref.getString(key+"rotation_mask","");
-        lessonUsedTiles.clear();lessonWrongTile=-1;lessonPracticeAgain=false;
-        lessonWriteHadFeedback=false;
-        lessonWriteVariant=Math.max(0,pref.getInt(key+"write_variant",0));
-        if(linked)groupIntroDone=pref.getBoolean(key+"group_intro_done",false);
-        if(linked)groupBuildDone=pref.getBoolean(key+"group_build_done",false);
-        practiceWeakFragment=pref.getBoolean(key+"practice_weak",false);
-        weakFragmentText=pref.getString(key+"weak_fragment","");
-        String saved=pref.getString(key+"lesson_tiles","").replace("[", "").replace("]", "");
-        for(String part:saved.split(","))try{lessonUsedTiles.add(Integer.parseInt(part.trim()));}
-            catch(NumberFormatException ignored){}
+        LessonExerciseState exercise=LessonExercisePreferences.read(pref,key,linked,groupIntroDone,groupBuildDone);
+        blurSeed=exercise.blurSeed();draft=exercise.draft();
+        lessonVariant=exercise.variant();lessonChunk=exercise.chunk();lessonPicked=exercise.picked();
+        savedAssemblyFingerprint=exercise.assemblyFingerprint();lessonSeed=exercise.seed();
+        rotationExerciseKey=exercise.rotationExerciseKey();rotationExerciseSeed=exercise.rotationExerciseSeed();
+        rotationMask=exercise.rotationMask();
+        lessonUsedTiles.clear();lessonUsedTiles.addAll(exercise.usedTiles());
+        lessonWrongTile=-1;lessonPracticeAgain=false;lessonWriteHadFeedback=false;
+        lessonWriteVariant=exercise.writeVariant();
+        groupIntroDone=exercise.groupIntroDone();groupBuildDone=exercise.groupBuildDone();
+        practiceWeakFragment=exercise.practiceWeak();weakFragmentText=exercise.weakFragment();
         checked=false;passed=false;testAssisted=false;lastAccuracy=-1;resetWordTiles();
         return true;
     }
