@@ -7,7 +7,7 @@ import org.json.*;
 import java.util.*;
 
 /** Private on-device SQLite database. No account, server or network permission. */
-public final class LocalStore extends SQLiteOpenHelper {
+public final class LocalStore extends SQLiteOpenHelper implements LessonWritingFlow.RecallWriter {
     private static final String ARCHIVED_GROUP_PREFIX="__slovo_archived_group__:";
     private static final String CARD_STUDY_GROUP="__slovo_cards_study_library__";
     public static final class Group {
