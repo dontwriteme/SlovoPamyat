@@ -32,6 +32,18 @@ public final class Bible {
         SortedMap<Integer,List<Verse>> chapters=books.get(bookId);
         return chapters == null ? 0 : chapters.size();
     }
+    synchronized boolean matchesVerse(int book,int chapter,int number,Verse verse){
+        Map<Integer,List<Verse>> chapters=books.get(book);
+        List<Verse> lines=chapters==null?null:chapters.get(chapter);
+        if(lines==null||number<1)return false;
+        // Numbering is taken from the corpus, including chapters with gaps.
+        String reference=chapter+":"+number;
+        if(!reference.equals(verse.ref))return false;
+        if(number<=lines.size()&&lines.get(number-1).ref.equals(reference))
+            return lines.get(number-1).text.equals(verse.text);
+        for(Verse line:lines)if(line.ref.equals(reference))return line.text.equals(verse.text);
+        return false;
+    }
     public synchronized List<Verse> chapter(int bookId,int c) {
         SortedMap<Integer,List<Verse>> chapters = books.get(bookId);
         return chapters == null || !chapters.containsKey(c) ? Collections.emptyList()

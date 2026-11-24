@@ -111,6 +111,7 @@ public final class MainActivity extends Activity {
     private int returnVerseCursor=0;
     private StudyPlanLogic.Step forcedStep;
     private LocalStore.DueItem currentReview;
+    private String reviewMaterialFingerprint="";
     private int blurSeed=new Random().nextInt();
     private boolean orderCompleted=false;
     // Three-phase fullscreen lesson: stable footer, adaptive word-tile exercises.
@@ -460,7 +461,7 @@ public final class MainActivity extends Activity {
     }
 
     private void openData(){
-        store=new LocalStore(this);
+        store=new LocalStore(this,bible);
         try{
             if(SvetochBackup.pending(store)){
                 store.close();store=null;
@@ -3271,7 +3272,7 @@ public final class MainActivity extends Activity {
         for(LocalStore.Flashcard card:cards){
             try{
                 List<Bible.Verse> verses=card.bookId==0?
-                    Collections.singletonList(new Bible.Verse("1:1",card.content)):
+                    Collections.singletonList(new Bible.Verse("1",card.content)):
                     bible.passage(card.bookId,card.firstChapter,card.firstVerse,card.lastChapter,card.lastVerse);
                 long id=store.findOrCreateCardStudyEntry(card,verses);
                 if(!cardStudyQueue.contains(id))cardStudyQueue.add(id);
@@ -4391,8 +4392,8 @@ public final class MainActivity extends Activity {
     }
     private void confirmDeleteStudyGroup(LocalStore.Group group){
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Удалить коллекцию и все стихи?")
-            .setMessage("Это действие нельзя отменить.")
+            .setTitle("Удалить коллекцию из списка?")
+            .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
             .setPositiveButton("Удалить",(d,w)->{
                 store.deleteGroup(group.id);screen=Screen.HOME;render();
             }).setNegativeButton("Отмена",null).create());
@@ -4743,69 +4744,60 @@ public final class MainActivity extends Activity {
     /** Pressing 'Повторить изученное' starts the first due exercise immediately. */
     private void startReviewSession() {
         reviewQueue.clear();reviewPointer=0;
-        List<ReviewQueueLogic.Item> raw=new ArrayList<>();
-        Set<String> reviewSeen=new HashSet<>();
-        for(LocalStore.DueItem due:store.dueItems(System.currentTimeMillis())){
-            LocalStore.Entry source=store.entry(due.entryId);
-            if(source==null || (reviewCollectionGroup>0 &&
-                !store.belongsToGroupMaterial(reviewCollectionGroup,due)))continue;
-            // Across collections, check each identical Bible segment only once.
-            String key="entry:"+due.entryId+":"+due.stage+":"+due.start+":"+due.end;
-            List<Bible.Verse> lines=source.lines();
-            if(bookForEntry(source)>0 && due.start>=0 && due.end<=lines.size() && due.start<due.end){
-                StringBuilder unique=new StringBuilder("bible:").append(bookForEntry(source))
-                    .append(':').append(due.stage);
-                for(int i=due.start;i<due.end;i++)unique.append('|').append(lines.get(i).ref)
-                    .append('~').append(lines.get(i).text);
-                key=unique.toString();
+        long now=System.currentTimeMillis();
+        ReviewSchedule schedule=store.reviewSchedule();
+        List<LocalStore.DueItem> due=schedule.due(now,reviewCollectionGroup);
+        SharedPreferences saved=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
+        LocalStore.DueItem pending=null;
+        if(saved.getBoolean("review_pending",false)){
+            LocalStore.DueItem previous=new LocalStore.DueItem(saved.getLong("review_review_entry",-1),
+                saved.getString("review_review_stage",""),saved.getInt("review_begin",-1),
+                saved.getInt("review_end",-1),0);
+            String fingerprint=saved.getString("review_material","");
+            boolean sameMaterial=fingerprint.isEmpty()||
+                fingerprint.equals(reviewMaterial(schedule.verses(previous.entryId),previous));
+            if(sameMaterial)pending=schedule.resolve(previous,reviewCollectionGroup,now,true);
+            if(pending!=null){
+                LocalStore.DueItem resumed=pending;
+                due.removeIf(item->schedule.overlaps(resumed,item));
+            }else if(!sameMaterial||schedule.resolve(previous,-1,now,true)==null){
+                saved.edit().remove("review_pending").apply();
             }
-            if(reviewSeen.add(key))raw.add(new ReviewQueueLogic.Item(
-                due.entryId,due.stage,due.start,due.end,due.due));
         }
+        List<ReviewQueueLogic.Item> raw=new ArrayList<>();
+        for(LocalStore.DueItem item:due)raw.add(new ReviewQueueLogic.Item(
+            item.entryId,item.stage,item.start,item.end,item.due));
         List<ReviewQueueLogic.Item> items=ReviewQueueLogic.plan(raw,new ReviewQueueLogic.Source(){
             @Override public List<String> references(long id){
-                LocalStore.Entry e=store.entry(id);List<String> refs=new ArrayList<>();
-                if(e!=null)for(Bible.Verse v:e.lines())refs.add(v.ref);return refs;
+                List<String> refs=new ArrayList<>();
+                for(Bible.Verse verse:schedule.verses(id))refs.add(verse.ref);
+                return refs;
             }
             @Override public List<String> texts(long id){
-                LocalStore.Entry e=store.entry(id);List<String> texts=new ArrayList<>();
-                if(e!=null)for(Bible.Verse v:e.lines())texts.add(v.text);return texts;
+                List<String> texts=new ArrayList<>();
+                for(Bible.Verse verse:schedule.verses(id))texts.add(verse.text);
+                return texts;
             }
         });
+        if(pending!=null)reviewQueue.add(pending);
         for(ReviewQueueLogic.Item item:items)
             reviewQueue.add(new LocalStore.DueItem(item.entryId,item.stage,item.start,item.end,item.due));
-        android.content.SharedPreferences old=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        if(old.getBoolean("review_pending",false)){
-            long id=old.getLong("review_review_entry",-1);
-            LocalStore.Entry e=store.entry(id);
-            int a=old.getInt("review_begin",-1),b=old.getInt("review_end",-1);
-            String stage=old.getString("review_review_stage","");
-            if(e!=null && (reviewCollectionGroup<0 ||
-                store.belongsToGroupMaterial(reviewCollectionGroup,
-                    new LocalStore.DueItem(id,stage,a,b,0))) &&
-                a>=0&&b>a&&b<=e.lines().size() &&
-                ("VERSE_RUN".equals(stage)||"VERSE".equals(stage)||"CHAIN".equals(stage)||
-                 "SECTION".equals(stage)||"CHAPTER".equals(stage))){
-                final long targetId=id;final int first=a,last=b;
-                // A saved unfinished review takes precedence; avoid duplicate overlapping tasks.
-                reviewQueue.removeIf(t->t.entryId==targetId && t.start<last && first<t.end);
-                reviewQueue.add(0,new LocalStore.DueItem(id,stage,a,b,0));
-            }else old.edit().remove("review_pending").apply();
-        }
         if(reviewQueue.isEmpty()){screen=Screen.DUE;render();return;}
-        LocalStore.DueItem first=reviewQueue.get(0);
-        boolean restore=old.getBoolean("review_pending",false) &&
-            old.getLong("review_review_entry",-1)==first.entryId &&
-            old.getInt("review_begin",-1)==first.start&&old.getInt("review_end",-1)==first.end&&
-            old.getString("review_review_stage","").equals(first.stage);
-        openReview(first);
-        if(restore){
-            draft=old.getBoolean("review_practice_weak",false)?"":
-                resumableWritingDraft(old.getString("review_draft",""),
-                    old.getBoolean("review_lesson_had_feedback",false));
-            render();
-        }
+        String restoredDraft=pending==null||saved.getBoolean("review_practice_weak",false)?"":
+            resumableWritingDraft(saved.getString("review_draft",""),
+                saved.getBoolean("review_lesson_had_feedback",false));
+        openReview(reviewQueue.get(0));
+        if(!restoredDraft.isEmpty()){draft=restoredDraft;render();}
     }
+    private static String reviewMaterial(List<Bible.Verse> lines,LocalStore.DueItem item){
+        if(item.start<0||item.end>lines.size()||item.start>=item.end)return "";
+        List<String> material=new ArrayList<>();
+        for(Bible.Verse verse:lines.subList(item.start,item.end)){
+            material.add(verse.ref);material.add(verse.text);
+        }
+        return SessionIntegrityLogic.fingerprint(material);
+    }
+
     private void renderDue() {
         LearningHelp help=reviewCollectionGroup>0?LearningHelp.REVIEW:LearningHelp.ALL_REVIEWS;
         title(help.title,null);
@@ -4823,15 +4815,32 @@ public final class MainActivity extends Activity {
         studyStage="VERSE_RUN".equals(item.stage)?StudyPlanLogic.Stage.CHAIN:
             StudyPlanLogic.Stage.valueOf(item.stage);
         forcedStep=new StudyPlanLogic.Step(item.start,item.end,"Повторение · "+e.lines().get(item.start).ref);
-        currentReview=item;groupMode=false;reviewMode=true;stepCursor=0;
+        currentReview=item;reviewMaterialFingerprint=reviewMaterial(e.lines(),item);
+        groupMode=false;reviewMode=true;stepCursor=0;
         weakVerse=-1;weakTransitionFrom=-1;
         resetTrainingStep(e);
         inlineDrafts=new String[0];
         trainingMode=TrainingMode.TYPE;screen=Screen.TRAIN;render();
     }
     private void advanceReviewSession(){
-        reviewPointer++;
-        if(reviewPointer<reviewQueue.size()){openReview(reviewQueue.get(reviewPointer));return;}
+        if(reviewPointer+1<reviewQueue.size()){
+            ReviewSchedule schedule=store.reviewSchedule();
+            long now=System.currentTimeMillis();
+            while(++reviewPointer<reviewQueue.size()){
+                LocalStore.DueItem queued=reviewQueue.get(reviewPointer);
+                LocalStore.DueItem next=schedule.resolve(queued,reviewCollectionGroup,now,false);
+                if(next!=null){openReview(next);return;}
+                if("VERSE_RUN".equals(queued.stage)){
+                    // An invalidated run can still contain verses that remain due.
+                    int insertAt=reviewPointer+1;
+                    for(int pos=queued.start;pos<queued.end;pos++){
+                        LocalStore.DueItem verse=new LocalStore.DueItem(queued.entryId,"VERSE",pos,pos+1,0);
+                        LocalStore.DueItem remaining=schedule.resolve(verse,reviewCollectionGroup,now,false);
+                        if(remaining!=null)reviewQueue.add(insertAt++,remaining);
+                    }
+                }
+            }
+        }
         reviewMode=false;forcedStep=null;currentReview=null;reviewQueue.clear();reviewPointer=0;
         getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().remove("review_pending").apply();
         screen=Screen.HOME;render();toast("Все запланированные повторения завершены");
@@ -4882,6 +4891,7 @@ public final class MainActivity extends Activity {
             .putBoolean(key+"pending",reviewMode||groupMode)
             .putLong(key+"review_entry",reviewMode?selectedEntry:0)
             .putString(key+"review_stage",reviewMode&&currentReview!=null?currentReview.stage:"")
+            .putString(key+"material",reviewMode?reviewMaterialFingerprint:"")
             .putInt(key+"begin",activeStep==null?0:activeStep.start)
             .putInt(key+"end",activeStep==null?0:activeStep.end)
             .putString(key+"group_stage",studyStage.name())

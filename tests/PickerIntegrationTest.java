@@ -116,6 +116,9 @@ public class PickerIntegrationTest {
             call("deleteUnified",new Class<?>[]{LocalStore.UnifiedCollection.class},collection);
             org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
                 .getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+            // AlertDialog posts its button callback to the main looper. Queue deletion
+            // before releasing the worker, so the test actually exercises the overlap.
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
         }finally{release.countDown();}
         reader.get(30,java.util.concurrent.TimeUnit.SECONDS);
         ActivityTestWorkers.awaitCollectionWork(activity);

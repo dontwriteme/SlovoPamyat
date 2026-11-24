@@ -15,7 +15,8 @@ public final class CollectionProgressSnapshot {
         final Set<List<Object>> masteredSteps=new HashSet<>();
         final Map<List<Object>,RecallState> recalls=new HashMap<>();
         int exercises,linked,order=1000000;
-        State(LocalStore.Entry e){entry=e;lines=e.lines();book=LocalStore.bibleBookFromReference(e.reference);canonical=book>0;
+        State(LocalStore.Entry e){entry=e;lines=e.lines();book=LocalStore.bibleBookFromReference(e.reference);
+            canonical=book>0&&lines.stream().allMatch(verse->LocalStore.verseNumbers(verse.ref)!=null);
             mastered=new boolean[lines.size()];consolidated=new boolean[lines.size()];
             completed=new int[lines.size()];}
     }
@@ -244,6 +245,21 @@ public final class CollectionProgressSnapshot {
         for(int i=0;i<canonical.size();i++)
             if(!canonical.get(i).ref.equals(saved.get(i).ref)||!canonical.get(i).text.equals(saved.get(i).text))return false;
         return true;
+    }
+
+    LocalStore.Entry entry(long id){
+        State state=states.get(id);
+        return state==null?null:state.entry;
+    }
+    boolean locallyMastered(long id,String stage,int start,int end){
+        State state=states.get(id);
+        return state!=null&&(state.masteredSteps.contains(stepKey(stage,start,end))||
+            ("VERSE".equals(stage)&&end==start+1&&start>=0&&start<state.mastered.length&&state.mastered[start]));
+    }
+    List<long[]> reviewLocations(long id,int position){
+        State state=states.get(id);
+        return state.canonical?locations.getOrDefault(key(state,position),Collections.emptyList()):
+            Collections.emptyList();
     }
 
     List<long[]> matches(long id,int pos){

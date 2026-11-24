@@ -8,6 +8,7 @@ import java.util.*;
 
 /** Private on-device SQLite database. No account, server or network permission. */
 public final class LocalStore extends SQLiteOpenHelper {
+    private static final String ARCHIVED_GROUP_PREFIX="__slovo_archived_group__:";
     private static final String CARD_STUDY_GROUP="__slovo_cards_study_library__";
     public static final class Group {
         public long id; public String title; public int count;
@@ -56,7 +57,36 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();return progressSnapshot;
         }}finally{db.endTransaction();}
     }
-    public LocalStore(Context context) { super(context,"slovo_pamyat.db",null,9);setWriteAheadLoggingEnabled(true); }
+    private static final Bible REVIEW_BIBLE=new Bible();
+    private final Context context;
+    private final Bible reviewBible;
+
+    public LocalStore(Context context){this(context,REVIEW_BIBLE);}
+    LocalStore(Context context,Bible bible){
+        super(context,"slovo_pamyat.db",null,9);
+        this.context=context.getApplicationContext();
+        reviewBible=bible;
+        setWriteAheadLoggingEnabled(true);
+    }
+
+    boolean confirmReviewVerse(Entry entry,Bible.Verse verse){
+        int book=bibleBookFromReference(entry.reference);
+        int[] coordinate=verseNumbers(verse.ref);
+        if(book==0||coordinate==null||coordinate[0]<1||coordinate[1]<1)return false;
+        try{reviewBible.load(context);}
+        catch(java.io.IOException error){throw new IllegalStateException("Не удалось сверить стих с Библией",error);}
+        return reviewBible.matchesVerse(book,coordinate[0],coordinate[1],verse);
+    }
+
+    Set<Long> archivedReviewGroups(){
+        Set<Long> ids=new HashSet<>();
+        try(Cursor rows=readQuery("SELECT g.id FROM groups_ g WHERE (g.title=? OR g.title GLOB ?) "+
+                "AND NOT EXISTS(SELECT 1 FROM unified_collections u WHERE u.group_id=g.id)",
+                new String[]{CARD_STUDY_GROUP,ARCHIVED_GROUP_PREFIX+"*"})){
+            while(rows.moveToNext())ids.add(rows.getLong(0));
+        }
+        return ids;
+    }
     @Override public void onConfigure(SQLiteDatabase db){ db.setForeignKeyConstraintsEnabled(true); }
 
     /** Reset study/recall history without deleting any collections, saved Bible
@@ -212,7 +242,26 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     /** Hide a deleted collection without destroying its underlying entries or review history. */
     public void deleteUnifiedCollection(long id){
-        getWritableDatabase().delete("unified_collections","id=?",new String[]{String.valueOf(id)});
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try{
+            UnifiedCollection collection=unifiedCollection(id);
+            if(collection!=null){
+                markArchivedGroup(db,collection.groupId);
+                db.delete("unified_collections","id=?",new String[]{String.valueOf(id)});
+            }
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
+
+    private void markArchivedGroup(SQLiteDatabase db,long groupId){
+        db.execSQL("UPDATE groups_ SET title=? || title WHERE id=?",
+            new Object[]{ARCHIVED_GROUP_PREFIX,groupId});
+    }
+
+    private void archiveStudyGroup(SQLiteDatabase db,long groupId){
+        ContentValues archived=new ContentValues();archived.put("group_id",libraryId(db));
+        db.update("entries",archived,"group_id=?",new String[]{String.valueOf(groupId)});
     }
     /** Clear only a collection's membership. Preserve every entry row and all
      * progress/review tables by moving entries into the private study library.
@@ -223,7 +272,6 @@ public final class LocalStore extends SQLiteOpenHelper {
         if(u==null)return;
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
         try{
-            long archiveGroup=libraryId(db);
             String[] collection={String.valueOf(u.id)};
             String[] group={String.valueOf(u.groupId)};
             String[] deck={String.valueOf(u.deckId)};
@@ -234,8 +282,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             db.delete("study_order","group_id=?",group);
             db.delete("card_order","deck_id=?",deck);
             db.delete("card_deck_members","deck_id=?",deck);
-            ContentValues archived=new ContentValues();archived.put("group_id",archiveGroup);
-            db.update("entries",archived,"group_id=?",group);
+            archiveStudyGroup(db,u.groupId);
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
@@ -243,29 +290,8 @@ public final class LocalStore extends SQLiteOpenHelper {
         try(Cursor c=readQuery("SELECT 1 FROM entries WHERE group_id=? AND id=? LIMIT 1",
             new String[]{String.valueOf(groupId),String.valueOf(entryId)})){return c.moveToFirst();}
     }
-    /** A due verse can belong to this collection through an identical Bible passage
-     * even when its recall history lives on a different old study-entry row. */
     public boolean belongsToGroupMaterial(long groupId,DueItem due){
-        Entry source=entry(due.entryId);
-        if(source==null)return false;
-        if(source.groupId==groupId)return true;
-        int sourceBook=bibleBookFromReference(source.reference);
-        if(sourceBook==0)return false;
-        List<Bible.Verse> expected=source.lines();
-        if(due.start<0||due.end>expected.size()||due.start>=due.end)return false;
-        for(Entry target:entries(groupId)){
-            if(bibleBookFromReference(target.reference)!=sourceBook)continue;
-            List<Bible.Verse> lines=target.lines();
-            for(int i=0;i+due.end-due.start<=lines.size();i++){
-                boolean equal=true;
-                for(int j=due.start;j<due.end;j++){
-                    Bible.Verse a=expected.get(j),b=lines.get(i+j-due.start);
-                    if(!a.ref.equals(b.ref)||!a.text.equals(b.text)){equal=false;break;}
-                }
-                if(equal)return true;
-            }
-        }
-        return false;
+        return reviewSchedule().belongs(groupId,due);
     }
     static int bibleBookFromReference(String reference){
         if(reference==null)return 0;
@@ -305,12 +331,13 @@ public final class LocalStore extends SQLiteOpenHelper {
             try{
                 if(card.bookId>0){if(bible==null||!bible.isReady())continue;
                     verses=bible.passage(card.bookId,card.firstChapter,card.firstVerse,card.lastChapter,card.lastVerse);
-                }else verses=Collections.singletonList(new Bible.Verse("1:1",card.content));
+                }else verses=Collections.singletonList(new Bible.Verse("1",card.content));
                 long entryId=-1;
                 for(Entry old:groupEntries){
                     if(old.reference.equals(card.reference)&&old.lines().size()==verses.size()){
                         boolean identical=true;List<Bible.Verse> prior=old.lines();
-                        for(int i=0;i<prior.size();i++)if(!prior.get(i).ref.equals(verses.get(i).ref)||
+                        for(int i=0;i<prior.size();i++)if(!(prior.get(i).ref.equals(verses.get(i).ref)||
+                            card.bookId==0&&"1:1".equals(prior.get(i).ref))||
                             !prior.get(i).text.equals(verses.get(i).text)){identical=false;break;}
                         if(identical){entryId=old.id;break;}
                     }
@@ -466,20 +493,6 @@ public final class LocalStore extends SQLiteOpenHelper {
         db.execSQL("UPDATE transition_issues SET failures=failures+1,last_failed=? WHERE entry_id=? AND from_position=? AND to_position=?",
             new Object[]{now,entryId,from,to});
     }
-    /** Reschedule a mastered weak verse sooner; never make a new verse 'mastered'. */
-    private void rescheduleWeakVerse(SQLiteDatabase db,long id,int position,long now){
-        if(!isStepMastered(id,"VERSE",position,position+1))return;
-        long due=now+86400000L;
-        ContentValues v=new ContentValues();v.put("entry_id",id);v.put("stage","VERSE");
-        v.put("first_line",position);v.put("last_line",position+1);
-        v.put("level",0);v.put("due",due);v.put("last_score",0);
-        // Don't replace an even-earlier scheduled repeat.
-        try(Cursor c=db.rawQuery("SELECT due FROM review_schedule WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=?",
-            new String[]{String.valueOf(id),String.valueOf(position),String.valueOf(position+1)})){
-            if(c.moveToFirst() && c.getLong(0)>0 && c.getLong(0)<due)return;
-        }
-        db.replaceOrThrow("review_schedule",null,v);
-    }
     public static final class DueItem {
         public long entryId, due;
         public String stage;public int start,end;
@@ -519,44 +532,32 @@ public final class LocalStore extends SQLiteOpenHelper {
         SQLiteDatabase db=getWritableDatabase();
         db.beginTransaction();
         try{
-            boolean mastered=accuracy!=100||assisted||isStepMastered(id,stage,start,end);
-            scheduleReviewKnownMastery(db,id,stage,start,end,accuracy,assisted,now,mastered);
+            ReviewSchedule review=assisted?null:new ReviewSchedule(this,collectionProgress(),false);
+            boolean mastered=accuracy!=100||assisted||review.mastered(id,stage,start,end);
+            scheduleReviewKnownMastery(db,review,id,stage,start,end,accuracy,assisted,now,mastered);
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
     }
-    private void scheduleReviewKnownMastery(SQLiteDatabase db,long id,String stage,int start,int end,
+    private void scheduleReviewKnownMastery(SQLiteDatabase db,ReviewSchedule schedule,long id,String stage,int start,int end,
             int accuracy,boolean assisted,long now,boolean mastered){
         ContentValues a=new ContentValues();a.put("entry_id",id);a.put("stage",stage);
         a.put("first_line",start);a.put("last_line",end);
         a.put("attempted_at",now);a.put("accuracy",accuracy);a.put("assisted",assisted?1:0);
         db.insertOrThrow("review_attempts",null,a);
-        if(!assisted){
-            int level=-1;
-            try(Cursor c=db.rawQuery("SELECT level FROM review_schedule WHERE entry_id=? AND stage=? AND first_line=? AND last_line=?",
-                new String[]{String.valueOf(id),stage,String.valueOf(start),String.valueOf(end)})){
-                if(c.moveToFirst())level=c.getInt(0);
-            }
-            // A failed attempt before first mastery must not advance the initial interval.
-            if(accuracy==100 && !mastered)level=-1;
-            SpacedReviewLogic.State r=SpacedReviewLogic.update(level,accuracy,false,now);
-            ContentValues cv=new ContentValues();cv.put("entry_id",id);cv.put("stage",stage);
-            cv.put("first_line",start);cv.put("last_line",end);
-            cv.put("level",r.level);cv.put("due",r.due);cv.put("last_score",accuracy);
-            db.replaceOrThrow("review_schedule",null,cv);
-        }
+        if(!assisted)schedule.update(db,id,stage,start,end,accuracy,mastered,now);
     }
-    /** Each due verse/group is independent. Never include unmastered, new material. */
-    public List<DueItem> dueItems(long now) {
-        List<DueItem> items=new ArrayList<>();
-        try(Cursor c=readQuery(
-            "SELECT r.entry_id,r.stage,r.first_line,r.last_line,r.due FROM review_schedule r WHERE r.due<=? AND " +
-            "(EXISTS(SELECT 1 FROM stage_progress s WHERE s.entry_id=r.entry_id AND s.stage=r.stage AND s.first_line=r.first_line AND s.last_line=r.last_line) OR " +
-            "(r.stage='VERSE' AND EXISTS(SELECT 1 FROM verse_progress v WHERE v.entry_id=r.entry_id AND v.position=r.first_line))) ORDER BY r.due ASC",
-            new String[]{String.valueOf(now)})){
-            while(c.moveToNext())items.add(new DueItem(c.getLong(0),c.getString(1),c.getInt(2),c.getInt(3),c.getLong(4)));
-        }
-        return items;
+
+    ReviewSchedule reviewSchedule(){
+        SQLiteDatabase db=getReadableDatabase();
+        db.beginTransactionNonExclusive();
+        try{
+            ReviewSchedule schedule=new ReviewSchedule(this,collectionProgress(),true);
+            db.setTransactionSuccessful();return schedule;
+        }finally{db.endTransaction();}
     }
+    /** Counts due verse/group units before the exercise planner combines or suppresses overlaps. */
+    public List<DueItem> dueItems(long now){return dueItems(now,-1);}
+    List<DueItem> dueItems(long now,long group){return reviewSchedule().due(now,group);}
     public int dueCount(long now){return dueItems(now).size();}
     @Override public void onUpgrade(SQLiteDatabase db,int from,int to) {
         if(from<2) {
@@ -641,15 +642,16 @@ public final class LocalStore extends SQLiteOpenHelper {
             // Mastery cannot change during this transaction except through the
             // explicit final write below. Read it once, not once for every verse.
             CollectionProgressSnapshot before=collectionProgress();
+            ReviewSchedule review=new ReviewSchedule(this,before,false);
             if(verseRun){
                 for(int i=start;i<end;i++){
                     recordRecall(db,id,"VERSE",i,i+1,100,false,now);
-                    scheduleReviewKnownMastery(db,id,"VERSE",i,i+1,100,false,now,before.mastered(id,i));
+                    scheduleReviewKnownMastery(db,review,id,"VERSE",i,i+1,100,false,now,review.mastered(id,"VERSE",i,i+1));
                 }
             }else{
-                boolean mastered=before.stepMastered(id,stage,start,end);
+                boolean mastered=review.mastered(id,stage,start,end);
                 recordRecall(db,id,stage,start,end,100,false,now);
-                scheduleReviewKnownMastery(db,id,stage,start,end,100,false,now,mastered);
+                scheduleReviewKnownMastery(db,review,id,stage,start,end,100,false,now,mastered);
                 if(finishLesson)finishExerciseIfNeeded(id,start,5,before.exerciseDone(id,start));
                 if(!mastered)markMastered(id,start,end,100,stage);
             }
@@ -664,20 +666,23 @@ public final class LocalStore extends SQLiteOpenHelper {
         SQLiteDatabase db=getWritableDatabase();
         db.beginTransaction();
         try{
+            boolean weakInRange=weakVerse>=start&&weakVerse<end;
+            boolean shorten=weakInRange&&weak.errors>0;
+            ReviewSchedule review=(schedule||weakInRange)?new ReviewSchedule(this,collectionProgress(),false):null;
             if(!verseRun)recordRecall(db,id,stage,start,end,accuracy,false,now);
-            if(weak!=null&&weakVerse>=start&&weakVerse<end&&weak.errors>0){
-                rescheduleWeakVerse(db,id,weakVerse,now);
+            if(shorten){
+                review.rescheduleWeakVerse(db,id,weakVerse,now);
                 if(weak.transitionFrom>=0)
                     recordWeakTransition(db,id,start+weak.transitionFrom,weakVerse,now);
             }
             if(verseRun){
                 // Only the weak verse receives a failed attempt. Other verses remain due.
-                if(weakVerse>=start&&weakVerse<end){
+                if(weakInRange){
                     recordRecall(db,id,"VERSE",weakVerse,weakVerse+1,0,false,now);
-                    scheduleReviewKnownMastery(db,id,"VERSE",weakVerse,weakVerse+1,0,false,now,true);
+                    scheduleReviewKnownMastery(db,review,id,"VERSE",weakVerse,weakVerse+1,0,false,now,true);
                 }
             }else if(schedule){
-                scheduleReviewKnownMastery(db,id,stage,start,end,accuracy,false,now,true);
+                scheduleReviewKnownMastery(db,review,id,stage,start,end,accuracy,false,now,true);
             }
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
@@ -761,7 +766,8 @@ public final class LocalStore extends SQLiteOpenHelper {
     }
     public List<Group> groups() {
         List<Group> list=new ArrayList<>();
-        try(Cursor c=readQuery("SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id WHERE g.title!='__slovo_cards_study_library__' GROUP BY g.id ORDER BY g.id",null)) {
+        try(Cursor c=readQuery("SELECT g.id,g.title,COUNT(e.id) FROM groups_ g LEFT JOIN entries e ON e.group_id=g.id WHERE g.title!=? AND (g.title NOT GLOB ? OR EXISTS(SELECT 1 FROM unified_collections u WHERE u.group_id=g.id)) GROUP BY g.id ORDER BY g.id",
+            new String[]{CARD_STUDY_GROUP,ARCHIVED_GROUP_PREFIX+"*"})) {
             while(c.moveToNext()) { Group g=new Group();g.id=c.getLong(0);g.title=c.getString(1);g.count=c.getInt(2);list.add(g); }
         }
         return list;
@@ -802,7 +808,7 @@ public final class LocalStore extends SQLiteOpenHelper {
             if(lines.size()!=verses.size())continue;
             boolean identical=true;
             for(int i=0;i<lines.size();i++){
-                if(!lines.get(i).ref.equals(verses.get(i).ref) ||
+                if(!(lines.get(i).ref.equals(verses.get(i).ref)||card.bookId==0&&"1:1".equals(lines.get(i).ref)) ||
                     !lines.get(i).text.equals(verses.get(i).text)){
                     identical=false;break;
                 }
@@ -955,9 +961,10 @@ public final class LocalStore extends SQLiteOpenHelper {
             long archive=libraryId(db);
             Map<String,List<Entry>> candidates=new HashMap<>();
             String prefix=Bible.NAMES[book-1]+" ";
-            try(Cursor c=readQuery("SELECT "+FIELDS+" FROM entries WHERE group_id IN (?,?) "+
-                "AND reference>=? AND reference<? ORDER BY CASE WHEN group_id=? THEN 0 ELSE 1 END,id",
-                new String[]{String.valueOf(groupId),String.valueOf(archive),prefix,Bible.NAMES[book-1]+"!",String.valueOf(groupId)})){
+            try(Cursor c=readQuery("SELECT "+FIELDS+" FROM entries WHERE (group_id IN (?,?) OR group_id IN ("+
+                "SELECT g.id FROM groups_ g WHERE g.title GLOB ? AND NOT EXISTS("+
+                "SELECT 1 FROM unified_collections u WHERE u.group_id=g.id))) AND reference>=? AND reference<? ORDER BY CASE WHEN group_id=? THEN 0 ELSE 1 END,id",
+                new String[]{String.valueOf(groupId),String.valueOf(archive),ARCHIVED_GROUP_PREFIX+"*",prefix,Bible.NAMES[book-1]+"!",String.valueOf(groupId)})){
                 while(c.moveToNext()){
                     Entry entry=readEntry(c);
                     candidates.computeIfAbsent(entry.reference,key->new ArrayList<>()).add(entry);
@@ -1300,7 +1307,16 @@ public final class LocalStore extends SQLiteOpenHelper {
         getWritableDatabase().update("entries",v,"id=?",new String[]{String.valueOf(id)});
     }
     public void deleteEntry(long id) {getWritableDatabase().delete("entries","id=?",new String[]{String.valueOf(id)});}
-    public void deleteGroup(long id) {getWritableDatabase().delete("groups_","id=?",new String[]{String.valueOf(id)});}
+    public void deleteGroup(long id){
+        SQLiteDatabase db=getWritableDatabase();
+        db.beginTransaction();
+        try{
+            UnifiedCollection collection=unifiedForGroup(id);
+            if(collection!=null)deleteUnifiedCollection(collection.id);
+            else if(group(id)!=null)markArchivedGroup(db,id);
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+    }
 
     private List<Group> groupsForBackup(){
         List<Group> list=new ArrayList<>();
