@@ -593,8 +593,10 @@ public final class LocalStore extends SQLiteOpenHelper {
         if(from<5)createWeakTransitionsTable(db);
         if(from<6){
             createFlashcardTables(db);
-            // Explicitly requested removal of the v0.1 auto-created collection.
-            db.execSQL("DELETE FROM groups_ WHERE title='Мои стихи'");
+            // Remove only the empty legacy default, never user material merely
+            // because its collection happens to have the old default title.
+            db.execSQL("DELETE FROM groups_ WHERE title='Мои стихи' AND "+
+                "NOT EXISTS(SELECT 1 FROM entries e WHERE e.group_id=groups_.id)");
         }
         if(from<7)createOrderTables(db);
         if(from<8){createUnifiedTables(db);migrateLegacyCollections(db);}
