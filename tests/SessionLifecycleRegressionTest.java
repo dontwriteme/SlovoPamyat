@@ -88,16 +88,16 @@ public class SessionLifecycleRegressionTest {
     @Test public void openingReviewCannotInheritWeakFragmentFromPreviousLesson()throws Exception{
         LocalStore.UnifiedCollection u=collection("Повторение");
         long id=add(u,"Бытие 1:1","Текст целого стиха");
-        set("practiceWeakFragment",true);
-        set("weakFragmentText","Посторонний текст");
-        set("lessonWriteVariant",2);
-        set("draft","Старый черновик");
+        ((LessonWritingState)get("lessonWriting")).practiceWeakFragment=true;
+        ((LessonWritingState)get("lessonWriting")).weakFragmentText="Посторонний текст";
+        ((LessonWritingState)get("lessonWriting")).variant=2;
+        ((LessonWritingState)get("lessonWriting")).draft="Старый черновик";
         call("openReview",new Class<?>[]{LocalStore.DueItem.class},
             new LocalStore.DueItem(id,"VERSE",0,1,0));
         assertEquals("TRAIN",get("screen").toString());
-        assertEquals(false,get("practiceWeakFragment"));
-        assertEquals("",get("weakFragmentText"));assertEquals("",get("draft"));
-        assertEquals(0,get("lessonWriteVariant"));
+        assertEquals(false,((LessonWritingState)get("lessonWriting")).practiceWeakFragment);
+        assertEquals("",((LessonWritingState)get("lessonWriting")).weakFragmentText);assertEquals("",((LessonWritingState)get("lessonWriting")).draft);
+        assertEquals(0,((LessonWritingState)get("lessonWriting")).variant);
     }
 
     private void reopenActivity()throws Exception{
@@ -113,11 +113,11 @@ public class SessionLifecycleRegressionTest {
         long id=add(u,"Бытие 1:1","В начале сотворил Бог небо и землю");
         store.finishExercise(id,0,3);
         call("openTraining",new Class<?>[]{long.class},id);
-        set("draft","В начале сотворил");
+        ((LessonWritingState)get("lessonWriting")).draft="В начале сотворил";
         reopenActivity();
         call("openTraining",new Class<?>[]{long.class},id);
         assertEquals("TRAIN",get("screen").toString());
-        assertEquals("В начале сотворил",get("draft"));
+        assertEquals("В начале сотворил",((LessonWritingState)get("lessonWriting")).draft);
         assertEquals(3,store.exerciseDone(id,0));
     }
 
@@ -126,11 +126,11 @@ public class SessionLifecycleRegressionTest {
         long id=add(u,"Бытие 1:1","В начале сотворил Бог небо и землю");
         store.finishExercise(id,0,3);
         call("openTraining",new Class<?>[]{long.class},id);
-        set("draft","В начале сотворил");
+        ((LessonWritingState)get("lessonWriting")).draft="В начале сотворил";
         recreate();
         assertEquals("TRAIN",get("screen").toString());
         assertEquals(id,get("selectedEntry"));
-        assertEquals("В начале сотворил",get("draft"));
+        assertEquals("В начале сотворил",((LessonWritingState)get("lessonWriting")).draft);
         assertEquals(3,store.exerciseDone(id,0));
     }
 
@@ -161,7 +161,7 @@ public class SessionLifecycleRegressionTest {
             GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
         set("groupIntroDone",true);
         set("groupBuildDone",true);
-        set("draft","Первый стих");
+        ((LessonWritingState)get("lessonWriting")).draft="Первый стих";
         recreate();
         StudyPlanLogic.Step step=(StudyPlanLogic.Step)get("activeStep");
         assertEquals(0,step.start);assertEquals(2,step.end);
@@ -169,7 +169,7 @@ public class SessionLifecycleRegressionTest {
         assertEquals(true,get("groupMode"));
         assertEquals(true,get("groupIntroDone"));
         assertEquals(true,get("groupBuildDone"));
-        assertEquals("Первый стих",get("draft"));
+        assertEquals("Первый стих",((LessonWritingState)get("lessonWriting")).draft);
         assertFalse(store.isStepMastered(id,"CHAIN",0,2));
     }
 
@@ -186,13 +186,13 @@ public class SessionLifecycleRegressionTest {
         store.scheduleReview(following,"VERSE",0,1,100,false,1000L);
         set("reviewCollectionGroup",u.groupId);
         invoke("startReviewSession");
-        set("draft","Первый стих");
+        ((LessonWritingState)get("lessonWriting")).draft="Первый стих";
         recreate();
         assertEquals("TRAIN",get("screen").toString());
         assertEquals(true,get("reviewMode"));
         assertEquals(u.groupId,get("reviewCollectionGroup"));
         assertEquals("VERSE_RUN",((LocalStore.DueItem)get("currentReview")).stage);
-        assertEquals("Первый стих",get("draft"));
+        assertEquals("Первый стих",((LessonWritingState)get("lessonWriting")).draft);
         invoke("advanceReviewSession");
         assertEquals(following,get("selectedEntry"));
     }
@@ -202,7 +202,7 @@ public class SessionLifecycleRegressionTest {
         long id=add(u,"Свой текст","Текст для обучения");
         store.finishExercise(id,0,3);
         call("openTraining",new Class<?>[]{long.class},id);
-        set("draft","Текст для обучения");
+        ((LessonWritingState)get("lessonWriting")).draft="Текст для обучения";
         call("validateLessonWriting",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
         ActivityTestWorkers.awaitWriting(activity);
         assertEquals(true,get("passed"));
@@ -211,7 +211,7 @@ public class SessionLifecycleRegressionTest {
         recreate();
         assertEquals("TRAIN",get("screen").toString());
         assertEquals(true,get("passed"));
-        assertEquals("",get("draft"));
+        assertEquals("",((LessonWritingState)get("lessonWriting")).draft);
         assertEquals(completed,store.recallCheckpoint(id,"VERSE",0,1));
         assertEquals(5,store.exerciseDone(id,0));
     }
@@ -221,7 +221,7 @@ public class SessionLifecycleRegressionTest {
         long id=add(u,"Свой текст","Текст для обучения");
         store.finishExercise(id,0,3);
         call("openTraining",new Class<?>[]{long.class},id);
-        set("draft","Текст для обучения");
+        ((LessonWritingState)get("lessonWriting")).draft="Текст для обучения";
         Bundle state=new Bundle();
         controller.saveInstanceState(state);
         store.commitSuccessfulRecall(id,"VERSE",0,1,false,true,1000L);
@@ -245,14 +245,14 @@ public class SessionLifecycleRegressionTest {
         long id=add(u,"Свой текст","Старый текст стиха");
         store.finishExercise(id,0,3);
         call("openTraining",new Class<?>[]{long.class},id);
-        set("draft","Старый текст");
+        ((LessonWritingState)get("lessonWriting")).draft="Старый текст";
         store.getWritableDatabase().execSQL("UPDATE entries SET lines=? WHERE id=?",
             new Object[]{"[{\"ref\":\"1:1\",\"text\":\"Другой текст стиха\"}]",id});
         recreate();
         assertEquals("HOME",get("screen").toString());
-        assertEquals("",get("draft"));
+        assertEquals("",((LessonWritingState)get("lessonWriting")).draft);
         call("openTraining",new Class<?>[]{long.class},id);
-        assertEquals("",get("draft"));
+        assertEquals("",((LessonWritingState)get("lessonWriting")).draft);
     }
 
     @Test public void importedCopyRejectsOldTaskEvenWhenEntryAndDraftStillMatch()throws Exception{
@@ -260,7 +260,7 @@ public class SessionLifecycleRegressionTest {
         long id=add(u,"Свой текст","Текст для обучения");
         store.finishExercise(id,0,3);
         call("openTraining",new Class<?>[]{long.class},id);
-        set("draft","Черновик");
+        ((LessonWritingState)get("lessonWriting")).draft="Черновик";
         Bundle state=new Bundle();
         controller.saveInstanceState(state);
         assertNotNull(state.getBundle("active_lesson"));
