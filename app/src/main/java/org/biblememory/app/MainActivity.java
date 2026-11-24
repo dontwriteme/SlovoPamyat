@@ -6059,15 +6059,9 @@ public final class MainActivity extends Activity {
         }
         int writingTotal=Math.max(1,writingVariants(e).size());
         // In a scheduled review the lesson legitimately starts at writing.
-        int completed=groupMode?0:store.exerciseDone(e.id,activeStep.start);
-        boolean previouslyLearned=executingCollectionQueue &&
-            studyStage==StudyPlanLogic.Stage.VERSE && completed>=5;
-        boolean writingOnly=!groupMode && (reviewMode || lessonPracticeAgain ||
-            studyStage!=StudyPlanLogic.Stage.VERSE || previouslyLearned);
-        int introDone=groupMode?(groupIntroDone?1:0):
-            (completed>=1?1:0);
+        LessonStageFlow.State state=lessonStageState(e);
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
-            introDone,buildDone,lessonWriteVariant,writingOnly);
+            state.introDone(),buildDone,lessonWriteVariant,state.writingOnly());
     }
     /** Keep only the original segmented progress bar, without visible captions. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
@@ -6184,14 +6178,12 @@ public final class MainActivity extends Activity {
         if(lessonHotbarStrip==null)return;
         lessonHotbarStrip.setModel(lessonHotbarModel(phase,e));
     }
+    private LessonStageFlow.State lessonStageState(LocalStore.Entry e){
+        return new LessonStageFlow.State(studyStage,groupMode?0:store.exerciseDone(e.id,activeStep.start),
+            reviewMode,groupMode,executingCollectionQueue,lessonPracticeAgain,groupIntroDone,groupBuildDone);
+    }
     private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
-        if(groupMode)return !groupIntroDone?LessonCurriculumLogic.Phase.INTRO:
-            (groupBuildDone?LessonCurriculumLogic.Phase.WRITE:LessonCurriculumLogic.Phase.BUILD);
-        boolean learnedBefore=executingCollectionQueue&&
-            studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(e.id,activeStep.start)>=5;
-        return LessonCurriculumLogic.phase(store.exerciseDone(e.id,activeStep.start),
-            reviewMode||lessonPracticeAgain||studyStage!=StudyPlanLogic.Stage.VERSE||learnedBefore);
+        return lessonStageState(e).phase();
     }
     private void lessonPhaseHeader(String stage,LocalStore.Entry e){
         TextView pill=txt(stage,15,0xFFAA563F,true);
@@ -6610,26 +6602,22 @@ public final class MainActivity extends Activity {
         List<LessonCurriculumLogic.Variant> kinds=LessonCurriculumLogic.variants(
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         int chunkCount=lessonChunks(source,kinds.get(Math.min(lessonVariant,kinds.size()-1))).size();
-        int variants=kinds.size();
-        if(lessonChunk+1<chunkCount){lessonChunk++;resetLessonTiles();}
-        else if(lessonVariant+1<variants){
-            if(!groupMode)store.finishExercise(e.id,activeStep.start,2);
-            lessonVariant++;lessonChunk=0;resetLessonTiles();
-        } else {
-            if(groupMode)groupBuildDone=true;
-            else store.finishExercise(e.id,activeStep.start,3);
-            lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();draft="";lastAccuracy=-1;
-            lessonWriteHadFeedback=false;
-        }
+        LessonStageFlow.BuildTransition next=LessonStageFlow.advanceBuild(
+            lessonVariant,lessonChunk,kinds.size(),chunkCount,groupMode);
+        if(next.persistedCompletion()>0)
+            store.finishExercise(e.id,activeStep.start,next.persistedCompletion());
+        if(next.groupCompleted())groupBuildDone=true;
+        lessonVariant=next.nextVariant();lessonChunk=next.nextChunk();
+        if(next.beginWriting())lessonWriteVariant=0;
+        resetLessonTiles();
+        if(next.beginWriting()){draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;}
         saveTrainingSession();render();
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
         return writingVariants(texts(e.lines().subList(activeStep.start,activeStep.end)));
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(String passage){
-        if(reviewMode||lessonPracticeAgain||practiceWeakFragment)
-            return Collections.singletonList(LessonCurriculumLogic.Variant.FULL);
-        return LessonCurriculumLogic.variants(ReviewLogic.words(passage).size());
+        return LessonStageFlow.writingVariants(passage,reviewMode,lessonPracticeAgain,practiceWeakFragment);
     }
     private String writingExpected(String original,LessonCurriculumLogic.Variant variant){
         if(practiceWeakFragment)return weakFragmentText;
