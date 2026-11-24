@@ -94,20 +94,20 @@ public final class R51LessonCheck extends Instrumentation {
                 ((View)tile).performClick();
                 break;
             }
-            require((int)get("lessonPicked")==1,"One actual tile selected");
+            require(((LessonAssemblyState)get("lessonAssembly")).picked()==1,"One actual tile selected");
             return null;
         });
         recreate();
         onMain(()->{
             checkLesson(id);
-            require((int)get("lessonPicked")==1,"Same geometry retains selected tile");
+            require(((LessonAssemblyState)get("lessonAssembly")).picked()==1,"Same geometry retains selected tile");
             return null;
         });
         changeOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         onMain(()->{
             checkLesson(id);
             // For this short text the partition and prefix fit both layouts.
-            require((int)get("lessonPicked")==1,"Rotation retains the same valid prefix");
+            require(((LessonAssemblyState)get("lessonAssembly")).picked()==1,"Rotation retains the same valid prefix");
             store().finishExercise(id,0,3);
             call("render",new Class<?>[0]);
             firstEdit((View)get("root")).setText("Слово истины");
