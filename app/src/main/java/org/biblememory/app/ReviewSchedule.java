@@ -4,6 +4,7 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import java.util.*;
+import java.util.function.BiConsumer;
 
 /** A transaction-scoped projection of the existing schedule rows. */
 final class ReviewSchedule {
@@ -26,17 +27,22 @@ final class ReviewSchedule {
     private final boolean complete;
 
     ReviewSchedule(LocalStore store,CollectionProgressSnapshot progress,boolean complete){
+        this(store,progress,complete,null);
+    }
+
+    ReviewSchedule(LocalStore store,CollectionProgressSnapshot progress,boolean complete,Long dueBy){
         this.store=store;
         this.progress=progress;
         this.complete=complete;
         archives=complete?store.archivedReviewGroups():Collections.emptySet();
-        if(complete)loadTerms(null);
+        if(complete)loadTerms(null,dueBy);
     }
 
-    private void loadTerms(Long entry){
-        String where=entry==null?"":" WHERE entry_id=?";
+    private void loadTerms(Long entry,Long dueBy){
+        String where=entry!=null?" WHERE entry_id=?":dueBy!=null?" WHERE due<=?":"";
+        Long parameter=entry!=null?entry:dueBy;
         try(Cursor c=store.readQuery("SELECT entry_id,stage,first_line,last_line,level,due,last_score "+
-                "FROM review_schedule"+where,entry==null?null:new String[]{entry.toString()})){
+                "FROM review_schedule"+where,parameter==null?null:new String[]{parameter.toString()})){
             while(c.moveToNext()){
                 terms.put(new Step(c.getLong(0),c.getString(1),c.getInt(2),c.getInt(3)),
                     new Term(c.getInt(4),c.getLong(5),c.getInt(6)));
@@ -72,7 +78,7 @@ final class ReviewSchedule {
     private Term effective(List<Step> aliases){
         Term best=null;
         for(Step alias:aliases){
-            if(!complete&&loadedEntries.add(alias.entry))loadTerms(alias.entry);
+            if(!complete&&loadedEntries.add(alias.entry))loadTerms(alias.entry,null);
             Term candidate=terms.get(alias);
             if(candidate==null)continue;
             if(best==null||candidate.due<best.due||
@@ -96,20 +102,36 @@ final class ReviewSchedule {
         return term!=null&&(term.due<=now||resume&&term.score<100);
     }
 
-    List<LocalStore.DueItem> due(long now,long group){
+    private int selectDue(long now,long group,BiConsumer<Step,Term> receiver){
         Set<Step> seen=new HashSet<>();
-        List<LocalStore.DueItem> items=new ArrayList<>();
-        for(Step step:terms.keySet()){
-            if(!STAGES.contains(step.stage)||!valid(step)||!seen.add(step))continue;
+        int count=0;
+        for(Map.Entry<Step,Term> row:terms.entrySet()){
+            Step step=row.getKey();
+            if(row.getValue().due>now||!STAGES.contains(step.stage)||!valid(step)||!seen.add(step))continue;
             List<Step> aliases=aliases(step);
             seen.addAll(aliases);
             Term term=effective(aliases);
             if(!available(term,now,false)||!mastered(aliases))continue;
             // Prefer a longer active passage so adjacent verses can keep forming a VERSE_RUN.
             Step target=null;
-            for(Step alias:aliases)if(active(alias,group)&&prefer(alias,target))target=alias;
-            if(target!=null)items.add(target.item(term.due));
+            for(Step alias:aliases){
+                if(!active(alias,group)||!prefer(alias,target))continue;
+                target=alias;
+                if(receiver==null)break; // Counting only needs any active representation.
+            }
+            if(target!=null){
+                count++;
+                if(receiver!=null)receiver.accept(target,term);
+            }
         }
+        return count;
+    }
+
+    int countDue(long now){return selectDue(now,-1,null);}
+
+    List<LocalStore.DueItem> due(long now,long group){
+        List<LocalStore.DueItem> items=new ArrayList<>();
+        selectDue(now,group,(target,term)->items.add(target.item(term.due)));
         items.sort(Comparator.comparingLong((LocalStore.DueItem x)->x.due)
             .thenComparingLong(x->x.entryId).thenComparingInt(x->x.start).thenComparing(x->x.stage)
             .thenComparingInt(x->x.end));

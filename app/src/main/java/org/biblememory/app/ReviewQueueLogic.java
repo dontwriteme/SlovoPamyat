@@ -32,9 +32,10 @@ public final class ReviewQueueLogic {
     }
     private static int words(String s){return ReviewLogic.words(s).size();}
     public static List<Item> plan(Collection<Item> raw,Source source) {
+        Map<Long,List<String>> references=new HashMap<>(),texts=new HashMap<>();
         List<Item> all=new ArrayList<>();
         for(Item item:raw) if(item.start>=0 && item.end>item.start &&
-            item.end<=source.references(item.entryId).size())all.add(item);
+            item.end<=references.computeIfAbsent(item.entryId,source::references).size())all.add(item);
         // Short completed passages are preferable to a whole chapter when both are due.
         all.sort(Comparator.comparingInt((Item i)->i.isVerse()?1:0)
             .thenComparingInt(i->i.end-i.start)
@@ -42,11 +43,15 @@ public final class ReviewQueueLogic {
             .thenComparingLong(i->i.entryId)
             .thenComparingInt(i->i.start));
         List<Item> picked=new ArrayList<>();
-        for(Item item:all) {
-            boolean overlap=false;
-            for(Item existing:picked) if(existing.entryId==item.entryId &&
-                existing.start<item.end && item.start<existing.end){overlap=true;break;}
-            if(!overlap)picked.add(item);
+        Map<Long,NavigableMap<Integer,Integer>> ranges=new HashMap<>();
+        for(Item item:all){
+            // Accepted ranges never overlap. Only the neighbours can intersect a new range.
+            NavigableMap<Integer,Integer> accepted=ranges.computeIfAbsent(item.entryId,id->new TreeMap<>());
+            Map.Entry<Integer,Integer> previous=accepted.floorEntry(item.start);
+            Integer next=accepted.ceilingKey(item.start);
+            if((previous!=null&&previous.getValue()>item.start)||(next!=null&&next<item.end))continue;
+            accepted.put(item.start,item.end);
+            picked.add(item);
         }
         picked.sort(Comparator.comparingLong((Item i)->i.entryId).thenComparingInt(i->i.start));
         // Coalesce adjacent DUE verses into a short in-order review, without crossing chapters,
@@ -54,15 +59,20 @@ public final class ReviewQueueLogic {
         List<Item> combined=new ArrayList<>();
         for(int i=0;i<picked.size();) {
             Item first=picked.get(i);if(!first.isVerse()){combined.add(first);i++;continue;}
-            List<String> refs=source.references(first.entryId), text=source.texts(first.entryId);
-            int j=i+1,end=first.end,count=words(text.get(first.start));
+            List<String> refs=references.get(first.entryId);
+            List<String> text=null;
+            int j=i+1,end=first.end,count=0;
             long earliest=first.due;
             while(j<picked.size()) {
                 Item next=picked.get(j);
                 if(!next.isVerse()||next.entryId!=first.entryId||next.start!=end ||
-                    !adjacent(refs.get(end-1),refs.get(end)))break;
+                    end-first.start>=4||!adjacent(refs.get(end-1),refs.get(end)))break;
+                if(text==null){
+                    text=texts.computeIfAbsent(first.entryId,source::texts);
+                    count=words(text.get(first.start));
+                }
                 int more=words(text.get(end));
-                if(end-first.start>=4 || count+more>75)break;
+                if(count+more>75)break;
                 count+=more;end++;earliest=Math.min(earliest,next.due);j++;
                 // Prefer paragraph/sentence ends over arbitrarily extending a long review.
                 if(text.get(end-1).trim().matches("(?s).*[.!?]$"))break;

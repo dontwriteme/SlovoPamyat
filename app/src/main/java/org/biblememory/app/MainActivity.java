@@ -4766,11 +4766,12 @@ public final class MainActivity extends Activity {
         if(!bibleReadyForRecall())return;
         reviewQueue.clear();reviewPointer=0;
         long now=System.currentTimeMillis();
-        ReviewSchedule schedule=store.reviewSchedule();
-        List<LocalStore.DueItem> due=schedule.due(now,reviewCollectionGroup);
         SharedPreferences saved=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
+        boolean hasPending=saved.getBoolean("review_pending",false);
+        ReviewSchedule schedule=hasPending?store.reviewSchedule():store.reviewSchedule(now);
+        List<LocalStore.DueItem> due=schedule.due(now,reviewCollectionGroup);
         LocalStore.DueItem pending=null;
-        if(saved.getBoolean("review_pending",false)){
+        if(hasPending){
             LocalStore.DueItem previous=new LocalStore.DueItem(saved.getLong("review_review_entry",-1),
                 saved.getString("review_review_stage",""),saved.getInt("review_begin",-1),
                 saved.getInt("review_end",-1),0);
@@ -4845,8 +4846,8 @@ public final class MainActivity extends Activity {
     }
     private void advanceReviewSession(){
         if(reviewPointer+1<reviewQueue.size()){
-            ReviewSchedule schedule=store.reviewSchedule();
             long now=System.currentTimeMillis();
+            ReviewSchedule schedule=store.reviewSchedule(now);
             while(++reviewPointer<reviewQueue.size()){
                 LocalStore.DueItem queued=reviewQueue.get(reviewPointer);
                 LocalStore.DueItem next=schedule.resolve(queued,reviewCollectionGroup,now,false);

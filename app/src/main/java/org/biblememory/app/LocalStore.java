@@ -550,18 +550,24 @@ public final class LocalStore extends SQLiteOpenHelper {
         if(!assisted)schedule.update(db,id,stage,start,end,accuracy,mastered,now);
     }
 
-    ReviewSchedule reviewSchedule(){
+    ReviewSchedule reviewSchedule(){return reviewSchedule(null);}
+
+    /** The effective term has the minimum due date across locations, including archived ones.
+     * Future terms cannot win an overdue comparison. Resume, which can accept future terms
+     * after a failed attempt, still requests all terms through the no-argument overload. */
+    ReviewSchedule reviewSchedule(Long dueBy){
         SQLiteDatabase db=getReadableDatabase();
+        boolean nested=db.inTransaction();
         db.beginTransactionNonExclusive();
         try{
-            ReviewSchedule schedule=new ReviewSchedule(this,collectionProgress(),true);
+            ReviewSchedule schedule=new ReviewSchedule(this,readProgressSnapshot(nested),true,dueBy);
             db.setTransactionSuccessful();return schedule;
         }finally{db.endTransaction();}
     }
     /** Counts due verse/group units before the exercise planner combines or suppresses overlaps. */
     public List<DueItem> dueItems(long now){return dueItems(now,-1);}
-    List<DueItem> dueItems(long now,long group){return reviewSchedule().due(now,group);}
-    public int dueCount(long now){return dueItems(now).size();}
+    List<DueItem> dueItems(long now,long group){return reviewSchedule(now).due(now,group);}
+    public int dueCount(long now){return reviewSchedule(now).countDue(now);}
     @Override public void onUpgrade(SQLiteDatabase db,int from,int to) {
         if(from<2) {
             createProgressTables(db);
