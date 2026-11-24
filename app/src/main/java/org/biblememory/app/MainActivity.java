@@ -5989,9 +5989,13 @@ public final class MainActivity extends Activity {
         activePassage.setLineSpacing(dp(7),1.18f);
         activePassage.setTextIsSelectable(false);
         add(content,activePassage,19);
-        activeStatus=txt("",14,MUTED,false);
-        add(content,activeStatus,15);
+        // Both hints are measured at the actual content width, including font scale.
+        // Keep the legacy status TextView separate from the full-screen lesson.
+        activeStatus=null;
+        LessonIntroHint hint=new LessonIntroHint();
+        add(content,hint,15);
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
+        hint.show(mask>0,false);
         updateBlurText();
         TextView hide=button(mask==100?"Показать все слова":
             "Скрыть "+(mask+25)+"% слов",false,()->{});
@@ -5999,6 +6003,7 @@ public final class MainActivity extends Activity {
             mask=mask>=100?0:mask+25;
             trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
             updateBlurText();
+            hint.show(mask>0,true);
             refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry);
             hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
             saveTrainingSession();
@@ -6006,6 +6011,47 @@ public final class MainActivity extends Activity {
         animateLessonPress(hide);
         add(content,hide,27);
         // No extra instructional caption: gesture behavior remains unchanged.
+    }
+    /** The taller of the two hints determines the height at every screen width.
+     * INVISIBLE children still participate in measurement, unlike GONE children. */
+    private final class LessonIntroHint extends FrameLayout {
+        private final TextView readHint,holdHint;
+        private boolean hidden;
+
+        LessonIntroHint(){
+            super(MainActivity.this);
+            setTag("lesson-intro-hint");
+            setMeasureAllChildren(true);
+            readHint=txt(LearningHelp.INTRO_READ,14,MUTED,false);
+            holdHint=txt(LearningHelp.INTRO_HOLD,14,MUTED,false);
+            addView(readHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            addView(holdHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            holdHint.setVisibility(View.INVISIBLE);
+        }
+
+        void show(boolean wordsHidden,boolean animate){
+            if(wordsHidden==hidden)return;
+            hidden=wordsHidden;
+            TextView outgoing=hidden?readHint:holdHint;
+            TextView incoming=hidden?holdHint:readHint;
+            outgoing.animate().cancel();
+            incoming.animate().cancel();
+            outgoing.setVisibility(View.INVISIBLE);
+            outgoing.setAlpha(1f);
+            boolean fade=animate&&ValueAnimator.areAnimatorsEnabled();
+            incoming.setAlpha(fade?0f:1f);
+            incoming.setVisibility(View.VISIBLE);
+            if(fade)incoming.animate().alpha(1f).setDuration(150)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        }
+
+        @Override protected void onDetachedFromWindow(){
+            readHint.animate().cancel();
+            holdHint.animate().cancel();
+            readHint.setAlpha(1f);
+            holdHint.setAlpha(1f);
+            super.onDetachedFromWindow();
+        }
     }
     private void resetLessonTiles(){
         lessonPicked=0;lessonWrongTile=-1;lessonUsedTiles.clear();lessonSeed=new Random().nextLong();
