@@ -24,8 +24,16 @@ final class CustomStudyText {
             return result;
         }
 
-        // Preserve identity of unchanged lines so reviseStudyPassage can retain
-        // their learning history. Never infer a moved duplicate's identity.
+        // An in-place edit keeps the original coordinates, including adjacency.
+        // reviseStudyPassage retains progress only when both ref and text match.
+        if(texts.size()==previous.size()){
+            for(int i=0;i<texts.size();i++)
+                result.add(new Bible.Verse(previous.get(i).ref,texts.get(i)));
+            return result;
+        }
+
+        // On insertions/removals preserve unambiguous unchanged lines.
+        // Never infer a moved duplicate's identity.
         Map<String,Integer> oldCounts=new HashMap<>(),newCounts=new HashMap<>();
         Map<String,Bible.Verse> oldByText=new HashMap<>();
         Set<String> reserved=new HashSet<>(),used=new HashSet<>();
@@ -35,18 +43,30 @@ final class CustomStudyText {
             oldByText.put(verse.text,verse);
         }
         for(String text:texts)newCounts.merge(text,1,Integer::sum);
+        // Preserve numerical adjacency when appending to a numbered custom passage.
+        boolean numbered=true;
+        int maxNumber=0;
+        for(Bible.Verse verse:previous){
+            try{
+                int number=Integer.parseInt(verse.ref);
+                if(number<1||!Integer.toString(number).equals(verse.ref))numbered=false;
+                else maxNumber=Math.max(maxNumber,number);
+            }catch(NumberFormatException ignored){numbered=false;}
+        }
+        long nextNumber=(long)maxNumber+1;
         int next=1;
         for(int i=0;i<texts.size();i++){
             String text=texts.get(i);
             Bible.Verse match=null;
-            if(texts.size()==previous.size()&&text.equals(previous.get(i).text))
-                match=previous.get(i);
-            else if(oldCounts.getOrDefault(text,0)==1&&newCounts.get(text)==1)
+            if(oldCounts.getOrDefault(text,0)==1&&newCounts.get(text)==1)
                 match=oldByText.get(text);
             String ref;
             if(match!=null&&used.add(match.ref))ref=match.ref;
             else{
-                do{ref="свой:"+(next++);}while(reserved.contains(ref)||!used.add(ref));
+                do{
+                    ref=numbered&&nextNumber<=Integer.MAX_VALUE?
+                        Long.toString(nextNumber++):"свой:"+(next++);
+                }while(reserved.contains(ref)||!used.add(ref));
             }
             result.add(new Bible.Verse(ref,text));
         }
