@@ -5840,42 +5840,36 @@ public final class MainActivity extends Activity {
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
             introDone,buildDone,lessonWriteVariant,writingOnly);
     }
-    /** Keep only the original segmented progress bar, without visible captions. */
+    /** Use the same compact phase-based progress strip throughout the lesson. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
                                      LocalStore.Entry e){
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
         LinearLayout bar=column();bar.setTag("lesson-progress");
-        boolean assembly=phase==LessonCurriculumLogic.Phase.BUILD;
-        lessonHotbarStrip=new LessonSegmentedBar(model,assembly);
+        lessonHotbarStrip=new LessonSegmentedBar(model);
         lessonHotbarStrip.setTag("lesson-progress-strip");
-        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(assembly?9:7));
-        if(assembly){
-            bar.setBackground(shape(0xBFFFF8EE,12));
-            bar.setPadding(dp(4),dp(3),dp(4),dp(3));
-        }else stripP.topMargin=dp(3);
-        bar.addView(lessonHotbarStrip,stripP);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(assembly?dp(190):-1,-2);
+        bar.setBackground(shape(0xBFFFF8EE,12));
+        bar.setPadding(dp(4),dp(3),dp(4),dp(3));
+        bar.addView(lessonHotbarStrip,new LinearLayout.LayoutParams(-1,dp(9)));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(190),-2);
         lp.gravity=Gravity.CENTER_HORIZONTAL;
-        lp.topMargin=dp(assembly?8:3);
+        lp.topMargin=dp(8);
         top.addView(bar,lp);
     }
 
-    /** All logical tasks remain represented, even when the gaps must shrink. */
+    /** One segment per scheduled phase; each fills according to its completed tasks. */
     private final class LessonSegmentedBar extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private LessonHotbarLogic.Model model;
-        private final boolean assembly;
         private final float[] fill=new float[3];
         private ValueAnimator fillAnimator;
-        LessonSegmentedBar(LessonHotbarLogic.Model model,boolean assembly){
+        LessonSegmentedBar(LessonHotbarLogic.Model model){
             super(MainActivity.this);
-            this.assembly=assembly;
             setModel(model);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
         void setModel(LessonHotbarLogic.Model value){
-            if(assembly&&(model==null||!Arrays.equals(value.finished,model.finished)||
-                    !Arrays.equals(value.totals,model.totals))){
+            if(model==null||!Arrays.equals(value.finished,model.finished)||
+                    !Arrays.equals(value.totals,model.totals)){
                 if(fillAnimator!=null)fillAnimator.cancel();
                 float[] target=new float[3];
                 for(int i=0;i<3;i++)if(value.totals[i]>0)target[i]=value.finished[i]/(float)value.totals[i];
@@ -5901,20 +5895,9 @@ public final class MainActivity extends Activity {
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             if(model.total<=0||getWidth()<=0)return;
-            if(assembly){
-                drawAssemblyPhases(canvas);
-                return;
-            }
-            float gap=Math.min(dp(3),getWidth()/(float)model.total/4f);
-            float width=(getWidth()-gap*(model.total-1))/model.total;
-            int index=0;
-            for(int group=0;group<3;group++)for(int task=0;task<model.totals[group];task++){
-                float left=index*(width+gap);
-                paintLessonHotbarCell(canvas,paint,model.visual(group,task),left,
-                    Math.min(getWidth(),left+width),getHeight());index++;
-            }
+            drawLessonPhases(canvas);
         }
-        private void drawAssemblyPhases(Canvas canvas){
+        private void drawLessonPhases(Canvas canvas){
             int groups=0;
             for(int total:model.totals)if(total>0)groups++;
             if(groups==0)return;
@@ -5942,13 +5925,6 @@ public final class MainActivity extends Activity {
             if(model.total>0)info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
                 android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,0,model.total,model.completedCount));
         }
-    }
-    private void paintLessonHotbarCell(Canvas canvas,Paint paint,int visual,
-                                      float left,float right,float height){
-        paint.setColor(visual==LessonHotbarLogic.DONE?0xFF4D704D:
-            visual==LessonHotbarLogic.CURRENT?0xFFAFC7A0:0xFFD9D8CC);
-        float radius=Math.min(dp(3.5f),Math.min(height/2f,(right-left)/2f));
-        canvas.drawRoundRect(left,0,right,height,radius,radius,paint);
     }
     /** Refresh progress without changing exercise state or rendering captions. */
     private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
