@@ -101,6 +101,50 @@ public class SessionLifecycleRegressionTest {
         assertEquals(0,get("lessonWriteVariant"));
     }
 
+    private void reopenActivity()throws Exception{
+        controller.pause().stop().destroy();
+        controller=Robolectric.buildActivity(MainActivity.class).create().start().resume();
+        activity=controller.get();
+        for(Thread thread:Thread.getAllStackTraces().keySet())
+            if(thread.getName().equals("BibleLoader"))thread.join(30000);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+        store=(LocalStore)get("store");
+    }
+
+    @Test public void unfinishedWritingDraftSurvivesActivityDestruction()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Черновик");
+        long id=add(u,"Бытие 1:1","В начале сотворил Бог небо и землю");
+        store.finishExercise(id,0,3);
+        call("openTraining",new Class<?>[]{long.class},id);
+        set("draft","В начале сотворил");
+        reopenActivity();
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertEquals("TRAIN",get("screen").toString());
+        assertEquals("В начале сотворил",get("draft"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    @Test public void linkedLessonIsSavedBeforeAnyInteraction()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Связка");
+        long id=store.add(u.groupId,"Два стиха","Свой текст",Arrays.asList(
+            new Bible.Verse("1:1","Первый стих"),new Bible.Verse("1:2","Второй стих")));
+        store.markMastered(id,0,1,100,"VERSE");
+        store.markMastered(id,1,2,100,"VERSE");
+        call("openTraining",new Class<?>[]{long.class},id);
+        call("openGroup",new Class<?>[]{GroupLearningLogic.Candidate.class},
+            GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
+        android.content.SharedPreferences p=activity.getSharedPreferences("study_session",Context.MODE_PRIVATE);
+        String key="linked_"+id+"_";
+        assertTrue(p.getBoolean(key+"pending",false));
+        assertEquals(0,p.getInt(key+"begin",-1));
+        assertEquals(2,p.getInt(key+"end",-1));
+        reopenActivity();
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertEquals(true,get("groupMode"));
+        StudyPlanLogic.Step step=(StudyPlanLogic.Step)get("forcedStep");
+        assertEquals(0,step.start);assertEquals(2,step.end);
+    }
+
     @Test public void warmMemoryRunBuildDoesNotQueryEachVerse()throws Exception{
         LocalStore.UnifiedCollection u=collection("Большая коллекция");
         for(int i=0;i<80;i++)consolidate(add(u,"Свой текст "+i,"Строка "+i));
