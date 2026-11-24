@@ -380,17 +380,6 @@ public final class LocalStore extends SQLiteOpenHelper implements LessonWritingF
             }
         }
     }
-    private boolean mappedCardEntry(long collection,long card){
-        try(Cursor c=readQuery("SELECT 1 FROM unified_card_entries WHERE collection_id=? AND card_id=? LIMIT 1",
-            new String[]{String.valueOf(collection),String.valueOf(card)})){return c.moveToFirst();}
-    }
-    private boolean mappedEntryCard(long collection,long entry,int pos){
-        try(Cursor c=readQuery(
-            "SELECT 1 FROM unified_entry_cards x JOIN unified_collections u ON u.id=x.collection_id "+
-            "JOIN card_deck_members m ON m.deck_id=u.deck_id AND m.card_id=x.card_id "+
-            "WHERE x.collection_id=? AND x.entry_id=? AND x.verse_position=? LIMIT 1",
-            new String[]{String.valueOf(collection),String.valueOf(entry),String.valueOf(pos)})){return c.moveToFirst();}
-    }
     private void mapCardEntry(long collection,long card,long entry){
         ContentValues v=new ContentValues();v.put("collection_id",collection);v.put("card_id",card);v.put("entry_id",entry);
         getWritableDatabase().insertWithOnConflict("unified_card_entries",null,v,SQLiteDatabase.CONFLICT_IGNORE);
@@ -817,13 +806,6 @@ public final class LocalStore extends SQLiteOpenHelper implements LessonWritingF
      * Shared progress must never be inferred from an unrelated passage or text variant.
      */
     public long canonicalStudyEntryId(long entryId){return collectionProgress().canonicalId(entryId);}
-    private int completedExerciseCount(long id){
-        try(Cursor c=readQuery(
-            "SELECT COALESCE(SUM(completed),0) FROM lesson_progress WHERE entry_id=?",
-            new String[]{String.valueOf(id)})){
-            return c.moveToFirst()?c.getInt(0):0;
-        }
-    }
     /** Each card is an independent saved passage. Its own adjacent verses may link. */
     public long findOrCreateCardStudyEntry(Flashcard card,List<Bible.Verse> verses){
         if(card==null||verses==null||verses.isEmpty())throw new IllegalArgumentException("Пустая карточка");
@@ -1259,13 +1241,6 @@ public final class LocalStore extends SQLiteOpenHelper implements LessonWritingF
             Entry e=entry(d.entryId);if(e!=null)result.add(e);
         }
         return result;
-    }
-    public void update(Entry e,ReviewLogic.Schedule schedule,int learned,int score) {
-        ContentValues v=new ContentValues();v.put("learned",learned);
-        v.put("repetitions",schedule.repetitions);v.put("days",schedule.intervalDays);
-        v.put("ease",schedule.ease);v.put("due",schedule.nextDue);
-        v.put("last_score",score);
-        getWritableDatabase().update("entries",v,"id=?",new String[]{String.valueOf(e.id)});
     }
     public int consolidatedVerseCount(long entryId){return collectionProgress().consolidatedCount(entryId);}
     /** Cross-collection verse state. Reading alone never marks a verse learned. */
