@@ -613,6 +613,7 @@ public final class MainActivity extends Activity {
         if(store!=null && root!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
+        cancelWritingCheck();
         resumed=false;
         if(!ownsData||backupInProgress){super.onPause();return;}
         dismissModeInfo(false);
@@ -1162,6 +1163,7 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        cancelWritingCheck();
         if(backupInProgress)return;
         boolean collectionWasLoading=collectionDetailLoading;
         collectionDetailLoading=false;
@@ -6390,13 +6392,14 @@ public final class MainActivity extends Activity {
         saveTrainingSession();render();
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
-        int n=ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size();
+        return writingVariants(texts(e.lines().subList(activeStep.start,activeStep.end)));
+    }
+    private List<LessonCurriculumLogic.Variant> writingVariants(String passage){
         if(reviewMode||lessonPracticeAgain||practiceWeakFragment)
             return Collections.singletonList(LessonCurriculumLogic.Variant.FULL);
-        return LessonCurriculumLogic.variants(n);
+        return LessonCurriculumLogic.variants(ReviewLogic.words(passage).size());
     }
-    private String writingExpected(LocalStore.Entry e,LessonCurriculumLogic.Variant variant){
-        String original=texts(e.lines().subList(activeStep.start,activeStep.end));
+    private String writingExpected(String original,LessonCurriculumLogic.Variant variant){
         if(practiceWeakFragment)return weakFragmentText;
         if(variant==LessonCurriculumLogic.Variant.FULL)return original;
         String[] tokens=ExerciseTextLogic.tokens(original);
@@ -6422,6 +6425,7 @@ public final class MainActivity extends Activity {
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
                 @Override public void onTextChanged(CharSequence x,int a,int before,int count){
+                    cancelWritingCheck();
                     draft=x.toString();lastAccuracy=-1;
                     saveTrainingSession();
                 }
@@ -6515,6 +6519,7 @@ public final class MainActivity extends Activity {
                         }
                         // The last space NEVER starts validation; only the footer button does.
                     }
+                    cancelWritingCheck();
                     inlineDrafts[gapIndex]=value;
                     field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
                     draft=InlineGapLogic.serialize(inlineDrafts);
@@ -6535,17 +6540,13 @@ public final class MainActivity extends Activity {
     private static final class AnswerReview {
         final String expected,actual;
         final AnswerReviewLogic.Result result;
-        AnswerReview(String expected,String actual,boolean special){
+        AnswerReview(String expected,String actual,AnswerReviewLogic.Result result){
             this.expected=expected;
             this.actual=actual;
-            result=AnswerReviewLogic.compare(expected,actual,special);
+            this.result=result;
         }
     }
     private AnswerReview answerReview;
-
-    private void openAnswerReview(String expected,String actual,boolean special){
-        openAnswerReview(new AnswerReview(expected,actual,special));
-    }
 
     private void openAnswerReview(AnswerReview review){
         answerReview=review;
@@ -6655,26 +6656,79 @@ public final class MainActivity extends Activity {
         return view;
     }
 
+    private final java.util.concurrent.ExecutorService writingExecutor=
+        java.util.concurrent.Executors.newSingleThreadExecutor(task->new Thread(task,"WritingAssessment"));
+    private final Handler writingHandler=new Handler(Looper.getMainLooper());
+    private java.util.concurrent.Future<?> writingTask;
+    private record WritingCheck(WritingAssessment.Input input,LocalStore.Entry entry,
+                                StudyPlanLogic.Step step,String draft) {}
+    private WritingCheck pendingWritingCheck;
+
+    private void cancelWritingCheck(){
+        pendingWritingCheck=null;
+        if(writingTask!=null){writingTask.cancel(true);writingTask=null;}
+        writingHandler.removeCallbacksAndMessages(null);
+    }
+
     private void validateLessonWriting(LocalStore.Entry e){
-        if(answerReview!=null||(checked&&passed))return;
-        List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
+        if(pendingWritingCheck!=null||screen!=Screen.TRAIN||backupInProgress||resetInProgress||
+            answerReview!=null||(checked&&passed))return;
+        List<Bible.Verse> lines=e.lines().subList(activeStep.start,activeStep.end);
+        String passage=texts(lines);
+        List<LessonCurriculumLogic.Variant> variants=writingVariants(passage);
         lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
         boolean full=kind==LessonCurriculumLogic.Variant.FULL;
-        String expected=writingExpected(e,kind);
-        String original=expected;
+        String expected=writingExpected(passage,kind);
         String entered=full?draft:InlineGapLogic.response(inlineDrafts);
-        if(entered.trim().isEmpty()){openAnswerReview(expected,entered,false);return;}
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse line:e.lines().subList(activeStep.start,activeStep.end))refs.add(line.ref);
-        boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
-        boolean exact=AcceptedTextLogic.exact(original,entered,special)
-            && (full || InlineGapLogic.complete(inlineExpected,inlineDrafts,special));
-        if(!exact&&special)original=AcceptedTextLogic.bestExpected(original,entered,true);
-        int accuracy=exact?100:Math.min(99,ReviewLogic.accuracy(original,entered));
+        List<String> refs=new ArrayList<>(), verses=new ArrayList<>();
+        for(Bible.Verse line:lines){refs.add(line.ref);verses.add(line.text);}
+        WritingAssessment.Input input=new WritingAssessment.Input(expected,entered,
+            AcceptedTextLogic.matthew513(e.reference,refs),full,practiceWeakFragment,verses,
+            full?Collections.emptyList():inlineExpected, full?Collections.emptyList():Arrays.asList(inlineDrafts));
+        WritingCheck check=new WritingCheck(input,e,activeStep,draft);
+        pendingWritingCheck=check;
+        if(!input.requiresWorker()){
+            applyWritingAssessment(check,WritingAssessment.evaluate(input));
+            return;
+        }
+        Handler main=writingHandler;
+        java.lang.ref.WeakReference<MainActivity> target=new java.lang.ref.WeakReference<>(this);
+        writingTask=writingExecutor.submit(()->{
+            try{
+                WritingAssessment.Result result=WritingAssessment.evaluate(input);
+                main.post(()->{
+                    MainActivity activity=target.get();
+                    if(activity!=null)activity.applyWritingAssessment(check,result);
+                });
+            }catch(java.util.concurrent.CancellationException cancelled){
+                // The main thread already retired this submission.
+            }catch(RuntimeException error){
+                main.post(()->{
+                    MainActivity activity=target.get();
+                    if(activity!=null&&activity.pendingWritingCheck==check){
+                        activity.cancelWritingCheck();
+                        android.util.Log.e("Learning","Unable to check written answer",error);
+                        activity.toast("Не удалось проверить ответ. Попробуй ещё раз.");
+                    }
+                });
+            }
+        });
+    }
+
+    private void applyWritingAssessment(WritingCheck check,WritingAssessment.Result result){
+        if(pendingWritingCheck!=check)return;
+        pendingWritingCheck=null;writingTask=null;
+        LocalStore.Entry e=check.entry();
+        if(isDestroyed()||isFinishing()||backupInProgress||resetInProgress||screen!=Screen.TRAIN||
+            selectedEntry!=e.id||activeStep!=check.step()||!draft.equals(check.draft()))return;
+        WritingAssessment.Input input=check.input();
+        boolean exact=result.exact(),full=input.full();
+        AnswerReview feedback=exact?null:new AnswerReview(input.expected(),input.actual(),result.feedback());
+        if(input.actual().trim().isEmpty()){openAnswerReview(feedback);return;}
         if(practiceWeakFragment){
             if(!exact){
-                openAnswerReview(expected,entered,special);
+                openAnswerReview(feedback);
                 return;
             }
             practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
@@ -6691,17 +6745,12 @@ public final class MainActivity extends Activity {
         }
         long now=System.currentTimeMillis();
         if(!exact && !full){
-            openAnswerReview(expected,entered,special);
+            openAnswerReview(feedback);
             return;
         }
         if(!exact){
-            WeakTransitionLogic.WeakSpot weak=null;
-            if(activeStep.end-activeStep.start>1){
-                List<String> sources=new ArrayList<>();
-                for(Bible.Verse verse:e.lines().subList(activeStep.start,activeStep.end))sources.add(verse.text);
-                weak=WeakTransitionLogic.locate(sources,entered);
-            }
-            AnswerReview feedback=new AnswerReview(expected,entered,special);
+            WeakTransitionLogic.WeakSpot weak=result.weak();
+            int accuracy=result.accuracy();
             boolean verseRun=reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage);
             try{
                 store.commitFailedRecall(e.id,verseRun?"VERSE_RUN":studyStage.name(),
@@ -6715,7 +6764,7 @@ public final class MainActivity extends Activity {
             weakTransitionFrom=weak==null||weak.transitionFrom<0?-1:activeStep.start+weak.transitionFrom;
             lessonWriteHadFeedback=true;
             lastAccuracy=accuracy;
-            lastExpected=original;
+            lastExpected=result.closest();
             openAnswerReview(feedback);
             return;
         }
@@ -7754,6 +7803,7 @@ public final class MainActivity extends Activity {
     }
 
     void waitForBackup(BackupCoordinator.Operation operation){
+        cancelWritingCheck();
         backupInProgress=true;
         if(isFinishing()||isDestroyed())return;
         boolean export=operation==BackupCoordinator.Operation.EXPORT;
@@ -7809,6 +7859,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        cancelWritingCheck();
+        writingExecutor.shutdownNow();
         BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
         if(backupDialog!=null)backupDialog.dismiss();

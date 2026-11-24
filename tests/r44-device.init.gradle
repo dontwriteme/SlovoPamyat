@@ -1,0 +1,10 @@
+// Isolated app ID for the restore fixture and framework-only timing runner.
+allprojects {
+    afterEvaluate { p ->
+        if (p.path == ':app') {
+            p.android.defaultConfig.applicationId = 'org.biblememory.app.r44fixture'
+            p.android.defaultConfig.testInstrumentationRunner = 'org.biblememory.app.R44WritingCheck'
+            p.android.sourceSets.androidTest.java.srcDirs = [rootProject.file('tests/device')]
+        }
+    }
+}

@@ -44,8 +44,13 @@ final class ActivityTestWorkers {
         awaitStartup(controller.get());
     }
 
+    static void awaitWriting(MainActivity activity)throws Exception{
+        executor(activity,"writingExecutor").submit(()->{}).get(30,TimeUnit.SECONDS);
+        Shadows.shadowOf(Looper.getMainLooper()).idle();
+    }
+
     static void awaitDestroyed(MainActivity activity)throws Exception{
-        for(String name:new String[]{"collectionExecutor","bibleSearchExecutor"}){
+        for(String name:new String[]{"collectionExecutor","bibleSearchExecutor","writingExecutor"}){
             assertTrue(name+" did not finish during teardown",
                 executor(activity,name).awaitTermination(30,TimeUnit.SECONDS));
         }

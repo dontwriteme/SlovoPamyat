@@ -321,12 +321,17 @@ public class LessonHotbarIntegrationTest {
 
     @Test @Config(qualifiers="w320dp-h560dp")
     public void longAnswerCardsScrollAboveTheFixedRetryButton()throws Exception{
-        openWritingFixture();
+        lifecycle.visible();
         StringBuilder passage=new StringBuilder();
         for(int i=0;i<120;i++)passage.append("Слово истины живо. ");
-        String expected=passage.toString();
+        String expected=passage.toString().trim();
         String actual=expected.replaceFirst("истины","истены");
-        call("openAnswerReview",new Class<?>[]{String.class,String.class,boolean.class},expected,actual,false);
+        long longEntry=store.add(store.entry(id).groupId,"Long","Свой текст",
+            java.util.Collections.singletonList(new Bible.Verse("1",expected)));
+        call("openReview",new Class<?>[]{LocalStore.DueItem.class},
+            new LocalStore.DueItem(longEntry,"VERSE",0,1,0));
+        submit(actual);
+        ActivityTestWorkers.awaitWriting(activity);
         View root=(View)get("root");
         root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));

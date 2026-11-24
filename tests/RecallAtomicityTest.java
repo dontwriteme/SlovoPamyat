@@ -142,8 +142,9 @@ public class RecallAtomicityTest {
             " WHEN "+when+" BEGIN SELECT RAISE(ABORT,'injected recall failure'); END");
     }
 
-    private void assertUnchangedOnFailure(TextView check,String answer,List<List<List<String>>> before){
+    private void assertUnchangedOnFailure(TextView check,String answer,List<List<List<String>>> before)throws Exception{
         check.performClick();
+        ActivityTestWorkers.awaitWriting(activity);
         assertEquals("Storage failure must roll back every table",before,snapshot());
         assertEquals(answer,find(check.getRootView(),EditText.class,null).getText().toString());
     }
@@ -270,6 +271,7 @@ public class RecallAtomicityTest {
         allow();
 
         check.performClick();
+        ActivityTestWorkers.awaitWriting(activity);
         assertNotNull(get("answerReview"));
         assertEquals(weak,get("weakVerse"));
         assertEquals(weak-1,get("weakTransitionFrom"));
