@@ -3331,6 +3331,11 @@ public final class MainActivity extends Activity {
     private void studyCardDeck(){
         List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
         if(cards.isEmpty()){toast("Подборка пуста");return;}
+        // Flashcards remain free-form; only starting a memorization lesson requires words.
+        for(LocalStore.Flashcard card:cards)if(card.bookId==0&&ExerciseTextLogic.words(card.content).isEmpty()){
+            toast("Исправь текст карточки «"+card.reference+"»: нужно хотя бы одно слово или число");
+            return;
+        }
         if(!bible.isReady())for(LocalStore.Flashcard f:cards)
             if(f.bookId>0){toast("Библия ещё загружается");return;}
         cardStudyQueue.clear();cardStudyCursor=0;cardStudyDeckId=selectedDeck;
