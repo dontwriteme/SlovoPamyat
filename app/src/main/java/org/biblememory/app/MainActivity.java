@@ -6595,19 +6595,15 @@ public final class MainActivity extends Activity {
             toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
             return;
         }
-        if(reviewMode && currentReview!=null && "VERSE_RUN".equals(currentReview.stage)){
-            for(int i=activeStep.start;i<activeStep.end;i++){
-                store.recordRecall(e.id,"VERSE",i,i+1,100,false,now);
-                store.scheduleReview(e.id,"VERSE",i,i+1,100,false,now);
-            }
-        }else{
-            store.recordRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
-            store.scheduleReview(e.id,studyStage.name(),activeStep.start,activeStep.end,100,false,now);
-            if(!store.isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end))
-                store.markMastered(e.id,activeStep.start,activeStep.end,100,studyStage.name());
+        try{
+            store.commitSuccessfulRecall(e.id,studyStage.name(),activeStep.start,activeStep.end,
+                reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage),
+                !reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE,now);
+        }catch(RuntimeException error){
+            android.util.Log.e("Learning","Unable to save successful recall",error);
+            toast("Не удалось сохранить ответ. Попробуй ещё раз.");
+            return;
         }
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE)
-            store.finishExercise(e.id,activeStep.start,5);
         lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
         if(reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
             .remove("review_pending").apply();
@@ -7437,8 +7433,6 @@ public final class MainActivity extends Activity {
         runCursor++;runDraft="";runChecked=false;runPassed=false;
         if(runCursor>=runLines.size()){
             saveCompletedRun();
-            getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-                .remove(runKey(runCollectionId)+"active").apply();
             screen=Screen.RUN_SUMMARY;render();
         }else{saveRunSession();render();}
     }
@@ -7453,8 +7447,13 @@ public final class MainActivity extends Activity {
             result.put("mistakes",new JSONArray(runMistakes));
             JSONArray updated=new JSONArray();updated.put(result);
             for(int i=0;i<Math.min(history.length(),19);i++)updated.put(history.getJSONObject(i));
-            p.edit().putString(historyKey,updated.toString()).apply();
-        }catch(JSONException ignored){}
+            // Commit the result and close its session together.
+            p.edit().putString(historyKey,updated.toString())
+                .remove(runKey(runCollectionId)+"active").apply();
+        }catch(JSONException error){
+            android.util.Log.e("MemoryRun","Unable to save result",error);
+            toast("Не удалось сохранить результат проверки");
+        }
     }
     private void renderWritingRun(){
         if(runLines.isEmpty()){screen=Screen.HOME;render();return;}
