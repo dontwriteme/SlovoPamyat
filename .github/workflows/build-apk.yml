@@ -43,18 +43,15 @@ jobs:
           validate-wrappers: false
       - name: Build installable debug APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
-      - name: Test backup, session integrity, progress and answer validation
-        run: >-
-          gradle --no-daemon -I tests/validation.init.gradle :app:testDebugUnitTest
-          --tests org.biblememory.app.SvetochBackupTest
-          --tests org.biblememory.app.SessionIntegrityLogicTest
-          --tests org.biblememory.app.SessionLifecycleRegressionTest
-          --tests org.biblememory.app.LearningDurabilityTest
-          --tests org.biblememory.app.CollectionProgressSnapshotTest
-          --tests org.biblememory.app.OrthographyContractTest
-          --tests org.biblememory.app.AnswerReviewLogicTest
-          --tests org.biblememory.app.LessonHotbarLogicTest
-          --stacktrace
+      - name: Run complete Android regression suite
+        run: gradle --no-daemon -I tests/validation.init.gradle :app:testDebugUnitTest --stacktrace
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svetoch-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
