@@ -14,7 +14,6 @@ import android.text.style.ForegroundColorSpan;
 import android.text.SpannableString;
 import android.text.style.ReplacementSpan;
 import android.text.style.StrikethroughSpan;
-import android.text.style.UnderlineSpan;
 import android.graphics.Canvas;
 import android.graphics.Path;
 import android.graphics.PathMeasure;
@@ -34,7 +33,6 @@ import android.view.*;
 import android.widget.*;
 import org.json.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import android.view.inputmethod.EditorInfo;
 import java.util.*;
@@ -83,9 +81,6 @@ public final class MainActivity extends Activity {
     private boolean checked=false,passed=false;
     private enum TrainingMode {READ, HIDE, ORDER, TYPE}
     private TrainingMode trainingMode=TrainingMode.READ;
-    private int orderChunk=0, orderPosition=0, orderWrongTile=-1, orderMistakes=0;
-    private int[] orderBankOrder=new int[0];
-    private final List<Integer> usedWordTiles=new ArrayList<>();
     private boolean testAssisted=false;
     private ScrollView currentScroller;
     // The Home page is a single scroll surface; its expansion and scroll position survive navigation.
@@ -96,7 +91,7 @@ public final class MainActivity extends Activity {
     private Screen lastRenderedScreen=null;
     private ValueAnimator collectionAnimator;
 
-    private String lastExpected="",lastTestRef="",lastTestStep="";
+    private String lastExpected="";
     private final LessonWritingState lessonWriting=new LessonWritingState();
     private int homeIndex=0;
     private static final int[][] HOME_REFS={{19,118,11},{40,5,14},{43,14,6},{45,12,21},{50,4,13},{40,6,33}};
@@ -104,20 +99,17 @@ public final class MainActivity extends Activity {
     private LinearLayout content,root;
     private final Handler homeHandler=new Handler(Looper.getMainLooper());
     private final Runnable homeTicker=()->{refreshHomeIndex(true);scheduleHomeRefresh();};
-    private LinearLayout activeTextArea,activeWorkArea;
+    private LinearLayout activeTextArea;
     private TextView activePassage,activeStatus;
-    private final TextView[] bottomModeButtons=new TextView[3];
     private static final String SESSION_PREFS="study_session";
     private LocalStore.Entry activeEntry;
     private StudyPlanLogic.Step activeStep;
-    private boolean activeMastered;
     private boolean reviewMode=false,groupMode=false;
     private int returnVerseCursor=0;
     private StudyPlanLogic.Step forcedStep;
     private LocalStore.DueItem currentReview;
     private String reviewMaterialFingerprint="";
     private int blurSeed=new Random().nextInt();
-    private boolean orderCompleted=false;
     // Three-phase fullscreen lesson: stable footer, adaptive word-tile exercises.
     private int lessonVariant=0,lessonChunk=0;
     private long lessonSeed=new Random().nextLong();
@@ -1228,7 +1220,6 @@ public final class MainActivity extends Activity {
         if(screen==Screen.TRAIN){lastRenderedScreen=screen;renderFullscreenLesson();return;}
         if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();return;}
         if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
-        for(int i=0;i<bottomModeButtons.length;i++)bottomModeButtons[i]=null;
         boolean focusedReaderChapter=screen==Screen.CHAPTER && chapterFromVerseGrid && focusVerse>0;
         boolean virtualBibleSearch=isBibleSearchScreen()&&bibleSearchActive&&!bibleSearchLoading&&bibleSearchError.isEmpty();
         root=column();root.setBackground(pageBackground());
@@ -1248,7 +1239,6 @@ public final class MainActivity extends Activity {
             case REORDER_CARDS: renderCardReorder();break;
             case CUSTOM: renderCustom();break;
             case DUE: renderDue();break;
-            case TRAIN: renderTraining();break;
             case CARDS: renderUnifiedCollections();break;
             case COLLECTIONS:renderUnifiedCollections();break;
             case SETTINGS:renderSettings();break;
@@ -5137,12 +5127,8 @@ public final class MainActivity extends Activity {
         lessonAssembly.restore(exercise.picked(),exercise.usedTiles());
         lessonPracticeAgain=false;
         groupIntroDone=exercise.groupIntroDone();groupBuildDone=exercise.groupBuildDone();
-        checked=false;passed=false;testAssisted=false;lastAccuracy=-1;resetWordTiles();
+        checked=false;passed=false;testAssisted=false;lastAccuracy=-1;
         return true;
-    }
-    private void resetWordTiles() {
-        orderChunk=0;orderPosition=0;orderWrongTile=-1;orderMistakes=0;
-        orderBankOrder=new int[0];usedWordTiles.clear();orderCompleted=false;
     }
     private void openTraining(long id) {
         if(screen==Screen.TRAIN)saveTrainingSession();
@@ -5202,24 +5188,6 @@ public final class MainActivity extends Activity {
         studyStage=advice.stage;stepCursor=advice.index;
         return advice;
     }
-    private void followRecommendation(LocalStore.Entry e) {
-        selectRecommendation(e);resetTrainingStep(e);saveTrainingSession();render();
-    }
-    private void showAnyVerse(LocalStore.Entry e) {
-        int max=store.unlockedPosition(e.id,e.lines().size());
-        final EditText positionInput=numeric("Номер стиха в подборке",String.valueOf(stepCursor+1));
-        LinearLayout wrapper=column();wrapper.setPadding(dp(20),dp(5),dp(20),dp(5));
-        wrapper.addView(positionInput);
-        new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Открытые стихи: 1–"+(max+1))
-            .setView(wrapper).setPositiveButton("Перейти",(d,w)->{
-                int n=number(positionInput);
-                if(!LessonFlowLogic.canOpen(n-1,max,e.lines().size())){
-                    toast("Следующий стих откроется после выполнения заданий");return;
-                }
-                studyStage=StudyPlanLogic.Stage.VERSE;stepCursor=n-1;
-                resetTrainingStep(e);saveTrainingSession();render();
-            }).setNegativeButton("Отмена",null).show();
-    }
     private boolean isSermon(LocalStore.Entry e) {
         return e.reference!=null && (e.reference.startsWith("Матфея 5:") ||
           e.reference.startsWith("Матфея 6:") || e.reference.startsWith("Матфея 7:"));
@@ -5241,7 +5209,7 @@ public final class MainActivity extends Activity {
         rotationExerciseKey="";rotationMask="";rotationExerciseSeed=0L;
         lessonWriting.hadFeedback=false;
         mask=0;checked=false;passed=false;lessonWriting.draft="";lastAccuracy=-1;
-        blurSeed=new Random().nextInt();testAssisted=false;resetWordTiles();
+        blurSeed=new Random().nextInt();testAssisted=false;
         boolean mastered=false;
         if(e!=null) {
             List<StudyPlanLogic.Step> steps=studySteps(e);
@@ -5260,75 +5228,10 @@ public final class MainActivity extends Activity {
         // A final examination becomes assisted only if a hint is viewed DURING that exam.
         if(reviewMode || (studyStage==StudyPlanLogic.Stage.VERSE&&done>=4))testAssisted=false;
     }
-    private void moveStep(LocalStore.Entry e,int delta) {
-        List<StudyPlanLogic.Step> steps=studySteps(e);
-        if(steps.isEmpty())return;
-        int target=Math.max(0,Math.min(steps.size()-1,stepCursor+delta));
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE &&
-            !LessonFlowLogic.canOpen(target,store.unlockedPosition(e.id,e.lines().size()),e.lines().size())){
-            toast("Следующий стих откроется после контрольной проверки");return;
-        }
-        stepCursor=target;
-        resetTrainingStep(e);saveTrainingSession();render();
-    }
     private String texts(List<Bible.Verse> lines) {
         StringBuilder sb=new StringBuilder();
         for(Bible.Verse v:lines) {if(sb.length()>0)sb.append(' ');sb.append(v.text);}
         return sb.toString();
-    }
-    private void chooseTrainingMode(TrainingMode chosen,boolean mastered) {
-        if(chosen==TrainingMode.HIDE) {
-            if(trainingMode!=TrainingMode.HIDE)blurSeed=new Random().nextInt();
-            mask=trainingMode==TrainingMode.HIDE?mask+25:25;
-            if(mask>100){mask=0;chosen=TrainingMode.READ;}
-        }
-        if(chosen==TrainingMode.ORDER && trainingMode!=TrainingMode.ORDER)resetWordTiles();
-        if((reviewMode || groupMode || (studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(selectedEntry,stepCursor)>=4)) && chosen!=TrainingMode.TYPE)
-            testAssisted=true;
-        TrainingMode previous=trainingMode;
-        trainingMode=chosen;
-        if(previous==TrainingMode.TYPE && chosen!=TrainingMode.TYPE){
-            android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
-                getSystemService(INPUT_METHOD_SERVICE);
-            if(keyboard!=null && root!=null)
-                keyboard.hideSoftInputFromWindow(root.getWindowToken(),0);
-            if(root!=null)root.requestFocus();
-        }
-        saveTrainingSession();
-        // Reuse the existing Activity and ScrollView: changing modes must not jump to the top.
-        if(previous==TrainingMode.HIDE && chosen==TrainingMode.HIDE && activePassage!=null){
-            updateBlurText();updateModeBar();return;
-        }
-        updateActiveTrainingUI();
-    }
-    /** Training actions belong to the card, not the application's navigation bar. */
-    private void addTrainingModeButtons(LinearLayout card) {
-        LinearLayout bar=row();bar.setPadding(0,dp(12),0,dp(6));
-        TrainingMode[] modes={TrainingMode.HIDE,TrainingMode.ORDER,TrainingMode.TYPE};
-        String[] labels={"◌  Скрыть","▦  Собрать","✎  Написать"};
-        for(int i=0;i<modes.length;i++) {
-            final TrainingMode mode=modes[i];
-            TextView b=button(labels[i],trainingMode==mode,()->chooseTrainingMode(mode,activeMastered));
-            b.setTextSize(13);b.setMinHeight(dp(52));b.setPadding(dp(2),dp(7),dp(2),dp(7));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(54),1);
-            lp.setMargins(dp(2),0,dp(2),0);bar.addView(b,lp);
-            bottomModeButtons[i]=b;
-        }
-        add(card,bar,4);
-        updateModeBar();
-    }
-    private void updateModeBar() {
-        TrainingMode[] modes={TrainingMode.HIDE,TrainingMode.ORDER,TrainingMode.TYPE};
-        String[] labels={"◌  Скрыть"+(trainingMode==TrainingMode.HIDE?" "+mask+"%":""),
-            "▦  Собрать","✎  Написать"};
-        for(int i=0;i<modes.length;i++){
-            TextView b=bottomModeButtons[i];if(b==null)continue;
-            boolean selected=trainingMode==modes[i];b.setText(labels[i]);b.setTextColor(selected?PRIMARY_ON:WHITE);
-            if(selected){GradientDrawable gd=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{0xFFDB8C6C,0xFFB8583F});gd.setCornerRadius(dp(14));b.setBackground(gd);}
-            else b.setBackground(outlined(CARD_ALT,14,BORDER));
-        }
     }
     private void updateBlurText() {
         if(activePassage==null || activeEntry==null || activeStep==null)return;
@@ -5403,83 +5306,6 @@ public final class MainActivity extends Activity {
             return true;
         });
     }
-    private void updateActiveTrainingUI() {
-        if(activeTextArea==null || activeWorkArea==null || activeEntry==null || activeStep==null)return;
-        // Preserve scroll position; unlike render(), this does NOT replace the ScrollView.
-        final int position=currentScroller==null?0:currentScroller.getScrollY();
-        // Release focus from the old answer before removing its view.
-        if(activeWorkArea.hasFocus())activeWorkArea.clearFocus();
-        activeTextArea.removeAllViews();activeWorkArea.removeAllViews();activePassage=null;activeStatus=null;
-        if(trainingMode==TrainingMode.READ || trainingMode==TrainingMode.HIDE) {
-            activePassage=txt("",20,WHITE,false);activePassage.setTextIsSelectable(false);
-            add(activeTextArea,activePassage,8);
-            activeStatus=txt("",13,MUTED,false);add(activeTextArea,activeStatus,12);
-            updateBlurText();
-        } else {
-            add(activeTextArea,txt(activeStep.title,19,WHITE,true),9);
-            helper(activeTextArea,"Текст закрыт. Вспоминай без подсказок.");
-        }
-        if(trainingMode==TrainingMode.ORDER) {
-            showWordOrder(activeWorkArea,activeEntry.lines().subList(activeStep.start,activeStep.end));
-        } else if(trainingMode==TrainingMode.TYPE) {
-            LinearLayout typing=column();typing.setPadding(dp(13),dp(16),dp(13),dp(16));
-            typing.setBackground(outlined(CARD_ALT,17,VIOLET));
-            add(typing,txt(reviewMode?"↻  Контрольное повторение":
-                (!groupMode && studyStage==StudyPlanLogic.Stage.VERSE && store.exerciseDone(selectedEntry,stepCursor)>=4)?
-                "✦  Контрольная проверка":"✎  Напиши по памяти",19,WHITE,true),0);
-            helper(typing,"Введи текст без номера стиха. Контрольная выполняется без подсказок.");
-            EditText answer=input("Твой ответ…",true);forbidKeyboardHints(answer,true);
-            answer.setText(lessonWriting.draft);answer.setMinLines(7);
-            answer.setShowSoftInputOnFocus(true);
-            answer.addTextChangedListener(new TextWatcher(){
-                @Override public void beforeTextChanged(CharSequence s,int start,int count,int after){}
-                @Override public void onTextChanged(CharSequence s,int start,int before,int count){
-                    lessonWriting.draft=s.toString();saveTrainingSession();
-                }
-                @Override public void afterTextChanged(Editable s){}
-            });
-            add(typing,answer,12);
-            helper(typing,"Регистр, пунктуация и ё/е не влияют на точность. Порог — 90%.");
-            action(typing,"✓  Проверить написанное",true,()->checkAnswer(activeEntry,activeStep,activeMastered));
-            add(activeWorkArea,typing,14);
-        } else if(trainingMode!=TrainingMode.ORDER){
-            helper(activeWorkArea,"Выбери «Собрать» или «Написать» для следующей тренировки.");
-        }
-        if(trainingMode!=TrainingMode.READ)
-            action(activeWorkArea,"Показать исходный текст",false,()->chooseTrainingMode(TrainingMode.READ,activeMastered));
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE){
-            final int completed=store.exerciseDone(selectedEntry,stepCursor);
-            if(completed==0 && trainingMode==TrainingMode.READ)
-                action(activeWorkArea,"✓  Прочитал · перейти к пропускам",true,()->completeIntro(1));
-            if(completed==1 && trainingMode==TrainingMode.HIDE && mask==100)
-                action(activeWorkArea,"✓  Восстановил слова · перейти к сборке",true,()->completeIntro(2));
-        }
-        updateModeBar();
-        if(currentScroller!=null)currentScroller.post(()->currentScroller.scrollTo(0,position));
-    }
-    private void completeIntro(int completed){
-        if(reviewMode||groupMode||studyStage!=StudyPlanLogic.Stage.VERSE)return;
-        if(store.exerciseDone(selectedEntry,stepCursor)==completed-1 &&
-            (completed!=2 || (trainingMode==TrainingMode.HIDE && mask==100))){
-            store.finishExercise(selectedEntry,stepCursor,completed);
-            trainingMode=completed==1?TrainingMode.HIDE:TrainingMode.ORDER;
-            mask=completed==1?25:0;resetWordTiles();saveTrainingSession();render();
-        }
-    }
-    private void renderStepNavigator(LinearLayout into,LocalStore.Entry e,int stepCount) {
-        LinearLayout controls=row();
-        TextView prev=button("←  Назад",false,()->moveStep(e,-1));
-        TextView next=button("Вперёд  →",false,()->moveStep(e,1));
-        prev.setEnabled(stepCursor>0);prev.setAlpha(stepCursor>0?1f:0.45f);
-        boolean nextAllowed=stepCursor+1<stepCount && (groupMode||reviewMode||studyStage!=StudyPlanLogic.Stage.VERSE||
-            LessonFlowLogic.canOpen(stepCursor+1,store.unlockedPosition(e.id,e.lines().size()),e.lines().size()));
-        next.setEnabled(nextAllowed);next.setAlpha(nextAllowed?1f:0.45f);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(51),1);lp.rightMargin=dp(7);
-        controls.addView(prev,lp);controls.addView(next,new LinearLayout.LayoutParams(0,dp(51),1));
-        add(into,controls,10);
-        helper(into,groupMode?"Связное воспроизведение укрепляет переходы между стихами.":
-            reviewMode?"Повторение без подсказок.":"Назад можно всегда. Вперёд — после контрольной проверки; Библия читается свободно.");
-    }
     /** Lightweight wrapping container for word tiles; uses Android SDK only. */
     private static final class WrapLayout extends ViewGroup {
         private final int spacing;
@@ -5535,174 +5361,6 @@ public final class MainActivity extends Activity {
         if(tapped!=null){tv.setClickable(true);tv.setFocusable(true);tv.setOnClickListener(v->tapped.run());}
         return tv;
     }
-    private void showWordOrder(LinearLayout card,List<Bible.Verse> verses) {
-        List<String> sources=new ArrayList<>();for(Bible.Verse v:verses)sources.add(v.text);
-        List<String[]> chunks=WordOrderLogic.chunks(sources);
-        if(chunks.isEmpty()){helper(card,"Нет слов для сборки.");return;}
-        orderChunk=Math.min(orderChunk,chunks.size()-1);
-        String[] words=chunks.get(orderChunk);
-        if(orderBankOrder.length!=words.length)
-            orderBankOrder=WordOrderLogic.shuffledIndices(words.length,System.nanoTime());
-        add(card,txt("Собери фрагмент "+(orderChunk+1)+" из "+chunks.size(),17,WHITE,true),13);
-        helper(card,"Нажимай на слова снизу в том порядке, как они идут в тексте.");
-        add(card,txt(orderPosition+" / "+words.length+" слов",13,GREEN,true),13);
-        WrapLayout assembled=new WrapLayout(this,dp(7));assembled.setPadding(0,dp(5),0,dp(10));
-        for(int i=0;i<orderPosition;i++) assembled.addView(wordTile(words[i],0xFFE1EDDF,WHITE,SUCCESS,null));
-        if(orderPosition==0)assembled.addView(txt("Здесь появятся выбранные слова…",14,MUTED,false));
-        add(card,assembled,6);
-        if(orderPosition<words.length) {
-            label(card,"Выбери следующее слово");
-            WrapLayout options=new WrapLayout(this,dp(8));
-            for(int tileIndex:orderBankOrder) {
-                if(usedWordTiles.contains(tileIndex))continue;
-                final int pressed=tileIndex;
-                boolean wrong=orderWrongTile==tileIndex;
-                TextView tile=wordTile(WordOrderLogic.comparable(words[tileIndex]).isEmpty()?words[tileIndex]:
-                    words[tileIndex].replaceAll("^[^\\p{L}\\p{Nd}]+|[^\\p{L}\\p{Nd}]+$",""),
-                    wrong?0xFFF8D6D2:CARD_ALT,wrong?RED:WHITE,wrong?RED:BORDER,()->{
-                        if(WordOrderLogic.accepts(words,orderPosition,pressed)) {
-                            usedWordTiles.add(pressed);orderPosition++;orderWrongTile=-1;
-                        } else {orderWrongTile=pressed;orderMistakes++;}
-                        updateActiveTrainingUI();
-                    });
-                options.addView(tile);
-            }
-            add(card,options,8);
-        } else {
-            add(card,txt("✓  Фрагмент собран правильно",16,GREEN,true),12);
-            if(orderChunk<chunks.size()-1)
-                action(card,"→  Следующий фрагмент",true,()->{
-                    orderChunk++;orderPosition=0;orderWrongTile=-1;orderBankOrder=new int[0];usedWordTiles.clear();updateActiveTrainingUI();
-                });
-            else {
-                if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE &&
-                    store.exerciseDone(selectedEntry,stepCursor)==2 && !orderCompleted){
-                    orderCompleted=true;store.finishExercise(selectedEntry,stepCursor,3);
-                }
-                helper(card,"Ты расставил слова с подсказками. Теперь проверь, сможешь ли воспроизвести их без готовых вариантов.");
-                action(card,"✎  Написать по памяти",true,()->chooseTrainingMode(TrainingMode.TYPE,false));
-            }
-        }
-        if(orderMistakes>0)helper(card,"Ошибочных нажатий: "+orderMistakes);
-        action(card,"↺  Собрать сначала",false,()->{resetWordTiles();updateActiveTrainingUI();});
-    }
-    private void renderTraining() {
-        LocalStore.Entry e=store.entry(selectedEntry);
-        if(e==null){screen=Screen.HOME;render();return;}
-        activeEntry=e;
-        List<Bible.Verse> all=e.lines();
-        List<StudyPlanLogic.Step> steps=studySteps(e);
-        if(steps.isEmpty()){helper(content,"Нет текста для тренировки.");return;}
-        stepCursor=Math.max(0,Math.min(stepCursor,steps.size()-1));
-        StudyPlanLogic.Step step=steps.get(stepCursor);activeStep=step;
-        int learned=store.masteryCount(e.id),count=all.size();
-        boolean mastered=store.isStepMastered(e.id,studyStage.name(),step.start,step.end);
-        activeMastered=mastered;
-        title(reviewMode?"Повторение":groupMode?"Связный фрагмент":e.title,e.reference);
-        int bookId=bookForEntry(e);
-        add(content,txt("●  "+(bookId>0?Bible.NAMES[bookId-1]:"Свой текст"),13,
-            BookColorLogic.color(bookId),true),5);
-        LinearLayout stat=headerCard(content);
-        add(stat,txt(learned+" / "+count+" стихов освоено",22,WHITE,true),0);
-        progress(stat,learned,count);
-        List<String> allRefs=new ArrayList<>();
-        for(Bible.Verse v:all)allRefs.add(v.ref);
-        if(!reviewMode&&!groupMode){
-            GroupLearningLogic.Candidate group=nextGroup(e);
-            if(group!=null){
-                add(stat,txt("Рекомендуется: "+group.reason,13,WHITE,false),13);
-                action(stat,"Тренировать связку",false,()->openGroup(group));
-            }
-            if(studyStage==StudyPlanLogic.Stage.VERSE){
-                int completed=store.exerciseDone(e.id,stepCursor);
-                add(stat,txt(completed>=5?"Пять упражнений выполнены":
-                    LessonFlowLogic.label(LessonFlowLogic.Exercise.values()[completed]),14,GREEN,true),10);
-            }
-        }
-        if(!reviewMode&&!groupMode)renderStepNavigator(content,e,steps.size());
-        if(!reviewMode&&!groupMode)action(content,"Выбрать открытый стих",false,()->showAnyVerse(e));
-        if(groupMode)action(content,"←  Вернуться к стихам",false,()->{groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;stepCursor=returnVerseCursor;resetTrainingStep(e);render();});
-        LinearLayout textCard=card(content);
-        add(textCard,txt("КАРТОЧКА "+(stepCursor+1)+" ИЗ "+steps.size(),12,GREEN,true),0);
-        add(textCard,txt(step.title+(mastered?"  ✓":""),18,WHITE,true),5);
-        String status=store.consolidated(e.id,studyStage.name(),step.start,step.end)?"Закреплён":
-            mastered?"Предварительно освоен":"Изучается";
-        add(textCard,txt(status,13,mastered?GREEN:MUTED,true),8);
-        if(!checked) {
-            activeTextArea=column();activeTextArea.setMinimumHeight(dp(92));
-            add(textCard,activeTextArea,7);
-            addTrainingModeButtons(textCard);
-            activeWorkArea=column();add(textCard,activeWorkArea,5);
-            updateActiveTrainingUI();
-        } else {
-            activeTextArea=null;activeWorkArea=null;activePassage=null;
-            add(textCard,txt(passed?"Воспроизведено ✓":
-                testAssisted&&lastAccuracy>=90?"Проверка с подсказкой не засчитана":"Пока есть ошибки",
-                22,passed?GREEN:RED,true),14);
-            add(textCard,txt("Точность: "+lastAccuracy+"%",21,WHITE,true),10);
-            if(trainingMode==TrainingMode.TYPE){
-                label(textCard,"Твои ошибки по месту ввода");
-                add(textCard,typedFeedback(lastExpected,lessonWriting.draft),9);
-            }
-            helper(textCard,passed?"Результат сохранён. Поздняя повторная проверка закрепит стих.":
-                "Попробуй ещё раз без подсказок или исправь выделенные ошибки.");
-            label(textCard,"Правильный текст");add(textCard,txt(lastExpected,16,WHITE,false),8);
-            action(content,"↺  Исправить ответ",true,()->{
-                checked=false;passed=false;lastAccuracy=-1;trainingMode=TrainingMode.TYPE;render();
-            });
-            if(reviewMode){
-                action(content,"←  К повторениям",false,()->{reviewMode=false;forcedStep=null;screen=Screen.DUE;render();});
-            }else if(groupMode){
-                action(content,"←  К стихам",false,()->{groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;
-                    stepCursor=returnVerseCursor;resetTrainingStep(e);render();});
-            }else if(studyStage==StudyPlanLogic.Stage.VERSE){
-                int done=store.exerciseDone(e.id,stepCursor);
-                if(passed&&done==4)action(content,"✦  Начать контрольную проверку",true,()->{
-                    lessonWriting.draft="";checked=false;passed=false;testAssisted=false;trainingMode=TrainingMode.TYPE;render();
-                });
-                if(passed&&done>=5){
-                    if(stepCursor+1<e.lines().size())
-                        action(content,"→  Следующий стих",true,()->moveStep(e,1));
-                    GroupLearningLogic.Candidate group=nextGroup(e);
-                    if(group!=null)action(content,"✦  "+group.reason,false,()->openGroup(group));
-                }
-            }
-
-        }
-
-    }
-    private void checkAnswer(LocalStore.Entry e,StudyPlanLogic.Step step,boolean mastered) {
-        String expected=texts(e.lines().subList(step.start,step.end));
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse line:e.lines().subList(step.start,step.end))refs.add(line.ref);
-        boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
-        String closest=AcceptedTextLogic.bestExpected(expected,lessonWriting.draft,special);
-        int accuracy=ReviewLogic.accuracy(closest,lessonWriting.draft);
-        boolean finalStage=!reviewMode&&!groupMode && studyStage==StudyPlanLogic.Stage.VERSE &&
-            store.exerciseDone(e.id,step.start)==4;
-        boolean independent=reviewMode||groupMode||finalStage;
-        if(independent&&!bibleReadyForRecall())return;
-        passed=AcceptedTextLogic.exact(expected,lessonWriting.draft,special) && (!independent||!testAssisted);
-        lastAccuracy=accuracy;lastExpected=closest;lastTestRef=step.title;
-        lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
-        long now=System.currentTimeMillis();
-        store.recordRecall(e.id,studyStage.name(),step.start,step.end,accuracy,
-            testAssisted||!independent,now);
-        if(independent){
-            store.scheduleReview(e.id,studyStage.name(),step.start,step.end,accuracy,testAssisted,now);
-            if(passed&&!mastered)store.markMastered(e.id,step.start,step.end,accuracy,studyStage.name());
-        }
-        if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE){
-            int done=store.exerciseDone(e.id,step.start);
-            if(done==3&&passed)store.finishExercise(e.id,step.start,4);
-            else if(done==4&&passed)store.finishExercise(e.id,step.start,5);
-        }
-        int learned=store.masteryCount(e.id);
-        ReviewLogic.Schedule unchanged=new ReviewLogic.Schedule(e.repetitions,e.days,e.ease,e.due);
-        // Per-verse and grouped schedules are now authoritative; do not update legacy entry-wide schedule.
-        store.update(e,unchanged,learned,accuracy);
-        checked=true;saveTrainingSession();render();
-    }
     private TextView typedFeedback(String expected,String actual){
         android.text.SpannableStringBuilder annotated=new android.text.SpannableStringBuilder();
         for(TypingDiffLogic.Piece part:TypingDiffLogic.compare(expected,actual)){
@@ -5743,7 +5401,7 @@ public final class MainActivity extends Activity {
         reviewMode=false;groupMode=true;currentReview=null;
         studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
         forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
-        stepCursor=0;resetWordTiles();mask=0;lessonWriting.draft="";checked=false;passed=false;
+        stepCursor=0;mask=0;lessonWriting.draft="";checked=false;passed=false;
         lessonVariant=0;lessonChunk=0;savedAssemblyFingerprint="";
         testAssisted=false;lessonWriting.hadFeedback=false;lessonPracticeAgain=false;
         lessonWriting.variant=0;groupBuildDone=false;groupIntroDone=false;lessonWriting.practiceWeakFragment=false;lessonWriting.weakFragmentText="";resetLessonTiles();
@@ -5756,7 +5414,7 @@ public final class MainActivity extends Activity {
         root=column();root.setBackground(pageBackground());
         root.setPadding(dp(22),dp(24),dp(22),dp(24));
         currentScroller=null;
-        activeTextArea=null;activeWorkArea=null;activePassage=null;
+        activeTextArea=null;activePassage=null;
         LinearLayout panel=card(root);
         add(panel,displayText("Текст требует исправления",22),0);
         helper(panel,CustomStudyText.message(invalidLine)+". Исправь строку, чтобы продолжить обучение.");
@@ -5779,7 +5437,6 @@ public final class MainActivity extends Activity {
         }
         stepCursor=Math.max(0,Math.min(stepCursor,steps.size()-1));
         activeEntry=e;activeStep=steps.get(stepCursor);
-        activeMastered=store.isStepMastered(e.id,studyStage.name(),activeStep.start,activeStep.end);
         LessonCurriculumLogic.Phase phase=checked&&passed?
             LessonCurriculumLogic.Phase.COMPLETE:lessonPhase(e);
         if(phase!=LessonCurriculumLogic.Phase.WRITE)answerReview=null;
@@ -6275,21 +5932,6 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-2,-2);
         params.gravity=Gravity.CENTER_HORIZONTAL;
         content.addView(reference,params);
-    }
-
-    private void assemblyInstruction(String copy){
-        LinearLayout instruction=row();
-        instruction.setGravity(Gravity.CENTER_VERTICAL);
-        instruction.setPadding(dp(12),dp(9),dp(12),dp(9));
-        instruction.setBackground(outlined(0xFEFFF5E8,20,0xFFFFFAF3));
-        instruction.setElevation(dp(2));
-        instruction.addView(new NavigationGlyph("puzzle",0xFF668B4E),new LinearLayout.LayoutParams(dp(34),dp(34)));
-        TextView label=displayText(copy,16);
-        label.setTextColor(BUILD_INK);
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);
-        params.leftMargin=dp(9);
-        instruction.addView(label,params);
-        add(content,instruction,13);
     }
 
     private void styleAssemblyContinue(TextView action,boolean enabled){
