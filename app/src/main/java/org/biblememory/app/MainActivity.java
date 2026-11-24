@@ -1736,9 +1736,11 @@ public final class MainActivity extends Activity {
                 canvas.drawCircle(0,0,10,pen);
                 canvas.drawPoint(0,-4,pen);
                 canvas.drawLine(0,-0.8f,0,5,pen);
-            }else if(kind.equals("puzzle")){
-                canvas.rotate(-22f);
-                pen.setStyle(Paint.Style.FILL);
+            }else if(kind.equals("puzzle")||kind.equals("help-puzzle")){
+                if(kind.equals("puzzle")){
+                    canvas.rotate(-22f);
+                    pen.setStyle(Paint.Style.FILL);
+                }else pen.setStrokeWidth(1.6f);
                 path.moveTo(-9,-9);path.lineTo(-3,-9);
                 path.cubicTo(-5,-15,5,-15,3,-9);
                 path.lineTo(9,-9);path.lineTo(9,-3);
@@ -7015,7 +7017,7 @@ public final class MainActivity extends Activity {
         if(opensLeft)width=Math.min(width,sideTip-visible.left);
 
         LinearLayout card=column();
-        card.setPadding(dp(16),dp(8),dp(8),dp(16));
+        card.setPadding(dp(14),dp(4),dp(8),dp(12));
         LinearLayout heading=row();
         heading.setGravity(Gravity.CENTER_VERTICAL);
         heading.addView(txt(help.title,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
@@ -7026,13 +7028,31 @@ public final class MainActivity extends Activity {
         heading.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
         card.addView(heading);
         for(int i=0;i<help.sectionCount();i++){
-            TextView subtitle=txt(help.heading(i),14,SUCCESS,true);
-            if(Build.VERSION.SDK_INT>=28)subtitle.setAccessibilityHeading(true);
-            add(card,subtitle,i==0?0:12);
-            TextView detail=txt(help.body(i),15,WHITE,false);
-            detail.setPadding(0,0,dp(8),0);
-            detail.setLineSpacing(dp(3),1f);
-            add(card,detail,4);
+            String label=help.heading(i);
+            boolean hasHeading=!label.isEmpty();
+            if(hasHeading){
+                TextView subtitle=txt(label,14,SUCCESS,true);
+                subtitle.setIncludeFontPadding(false);
+                if(Build.VERSION.SDK_INT>=28)subtitle.setAccessibilityHeading(true);
+                String stageIcon=help==LearningHelp.STUDY?
+                    ("Ознакомление".equals(label)?"mode-book":
+                     "Сборка".equals(label)?"help-puzzle":
+                     "Написание".equals(label)?"notebook":null):null;
+                if(stageIcon!=null){
+                    LinearLayout stage=row();
+                    stage.setGravity(Gravity.CENTER_VERTICAL);
+                    LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(dp(22),dp(22));
+                    iconParams.rightMargin=dp(7);
+                    stage.addView(new NavigationGlyph(stageIcon,SUCCESS),iconParams);
+                    stage.addView(subtitle,new LinearLayout.LayoutParams(0,-2,1));
+                    add(card,stage,8);
+                }else add(card,subtitle,i==0?0:8);
+            }
+            TextView detail=txt(help.body(i),14,WHITE,false);
+            detail.setIncludeFontPadding(false);
+            detail.setPadding(0,0,dp(6),0);
+            detail.setLineSpacing(dp(1),1f);
+            add(card,detail,hasHeading?3:(i==0?0:8));
         }
         card.measure(View.MeasureSpec.makeMeasureSpec(width-(opensLeft?caret:0),View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
@@ -7060,6 +7080,10 @@ public final class MainActivity extends Activity {
         bubble.addView(surface,new FrameLayout.LayoutParams(-1,-1));
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(true);
+        // Scroll is only a fallback for small windows or large accessibility fonts.
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.addView(card,new ScrollView.LayoutParams(-1,-2));
         FrameLayout.LayoutParams scrollParams=new FrameLayout.LayoutParams(-1,-1);
         scrollParams.setMargins(0,opensLeft||opensAbove?0:caret,opensLeft?caret:0,opensAbove?caret:0);
