@@ -212,8 +212,7 @@ public class ReviewIdentityTest {
         controller=Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity=controller.get();ActivityTestWorkers.awaitStartup(activity);
         start(activity,first.groupId);
-        Field draft=MainActivity.class.getDeclaredField("draft");draft.setAccessible(true);
-        draft.set(activity,"Начатый ответ");
+        ((LessonWritingState)field(activity,"lessonWriting")).draft="Начатый ответ";
         invoke(activity,"saveTrainingSession");
         store.deleteUnifiedCollection(first.id);
         ActivityTestWorkers.recreate(controller);
@@ -221,7 +220,7 @@ public class ReviewIdentityTest {
         start(recreated,second.groupId);
         LocalStore.DueItem current=(LocalStore.DueItem)field(recreated,"currentReview");
         assertEquals(b,current.entryId);assertEquals(1,current.start);
-        assertEquals("Начатый ответ",field(recreated,"draft"));
+        assertEquals("Начатый ответ",((LessonWritingState)field(recreated,"lessonWriting")).draft);
         assertEquals(1,((List<?>)field(recreated,"reviewQueue")).size());
         successful(b,1,System.currentTimeMillis());
         start(recreated,-1);
