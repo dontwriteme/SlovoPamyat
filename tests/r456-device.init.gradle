@@ -1,0 +1,10 @@
+// Keep profiling fixtures separate from the normal application and its data.
+allprojects {
+    afterEvaluate { p ->
+        if (p.path == ':app') {
+            p.android.defaultConfig.applicationId = 'org.biblememory.app.r456fixture'
+            p.android.defaultConfig.testInstrumentationRunner = 'org.biblememory.app.R456Profile'
+            p.android.sourceSets.androidTest.java.srcDirs = [rootProject.file('tests/device')]
+        }
+    }
+}
