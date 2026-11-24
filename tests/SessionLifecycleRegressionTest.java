@@ -145,6 +145,69 @@ public class SessionLifecycleRegressionTest {
         assertEquals(0,step.start);assertEquals(2,step.end);
     }
 
+    @Test public void emptyCollectionModesOpenTheSameCollectionForAddingMaterial()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Пустая");
+        call("activateUnified",new Class<?>[]{long.class},u.id);
+        for(String mode:Arrays.asList("startActiveStudy","startActiveCards","startActiveRun")){
+            invoke(mode);
+            assertEquals(mode,"COLLECTION_DETAIL",get("screen").toString());
+            assertEquals(u.id,get("openUnifiedId"));
+            assertEquals(u.groupId,get("selectedGroup"));
+            activity.onBackPressed();
+            activity.onBackPressed();
+        }
+    }
+
+    private android.widget.EditText firstEdit(android.view.View view){
+        if(view instanceof android.widget.EditText)return (android.widget.EditText)view;
+        if(view instanceof android.view.ViewGroup){
+            android.view.ViewGroup group=(android.view.ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++){
+                android.widget.EditText edit=firstEdit(group.getChildAt(i));
+                if(edit!=null)return edit;
+            }
+        }
+        return null;
+    }
+
+    @Test public void invalidCollectionNameKeepsDialogOpenForCorrection()throws Exception{
+        call("newUnifiedCollection",new Class<?>[]{Class.forName("org.biblememory.app.MainActivity$UnifiedCreated")},(Object)null);
+        android.app.AlertDialog dialog=org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        assertNotNull(dialog);
+        android.widget.EditText name=firstEdit(dialog.getWindow().getDecorView());
+        assertNotNull(name);
+        name.setText("   ");
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        assertTrue(dialog.isShowing());assertNotNull(name.getError());
+        assertTrue(store.unifiedCollections().isEmpty());
+        name.setText("Новая коллекция");
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+        assertFalse(dialog.isShowing());
+        assertEquals(1,store.unifiedCollections().size());
+        assertEquals("Новая коллекция",store.unifiedCollections().get(0).title);
+        assertEquals("COLLECTION_DETAIL",get("screen").toString());
+    }
+
+    @Test public void finalStandaloneBridgeReturnsHomeAfterAllGroupsAreMastered()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Завершение");
+        long id=store.add(u.groupId,"Два стиха","Свой текст",Arrays.asList(
+            new Bible.Verse("1:1","Первый стих"),new Bible.Verse("1:2","Второй стих")));
+        List<String> refs=Arrays.asList("1:1","1:2");
+        for(int i=0;i<2;i++)store.markMastered(id,i,i+1,100,"VERSE");
+        for(StudyPlanLogic.Stage stage:new StudyPlanLogic.Stage[]{
+                StudyPlanLogic.Stage.CHAIN,StudyPlanLogic.Stage.SECTION,StudyPlanLogic.Stage.CHAPTER})
+            for(StudyPlanLogic.Step step:StudyPlanLogic.build(refs,stage,false))
+                store.markMastered(id,step.start,step.end,100,stage.name());
+        store.markMastered(id,0,2,100,"CHAIN");
+        call("openTraining",new Class<?>[]{long.class},id);
+        call("openGroup",new Class<?>[]{GroupLearningLogic.Candidate.class},
+            GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
+        set("returnVerseCursor",1);set("checked",true);set("passed",true);
+        call("advanceAfterSuccess",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        assertEquals("HOME",get("screen").toString());
+        assertTrue(store.isStepMastered(id,"CHAIN",0,2));
+    }
+
     @Test public void warmMemoryRunBuildDoesNotQueryEachVerse()throws Exception{
         LocalStore.UnifiedCollection u=collection("Большая коллекция");
         for(int i=0;i<80;i++)consolidate(add(u,"Свой текст "+i,"Строка "+i));
