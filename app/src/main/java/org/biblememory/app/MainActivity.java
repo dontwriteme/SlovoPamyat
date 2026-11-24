@@ -96,7 +96,8 @@ public final class MainActivity extends Activity {
     private Screen lastRenderedScreen=null;
     private ValueAnimator collectionAnimator;
 
-    private String draft="",lastExpected="",lastTestRef="",lastTestStep="";
+    private String lastExpected="",lastTestRef="",lastTestStep="";
+    private final LessonWritingState lessonWriting=new LessonWritingState();
     private int homeIndex=0;
     private static final int[][] HOME_REFS={{19,118,11},{40,5,14},{43,14,6},{45,12,21},{50,4,13},{40,6,33}};
     private int lastAccuracy=-1;
@@ -121,7 +122,7 @@ public final class MainActivity extends Activity {
     private int lessonVariant=0,lessonChunk=0;
     private long lessonSeed=new Random().nextLong();
     private final LessonAssemblyState lessonAssembly=new LessonAssemblyState();
-    private boolean lessonPracticeAgain=false,lessonWriteHadFeedback=false;
+    private boolean lessonPracticeAgain=false;
     private Runnable revealCleanup=()->{};
     private final List<LocalStore.DueItem> reviewQueue=new ArrayList<>();
     private int reviewPointer=0;
@@ -145,10 +146,8 @@ public final class MainActivity extends Activity {
     // One selection model shared by tapping verses and the chapter/verse range picker.
     private boolean selectingPassage=false; // legacy selection mode retained only for old saved preferences
     private int rangeStartChapter=-1,rangeStartVerse=-1,rangeEndChapter=-1,rangeEndVerse=-1;
-    private int lessonWriteVariant=0;
     private boolean groupBuildDone=false;
     private boolean groupIntroDone=false;
-    private String[] inlineDrafts=new String[0];
     private final List<EditText> inlineFields=new ArrayList<>();
     private final List<String> inlineExpected=new ArrayList<>();
 
@@ -426,8 +425,6 @@ public final class MainActivity extends Activity {
     private final List<Long> cardStudyQueue=new ArrayList<>();
     private int cardStudyCursor=-1;
     private long cardStudyDeckId=-1;
-    private boolean practiceWeakFragment=false;
-    private String weakFragmentText="";
     // Preserve the mask of the current unfinished GAPS exercise across renders and restarts.
     private String rotationExerciseKey="",rotationMask="";
     private long rotationExerciseSeed=0L;
@@ -4842,7 +4839,7 @@ public final class MainActivity extends Activity {
             resumableWritingDraft(saved.getString("review_draft",""),
                 saved.getBoolean("review_lesson_had_feedback",false));
         if(!prepareReview(reviewQueue.get(0)))return;
-        draft=restoredDraft;
+        lessonWriting.draft=restoredDraft;
         render();
     }
     private void populateReviewQueue(ReviewSchedule schedule,long now,LocalStore.DueItem current){
@@ -4902,7 +4899,7 @@ public final class MainActivity extends Activity {
         groupMode=false;reviewMode=true;stepCursor=0;
         weakVerse=-1;weakTransitionFrom=-1;
         resetTrainingStep(e);
-        inlineDrafts=new String[0];
+        lessonWriting.clearGaps();
         trainingMode=TrainingMode.TYPE;screen=Screen.TRAIN;
         return true;
     }
@@ -5100,10 +5097,10 @@ public final class MainActivity extends Activity {
             .putInt(key+"step",stepCursor).putString(key+"mode",trainingMode.name())
             .putInt(key+"mask",mask);
         LessonExerciseState exercise=new LessonExerciseState(
-            resumableWritingDraft(draft,answerReview!=null||lessonWriteHadFeedback),
+            lessonWriting.resumableDraft(answerReview!=null),
             blurSeed,lessonVariant,lessonChunk,lessonAssembly.picked(),lessonSeed,savedAssemblyFingerprint,
-            rotationExerciseKey,rotationExerciseSeed,rotationMask,lessonAssembly.usedTiles(),lessonWriteVariant,
-            groupIntroDone,groupBuildDone,practiceWeakFragment,weakFragmentText);
+            rotationExerciseKey,rotationExerciseSeed,rotationMask,lessonAssembly.usedTiles(),lessonWriting.variant,
+            groupIntroDone,groupBuildDone,lessonWriting.practiceWeakFragment,lessonWriting.weakFragmentText);
         LessonExercisePreferences.write(editor,key,exercise)
             .putBoolean(key+"pending",reviewMode||groupMode)
             .putLong(key+"review_entry",reviewMode?selectedEntry:0)
@@ -5132,16 +5129,14 @@ public final class MainActivity extends Activity {
         stepCursor=Math.max(0,pref.getInt(key+"step",0));
         mask=trainingMode==TrainingMode.HIDE?Math.max(0,Math.min(100,pref.getInt(key+"mask",0))):0;
         LessonExerciseState exercise=LessonExercisePreferences.read(pref,key,linked,groupIntroDone,groupBuildDone);
-        blurSeed=exercise.blurSeed();draft=exercise.draft();
+        blurSeed=exercise.blurSeed();lessonWriting.restore(exercise);
         lessonVariant=exercise.variant();lessonChunk=exercise.chunk();
         savedAssemblyFingerprint=exercise.assemblyFingerprint();lessonSeed=exercise.seed();
         rotationExerciseKey=exercise.rotationExerciseKey();rotationExerciseSeed=exercise.rotationExerciseSeed();
         rotationMask=exercise.rotationMask();
         lessonAssembly.restore(exercise.picked(),exercise.usedTiles());
-        lessonPracticeAgain=false;lessonWriteHadFeedback=false;
-        lessonWriteVariant=exercise.writeVariant();
+        lessonPracticeAgain=false;
         groupIntroDone=exercise.groupIntroDone();groupBuildDone=exercise.groupBuildDone();
-        practiceWeakFragment=exercise.practiceWeak();weakFragmentText=exercise.weakFragment();
         checked=false;passed=false;testAssisted=false;lastAccuracy=-1;resetWordTiles();
         return true;
     }
@@ -5192,8 +5187,8 @@ public final class MainActivity extends Activity {
             // Revisit every record even if it was previously mastered. Do not erase progress.
             studyStage=StudyPlanLogic.Stage.VERSE;
             stepCursor=0;groupMode=false;forcedStep=null;
-            checked=false;passed=false;draft="";
-            lessonWriteHadFeedback=false;lessonPracticeAgain=false;
+            checked=false;passed=false;lessonWriting.draft="";
+            lessonWriting.hadFeedback=false;lessonPracticeAgain=false;
             resetTrainingStep(entry);collectionQueueNewStep=false;
         }
         rememberRecent(id);saveTrainingSession();
@@ -5240,12 +5235,12 @@ public final class MainActivity extends Activity {
     }
     private void resetTrainingStep(LocalStore.Entry e) {
         savedAssemblyFingerprint="";
-        lessonVariant=0;lessonChunk=0;lessonAssembly.reset();lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;
-        practiceWeakFragment=false;weakFragmentText="";
+        lessonVariant=0;lessonChunk=0;lessonAssembly.reset();lessonWriting.variant=0;groupBuildDone=false;groupIntroDone=false;
+        lessonWriting.practiceWeakFragment=false;lessonWriting.weakFragmentText="";
         lessonSeed=new Random().nextLong();lessonPracticeAgain=false;
         rotationExerciseKey="";rotationMask="";rotationExerciseSeed=0L;
-        lessonWriteHadFeedback=false;
-        mask=0;checked=false;passed=false;draft="";lastAccuracy=-1;
+        lessonWriting.hadFeedback=false;
+        mask=0;checked=false;passed=false;lessonWriting.draft="";lastAccuracy=-1;
         blurSeed=new Random().nextInt();testAssisted=false;resetWordTiles();
         boolean mastered=false;
         if(e!=null) {
@@ -5434,12 +5429,12 @@ public final class MainActivity extends Activity {
                 "✦  Контрольная проверка":"✎  Напиши по памяти",19,WHITE,true),0);
             helper(typing,"Введи текст без номера стиха. Контрольная выполняется без подсказок.");
             EditText answer=input("Твой ответ…",true);forbidKeyboardHints(answer,true);
-            answer.setText(draft);answer.setMinLines(7);
+            answer.setText(lessonWriting.draft);answer.setMinLines(7);
             answer.setShowSoftInputOnFocus(true);
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence s,int start,int count,int after){}
                 @Override public void onTextChanged(CharSequence s,int start,int before,int count){
-                    draft=s.toString();saveTrainingSession();
+                    lessonWriting.draft=s.toString();saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable s){}
             });
@@ -5647,7 +5642,7 @@ public final class MainActivity extends Activity {
             add(textCard,txt("Точность: "+lastAccuracy+"%",21,WHITE,true),10);
             if(trainingMode==TrainingMode.TYPE){
                 label(textCard,"Твои ошибки по месту ввода");
-                add(textCard,typedFeedback(lastExpected,draft),9);
+                add(textCard,typedFeedback(lastExpected,lessonWriting.draft),9);
             }
             helper(textCard,passed?"Результат сохранён. Поздняя повторная проверка закрепит стих.":
                 "Попробуй ещё раз без подсказок или исправь выделенные ошибки.");
@@ -5663,7 +5658,7 @@ public final class MainActivity extends Activity {
             }else if(studyStage==StudyPlanLogic.Stage.VERSE){
                 int done=store.exerciseDone(e.id,stepCursor);
                 if(passed&&done==4)action(content,"✦  Начать контрольную проверку",true,()->{
-                    draft="";checked=false;passed=false;testAssisted=false;trainingMode=TrainingMode.TYPE;render();
+                    lessonWriting.draft="";checked=false;passed=false;testAssisted=false;trainingMode=TrainingMode.TYPE;render();
                 });
                 if(passed&&done>=5){
                     if(stepCursor+1<e.lines().size())
@@ -5681,13 +5676,13 @@ public final class MainActivity extends Activity {
         List<String> refs=new ArrayList<>();
         for(Bible.Verse line:e.lines().subList(step.start,step.end))refs.add(line.ref);
         boolean special=AcceptedTextLogic.matthew513(e.reference,refs);
-        String closest=AcceptedTextLogic.bestExpected(expected,draft,special);
-        int accuracy=ReviewLogic.accuracy(closest,draft);
+        String closest=AcceptedTextLogic.bestExpected(expected,lessonWriting.draft,special);
+        int accuracy=ReviewLogic.accuracy(closest,lessonWriting.draft);
         boolean finalStage=!reviewMode&&!groupMode && studyStage==StudyPlanLogic.Stage.VERSE &&
             store.exerciseDone(e.id,step.start)==4;
         boolean independent=reviewMode||groupMode||finalStage;
         if(independent&&!bibleReadyForRecall())return;
-        passed=AcceptedTextLogic.exact(expected,draft,special) && (!independent||!testAssisted);
+        passed=AcceptedTextLogic.exact(expected,lessonWriting.draft,special) && (!independent||!testAssisted);
         lastAccuracy=accuracy;lastExpected=closest;lastTestRef=step.title;
         lastTestStep=independent?"КОНТРОЛЬНАЯ ПРОВЕРКА":"ТРЕНИРОВКА";
         long now=System.currentTimeMillis();
@@ -5748,10 +5743,10 @@ public final class MainActivity extends Activity {
         reviewMode=false;groupMode=true;currentReview=null;
         studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
         forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
-        stepCursor=0;resetWordTiles();mask=0;draft="";checked=false;passed=false;
+        stepCursor=0;resetWordTiles();mask=0;lessonWriting.draft="";checked=false;passed=false;
         lessonVariant=0;lessonChunk=0;savedAssemblyFingerprint="";
-        testAssisted=false;lessonWriteHadFeedback=false;lessonPracticeAgain=false;
-        lessonWriteVariant=0;groupBuildDone=false;groupIntroDone=false;practiceWeakFragment=false;weakFragmentText="";resetLessonTiles();
+        testAssisted=false;lessonWriting.hadFeedback=false;lessonPracticeAgain=false;
+        lessonWriting.variant=0;groupBuildDone=false;groupIntroDone=false;lessonWriting.practiceWeakFragment=false;lessonWriting.weakFragmentText="";resetLessonTiles();
         activeStep=forcedStep;
         answerReview=null;
         trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;
@@ -5847,7 +5842,7 @@ public final class MainActivity extends Activity {
             mainAction=button("Продолжить",true,()->{
                 if(groupMode)groupIntroDone=true;
                 else store.finishExercise(e.id,activeStep.start,1);
-                lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();mask=0;
+                lessonVariant=0;lessonChunk=0;lessonWriting.variant=0;resetLessonTiles();mask=0;
                 saveTrainingSession();render();
             });
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
@@ -6056,7 +6051,7 @@ public final class MainActivity extends Activity {
         // In a scheduled review the lesson legitimately starts at writing.
         LessonStageFlow.State state=lessonStageState(e);
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
-            state.introDone(),buildDone,lessonWriteVariant,state.writingOnly());
+            state.introDone(),buildDone,lessonWriting.variant,state.writingOnly());
     }
     /** Keep only the original segmented progress bar, without visible captions. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
@@ -6597,19 +6592,19 @@ public final class MainActivity extends Activity {
             store.finishExercise(e.id,activeStep.start,next.persistedCompletion());
         if(next.groupCompleted())groupBuildDone=true;
         lessonVariant=next.nextVariant();lessonChunk=next.nextChunk();
-        if(next.beginWriting())lessonWriteVariant=0;
+        if(next.beginWriting())lessonWriting.variant=0;
         resetLessonTiles();
-        if(next.beginWriting()){draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;}
+        if(next.beginWriting()){lessonWriting.draft="";lastAccuracy=-1;lessonWriting.hadFeedback=false;}
         saveTrainingSession();render();
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
         return writingVariants(texts(e.lines().subList(activeStep.start,activeStep.end)));
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(String passage){
-        return LessonStageFlow.writingVariants(passage,reviewMode,lessonPracticeAgain,practiceWeakFragment);
+        return LessonStageFlow.writingVariants(passage,reviewMode,lessonPracticeAgain,lessonWriting.practiceWeakFragment);
     }
     private String writingExpected(String original,LessonCurriculumLogic.Variant variant){
-        if(practiceWeakFragment)return weakFragmentText;
+        if(lessonWriting.practiceWeakFragment)return lessonWriting.weakFragmentText;
         if(variant==LessonCurriculumLogic.Variant.FULL)return original;
         String[] tokens=ExerciseTextLogic.tokens(original);
         int[] gaps=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,variant));
@@ -6620,22 +6615,22 @@ public final class MainActivity extends Activity {
     /** Partial writing is edited directly in the sentence, not in a separate answer field. */
     private void renderLessonWriting(){
         List<LessonCurriculumLogic.Variant> variants=writingVariants(activeEntry);
-        lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
-        LessonCurriculumLogic.Variant variant=variants.get(lessonWriteVariant);
+        lessonWriting.variant=Math.min(lessonWriting.variant,variants.size()-1);
+        LessonCurriculumLogic.Variant variant=variants.get(lessonWriting.variant);
         boolean full=variant==LessonCurriculumLogic.Variant.FULL;
 
-        helper(content,practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:
+        helper(content,lessonWriting.practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:
             full?LearningHelp.WRITE_FULL:LearningHelp.WRITE_GAPS);
-        if(!practiceWeakFragment&&!full)renderInlineGapInputs(variant);
+        if(!lessonWriting.practiceWeakFragment&&!full)renderInlineGapInputs(variant);
         if(full){
-            EditText answer=input(practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
+            EditText answer=input(lessonWriting.practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
             forbidKeyboardHints(answer,true);
-            answer.setMinLines(6);answer.setText(draft);
+            answer.setMinLines(6);answer.setText(lessonWriting.draft);
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
                 @Override public void onTextChanged(CharSequence x,int a,int before,int count){
                     cancelWritingCheck();
-                    draft=x.toString();lastAccuracy=-1;
+                    lessonWriting.draft=x.toString();lastAccuracy=-1;
                     saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable x){}
@@ -6650,7 +6645,7 @@ public final class MainActivity extends Activity {
         int[] originalPositions=lessonMissingPositions(tokens,variant);
         int[] missing=InlineGapLogic.wordPositions(tokens,originalPositions);
         // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
-        inlineDrafts=InlineGapLogic.restore(draft,tokens,originalPositions);
+        lessonWriting.restoreGaps(tokens,originalPositions);
         WrapLayout inline=new WrapLayout(this,dp(6));
         inline.setPadding(0,dp(12),0,dp(12));
         int maxWidth=getResources().getDisplayMetrics().widthPixels-dp(58);
@@ -6681,7 +6676,7 @@ public final class MainActivity extends Activity {
             // but the input itself has no maximum length.
             field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
             field.setHint(" ");
-            field.setText(inlineDrafts[gapIndex]);
+            field.setText(lessonWriting.gap(gapIndex));
             field.setSelectAllOnFocus(false);
             int initial=Math.max(dp(32),dp(12)*Math.max(1,InlineGapLogic.letters(expected))+dp(8));
             final int baseline=Math.min(initial,maxWidth);
@@ -6718,7 +6713,7 @@ public final class MainActivity extends Activity {
                         field.setText(trimmed);field.setSelection(field.length());
                         changing=false;value=trimmed;
                         int next=gapIndex+1;
-                        while(next<fields.size() && !inlineDrafts[next].trim().isEmpty())next++;
+                        while(next<fields.size() && !lessonWriting.gap(next).trim().isEmpty())next++;
                         if(next<fields.size())fields.get(next).requestFocus();
                         else {
                             field.clearFocus();
@@ -6729,9 +6724,8 @@ public final class MainActivity extends Activity {
                         // The last space NEVER starts validation; only the footer button does.
                     }
                     cancelWritingCheck();
-                    inlineDrafts[gapIndex]=value;
+                    lessonWriting.editGap(gapIndex,value);
                     field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
-                    draft=InlineGapLogic.serialize(inlineDrafts);
                     float textPx=field.getPaint().measureText(value)+dp(25);
                     int baselineWidth = Math.min(maxWidth,
                         Math.max(dp(32), dp(12) * Math.max(1,
@@ -6772,9 +6766,7 @@ public final class MainActivity extends Activity {
     private void retryLessonWriting(){
         if(answerReview==null)return;
         answerReview=null;
-        draft="";
-        inlineDrafts=new String[0];
-        lessonWriteHadFeedback=false;
+        lessonWriting.retry();
         lastAccuracy=-1;
         saveTrainingSession();
         render();
@@ -6885,17 +6877,17 @@ public final class MainActivity extends Activity {
         List<Bible.Verse> lines=e.lines().subList(activeStep.start,activeStep.end);
         String passage=texts(lines);
         List<LessonCurriculumLogic.Variant> variants=writingVariants(passage);
-        lessonWriteVariant=Math.min(lessonWriteVariant,variants.size()-1);
-        LessonCurriculumLogic.Variant kind=variants.get(lessonWriteVariant);
+        lessonWriting.variant=Math.min(lessonWriting.variant,variants.size()-1);
+        LessonCurriculumLogic.Variant kind=variants.get(lessonWriting.variant);
         boolean full=kind==LessonCurriculumLogic.Variant.FULL;
         String expected=writingExpected(passage,kind);
-        String entered=full?draft:InlineGapLogic.response(inlineDrafts);
+        String entered=full?lessonWriting.draft:lessonWriting.gapResponse();
         List<String> refs=new ArrayList<>(), verses=new ArrayList<>();
         for(Bible.Verse line:lines){refs.add(line.ref);verses.add(line.text);}
         WritingAssessment.Input input=new WritingAssessment.Input(expected,entered,
-            AcceptedTextLogic.matthew513(e.reference,refs),full,practiceWeakFragment,verses,
-            full?Collections.emptyList():inlineExpected, full?Collections.emptyList():Arrays.asList(inlineDrafts));
-        WritingCheck check=new WritingCheck(input,e,activeStep,draft);
+            AcceptedTextLogic.matthew513(e.reference,refs),full,lessonWriting.practiceWeakFragment,verses,
+            full?Collections.emptyList():inlineExpected, full?Collections.emptyList():lessonWriting.gapAnswers());
+        WritingCheck check=new WritingCheck(input,e,activeStep,lessonWriting.draft);
         pendingWritingCheck=check;
         if(!input.requiresWorker()){
             applyWritingAssessment(check,WritingAssessment.evaluate(input));
@@ -6930,13 +6922,13 @@ public final class MainActivity extends Activity {
         pendingWritingCheck=null;writingTask=null;
         LocalStore.Entry e=check.entry();
         if(isDestroyed()||isFinishing()||backupInProgress||resetInProgress||screen!=Screen.TRAIN||
-            selectedEntry!=e.id||activeStep!=check.step()||!draft.equals(check.draft()))return;
+            selectedEntry!=e.id||activeStep!=check.step()||!lessonWriting.draft.equals(check.draft()))return;
         WritingAssessment.Input input=check.input();
         AnswerReview feedback=result.exact()?null:new AnswerReview(input.expected(),input.actual(),result.feedback());
         LessonWritingFlow.Context context=new LessonWritingFlow.Context(
             e.id,studyStage,activeStep.start,activeStep.end,reviewMode,groupMode,
             reviewMode&&currentReview!=null&&"VERSE_RUN".equals(currentReview.stage),
-            practiceWeakFragment,lessonWriteHadFeedback);
+            lessonWriting.practiceWeakFragment,lessonWriting.hadFeedback);
         LessonWritingFlow.Transition transition=LessonWritingFlow.decide(context,input,result);
         try{
             transition.persist(store,System.currentTimeMillis());
@@ -6949,32 +6941,31 @@ public final class MainActivity extends Activity {
                 openAnswerReview(feedback);
                 return;
             case FRAGMENT_PRACTICED:
-                practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
-                lessonWriteVariant=LessonCurriculumLogic.variants(
+                int fullVariant=LessonCurriculumLogic.variants(
                     ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
-                if(reviewMode)lessonWriteVariant=0;
+                lessonWriting.finishFragment(reviewMode?0:fullVariant);
                 saveTrainingSession();render();
                 toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");
                 return;
             case NEXT_VARIANT:
-                lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
+                lessonWriting.nextVariant();lastAccuracy=-1;
                 lessonSeed=new Random().nextLong();saveTrainingSession();render();
                 return;
             case FAILED_RECALL:
                 weakVerse=transition.weakVerse();
                 weakTransitionFrom=transition.weakTransitionFrom();
-                lessonWriteHadFeedback=true;
+                lessonWriting.hadFeedback=true;
                 lastAccuracy=result.accuracy();
                 lastExpected=result.closest();
                 openAnswerReview(feedback);
                 return;
             case ASSISTED_CORRECTION:
-                lessonWriteHadFeedback=false;draft="";lastAccuracy=-1;saveTrainingSession();
+                lessonWriting.hadFeedback=false;lessonWriting.draft="";lastAccuracy=-1;saveTrainingSession();
                 render();
                 toast("Исправлено. Теперь напиши стих заново без подсказок для зачёта.");
                 return;
             case SUCCESSFUL_RECALL:
-                lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
+                lessonPracticeAgain=false;lessonWriting.draft="";lastAccuracy=100;passed=true;checked=true;
                 if(reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
                     .remove("review_pending").apply();
                 if(!reviewMode&&!groupMode)saveTrainingSession();
@@ -7477,8 +7468,8 @@ public final class MainActivity extends Activity {
                     runCollectionId=-1;runMaterialFingerprint="";
                     savedAssemblyFingerprint="";lessonChunkCache.clear();lessonChunkCacheKey="";
                     runDraft="";runChecked=false;runPassed=false;
-                    draft="";checked=false;passed=false;answerReview=null;
-                    lessonWriteHadFeedback=false;lessonPracticeAgain=false;
+                    lessonWriting.draft="";checked=false;passed=false;answerReview=null;
+                    lessonWriting.hadFeedback=false;lessonPracticeAgain=false;
                     readyTabs.clear();savedScrollY.clear();
                     resetInProgress=false;
                     screen=Screen.SETTINGS;render();
