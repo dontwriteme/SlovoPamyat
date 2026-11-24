@@ -341,6 +341,23 @@ public class SessionLifecycleRegressionTest {
         assertEquals("COLLECTION_DETAIL",get("screen").toString());
     }
 
+    @Test public void successfulVerseContinuesToNextVerseWithoutCreatingRecall()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Переход");
+        long id=store.add(u.groupId,"Два стиха","Свой текст",Arrays.asList(
+            new Bible.Verse("1","Первый стих"),new Bible.Verse("2","Второй стих")));
+        call("openTraining",new Class<?>[]{long.class},id);
+        store.finishExercise(id,0,5);
+        store.markMastered(id,0,1,100,"VERSE");
+        set("checked",true);set("passed",true);
+        call("advanceAfterSuccess",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        assertEquals("TRAIN",get("screen").toString());
+        assertEquals(1,get("stepCursor"));
+        assertEquals(StudyPlanLogic.Stage.VERSE,get("studyStage"));
+        assertEquals(false,get("checked"));
+        assertFalse(store.isStepMastered(id,"VERSE",1,2));
+        assertEquals(0,store.exerciseDone(id,1));
+    }
+
     @Test public void finalStandaloneBridgeReturnsHomeAfterAllGroupsAreMastered()throws Exception{
         LocalStore.UnifiedCollection u=collection("Завершение");
         long id=store.add(u.groupId,"Два стиха","Свой текст",Arrays.asList(
