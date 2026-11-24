@@ -30,7 +30,7 @@ public final class CollectionProgressSnapshot {
     private static List<Object> stepKey(String stage,int start,int end){
         return Arrays.<Object>asList(stage,start,end);
     }
-    private final Map<Long,State> states=new HashMap<>();
+    private final Map<Long,State> states=new LinkedHashMap<>();
     private final Map<List<String>,List<long[]>> locations=new HashMap<>();
     private final Map<List<String>,Set<Long>> masteredOwners=new HashMap<>(),consolidatedOwners=new HashMap<>();
     private final Map<List<String>,Long> canonicalEntries=new HashMap<>();
@@ -245,6 +245,26 @@ public final class CollectionProgressSnapshot {
         for(int i=0;i<canonical.size();i++)
             if(!canonical.get(i).ref.equals(saved.get(i).ref)||!canonical.get(i).text.equals(saved.get(i).text))return false;
         return true;
+    }
+
+    record ChapterLocation(long entryId,int position,int number) {}
+
+    /** Visit locations in the same order as allEntries, including archived rows. */
+    List<ChapterLocation> chapterLocations(String bookName,int chapter){
+        String bookPrefix=bookName+" ", chapterPrefix=chapter+":";
+        List<ChapterLocation> locations=new ArrayList<>();
+        for(State state:states.values()){
+            if(!state.entry.reference.startsWith(bookPrefix))continue;
+            for(int i=0;i<state.lines.size();i++){
+                String ref=state.lines.get(i).ref;
+                if(!ref.startsWith(chapterPrefix))continue;
+                try{
+                    int number=Integer.parseInt(ref.substring(chapterPrefix.length()));
+                    locations.add(new ChapterLocation(state.entry.id,i,number));
+                }catch(NumberFormatException ignored){ /* Invalid saved coordinate. */ }
+            }
+        }
+        return locations;
     }
 
     LocalStore.Entry entry(long id){

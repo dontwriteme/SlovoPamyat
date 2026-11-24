@@ -45,17 +45,25 @@ public final class LocalStore extends SQLiteOpenHelper {
         SQLiteDatabase db=getReadableDatabase();
         boolean nested=db.inTransaction();
         db.beginTransactionNonExclusive();
-        try{ synchronized(this){
-            long changes,version;
-            try(Cursor c=readQuery("SELECT total_changes()",null)){changes=c.moveToFirst()?c.getLong(0):-1;}
-            try(Cursor c=readQuery("PRAGMA data_version",null)){version=c.moveToFirst()?c.getLong(0):-1;}
-            if(nested||changes<0||version<0||progressSnapshot==null||changes!=snapshotChanges||version!=snapshotDataVersion){
-                CollectionProgressSnapshot loaded=CollectionProgressSnapshot.load(this);
-                if(nested){db.setTransactionSuccessful();return loaded;}
-                progressSnapshot=loaded;snapshotChanges=changes;snapshotDataVersion=version;
-            }
-            db.setTransactionSuccessful();return progressSnapshot;
-        }}finally{db.endTransaction();}
+        try{
+            CollectionProgressSnapshot snapshot=readProgressSnapshot(nested);
+            db.setTransactionSuccessful();
+            return snapshot;
+        }finally{db.endTransaction();}
+    }
+
+    /** Called with the primary connection pinned by the caller. */
+    private synchronized CollectionProgressSnapshot readProgressSnapshot(boolean nested){
+        long changes,version;
+        try(Cursor c=readQuery("SELECT total_changes()",null)){changes=c.moveToFirst()?c.getLong(0):-1;}
+        try(Cursor c=readQuery("PRAGMA data_version",null)){version=c.moveToFirst()?c.getLong(0):-1;}
+        if(nested)return CollectionProgressSnapshot.load(this);
+        if(changes<0||version<0||progressSnapshot==null||changes!=snapshotChanges||version!=snapshotDataVersion){
+            progressSnapshot=CollectionProgressSnapshot.load(this);
+            snapshotChanges=changes;
+            snapshotDataVersion=version;
+        }
+        return progressSnapshot;
     }
     private static final Bible REVIEW_BIBLE=new Bible();
     private final Context context;
@@ -1253,50 +1261,63 @@ public final class LocalStore extends SQLiteOpenHelper {
         public int rank=0;
     }
     public Map<Integer,VerseStatus> statusesForChapter(String bookName,int chapter) {
-        Map<Integer,VerseStatus> out=new HashMap<>();
-        String match=chapter+":";
-        for(Entry e:allEntries()) {
-            if(!e.reference.startsWith(bookName+" "))continue;
-            List<Bible.Verse> lines=e.lines();
-            for(int i=0;i<lines.size();i++){
-                Bible.Verse line=lines.get(i);
-                if(!line.ref.startsWith(match))continue;
-                int number;
-                try{number=Integer.parseInt(line.ref.substring(match.length()));}
-                catch(NumberFormatException ignored){continue;}
+        SQLiteDatabase db=getReadableDatabase();
+        boolean nested=db.inTransaction();
+        db.beginTransactionNonExclusive();
+        try{
+            CollectionProgressSnapshot snapshot=readProgressSnapshot(nested);
+            List<CollectionProgressSnapshot.ChapterLocation> locations=snapshot.chapterLocations(bookName,chapter);
+            Map<Integer,VerseStatus> result=new HashMap<>();
+            // Three bound variables per location, below the older SQLite limit of 999.
+            int batchSize=300;
+            for(int first=0;first<locations.size();first+=batchSize){
+                loadChapterStats(snapshot,locations.subList(first,Math.min(first+batchSize,locations.size())),result);
+            }
+            db.setTransactionSuccessful();
+            return result;
+        }finally{db.endTransaction();}
+    }
+
+    private void loadChapterStats(CollectionProgressSnapshot snapshot,
+            List<CollectionProgressSnapshot.ChapterLocation> locations,Map<Integer,VerseStatus> result){
+        String[] args=new String[locations.size()*3];
+        for(int i=0;i<locations.size();i++){
+            CollectionProgressSnapshot.ChapterLocation location=locations.get(i);
+            args[i*3]=Long.toString(location.entryId());
+            args[i*3+1]=Integer.toString(location.position());
+            args[i*3+2]=Integer.toString(location.number());
+        }
+        String rows=String.join(",",Collections.nCopies(locations.size(),"(CAST(? AS INTEGER),CAST(? AS INTEGER),CAST(? AS INTEGER))"));
+        // Aggregate only the matching verse positions in SQLite. History rows never reach Java.
+        try(Cursor c=readQuery("WITH wanted(entry_id,pos,number) AS (VALUES "+rows+") "+
+                "SELECT w.entry_id,w.pos,w.number,COALESCE(r.last_success,0),COALESCE(s.due,0),"+
+                "COUNT(DISTINCT a.attempted_at / 86400000),"+
+                "COUNT(DISTINCT CASE WHEN a.accuracy=100 THEN a.attempted_at / 86400000 END) "+
+                "FROM wanted w LEFT JOIN recall_activity r "+
+                "ON r.entry_id=w.entry_id AND r.stage='VERSE' AND r.first_line=w.pos AND r.last_line=w.pos+1 "+
+                "LEFT JOIN review_schedule s "+
+                "ON s.entry_id=w.entry_id AND s.stage='VERSE' AND s.first_line=w.pos AND s.last_line=w.pos+1 "+
+                "LEFT JOIN review_attempts a "+
+                "ON a.entry_id=w.entry_id AND a.stage='VERSE' AND a.first_line=w.pos AND a.last_line=w.pos+1 "+
+                "AND a.assisted=0 AND r.first_success>0 AND a.attempted_at>=r.first_success+86400000 "+
+                "GROUP BY w.entry_id,w.pos,w.number ORDER BY w.entry_id DESC,w.pos",args)){
+            while(c.moveToNext()){
+                long id=c.getLong(0);
+                int position=c.getInt(1),number=c.getInt(2);
+                int completed=snapshot.exerciseDone(id,position);
+                int rank=snapshot.verseConsolidated(id,position)?3:
+                    snapshot.mastered(id,position)||completed>=5?2:completed>0?1:0;
+                int repetitions=c.getInt(5);
+                VerseStatus old=result.get(number);
+                if(old!=null&&(rank<old.rank||rank==old.rank&&repetitions<=old.repetitions))continue;
                 VerseStatus candidate=new VerseStatus();
-                candidate.entryId=e.id;candidate.position=i;
-                int completed=exerciseDone(e.id,i);
-                boolean mastered=isStepMastered(e.id,"VERSE",i,i+1)||completed>=5;
-                boolean consolidated=consolidated(e.id,"VERSE",i,i+1);
-                candidate.rank=consolidated?3:mastered?2:completed>0?1:0;
-                candidate.state=candidate.rank==3?"Выучен":candidate.rank==2?
-                    "Первоначально освоен":candidate.rank==1?"В процессе":"Не изучен";
-                String[] args={String.valueOf(e.id),String.valueOf(i),String.valueOf(i+1)};
-                long firstSuccess=0;
-                try(Cursor c=readQuery(
-                    "SELECT first_success,last_success FROM recall_activity WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=?",args)){
-                    if(c.moveToFirst()){firstSuccess=c.getLong(0);candidate.last=c.getLong(1);}
-                }
-                if(firstSuccess>0){
-                    try(Cursor c=readQuery(
-                        "SELECT COUNT(DISTINCT attempted_at / 86400000) AS total,"+
-                        "COUNT(DISTINCT CASE WHEN accuracy=100 THEN attempted_at / 86400000 END) AS good "+
-                        "FROM review_attempts WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=? "+
-                        "AND assisted=0 AND attempted_at>=?",new String[]{args[0],args[1],args[2],String.valueOf(firstSuccess+86400000L)})){
-                        if(c.moveToFirst()){candidate.repetitions=c.getInt(0);candidate.successful=c.getInt(1);}
-                    }
-                }
-                try(Cursor c=readQuery(
-                    "SELECT due FROM review_schedule WHERE entry_id=? AND stage='VERSE' AND first_line=? AND last_line=?",args)){
-                    if(c.moveToFirst())candidate.nextDue=c.getLong(0);
-                }
-                VerseStatus old=out.get(number);
-                if(old==null||candidate.rank>old.rank || (candidate.rank==old.rank && candidate.repetitions>old.repetitions))
-                    out.put(number,candidate);
+                candidate.entryId=id;candidate.position=position;candidate.rank=rank;
+                candidate.state=rank==3?"Выучен":rank==2?"Первоначально освоен":rank==1?"В процессе":"Не изучен";
+                candidate.last=c.getLong(3);candidate.nextDue=c.getLong(4);
+                candidate.repetitions=repetitions;candidate.successful=c.getInt(6);
+                result.put(number,candidate);
             }
         }
-        return out;
     }
     public void renameGroup(long id,String name) {
         ContentValues v=new ContentValues();v.put("title",name.trim());
