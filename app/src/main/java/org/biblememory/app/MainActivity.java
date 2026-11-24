@@ -1958,7 +1958,7 @@ public final class MainActivity extends Activity {
     /** One continuous two-page slide; the bottom bar is never moved or blanked. */
 
     private void goToMainTab(int index) {
-        if (index < 0 || index > 3 || tabSwitchInProgress || resetInProgress) {
+        if (index < 0 || index > 3 || tabSwitchInProgress || resetInProgress || backupInProgress) {
             return;
         }
 
@@ -4627,6 +4627,8 @@ public final class MainActivity extends Activity {
         more.setContentDescription("Действия с отрывком "+e.reference);
         row.addView(more,new LinearLayout.LayoutParams(dp(48),dp(54)));
         more.setOnClickListener(v->showEntryActions(e,more));
+        body.setFocusable(true);
+        body.setContentDescription("Изучать "+e.reference);
         body.setOnClickListener(v->openTraining(e.id));
         add(c,row,0);
     }
@@ -4646,7 +4648,12 @@ public final class MainActivity extends Activity {
             List<Bible.Verse> items=new ArrayList<>();
             for(String raw:s.split("\\R")) if(!raw.trim().isEmpty())
                 items.add(new Bible.Verse(String.valueOf(items.size()+1),raw.trim()));
-            if(items.size()>500){toast("Максимум 500 строк");return;}
+            if(items.isEmpty()){lines.setError("Введите текст для изучения");return;}
+            if(items.size()>500){lines.setError("Максимум 500 строк");return;}
+            for(int i=0;i<items.size();i++)if(ReviewLogic.words(items.get(i).text).isEmpty()){
+                lines.setError("Строка "+(i+1)+" должна содержать хотя бы одно слово или число");
+                lines.requestFocus();return;
+            }
             if(customTargetGroupId>0){
                 long groupId=customTargetGroupId;
                 if(store.group(groupId)==null){toast("Коллекция не найдена");return;}
@@ -4732,7 +4739,7 @@ public final class MainActivity extends Activity {
         add(c,txt("Пока нет заданий на повторение",21,WHITE,true),0);
         helper(c,reviewCollectionGroup>0?"В выбранной коллекции сейчас нет заданий, срок которых наступил.":
             "Сейчас нет запланированных заданий, срок которых наступил.");
-
+        action(content,"На главную",true,()->{screen=Screen.HOME;render();});
     }
     private void openReview(LocalStore.DueItem item){
         answerReview=null;
@@ -5670,7 +5677,7 @@ public final class MainActivity extends Activity {
                 stepCursor++;resetTrainingStep(e);saveTrainingSession();render();
             }else if(executingCollectionQueue&&collectionQueueCursor>=0){advanceStudyCollectionAfterGroups(e);}
             else if(cardStudyCursor>=0){advanceCardStudy();}
-            else render();
+            else advanceStudyCollectionOrExit(e);
         }else if(pending!=null)openGroup(pending);
         else if(activeStep.end<e.lines().size()){
             stepCursor=activeStep.end;studyStage=StudyPlanLogic.Stage.VERSE;
@@ -5680,6 +5687,11 @@ public final class MainActivity extends Activity {
         else onBackPressed();
     }
 
+    private void advanceStudyCollectionOrExit(LocalStore.Entry e){
+        GroupLearningLogic.Candidate unfinished=nextGroup(e);
+        if(unfinished!=null){openGroup(unfinished);return;}
+        onBackPressed();
+    }
     /** Finish all internal bridges and complete-passage checks before advancing to the next independent entry. */
     private void advanceStudyCollectionAfterGroups(LocalStore.Entry e){
         GroupLearningLogic.Candidate unfinished=nextGroup(e);
@@ -6645,18 +6657,20 @@ public final class MainActivity extends Activity {
     private void newUnifiedCollection(UnifiedCreated after){
         EditText name=input("Например: Нагорная проповедь",false);
         LinearLayout wrap=column();wrap.setPadding(dp(19),dp(12),dp(19),dp(9));add(wrap,name,0);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Новая коллекция").setView(wrap)
-            .setPositiveButton("Создать",(d,w)->{
-                if(value(name).isEmpty()){toast("Введите название коллекции");return;}
-                boolean firstCollection=store.unifiedCollections().isEmpty();
-                long id=store.createUnifiedCollection(value(name));
-                // Only the first collection is selected implicitly. All subsequent
-                // changes of the active collection happen through Home's selector.
-                if(firstCollection)activateUnified(id);
-                LocalStore.UnifiedCollection u=store.unifiedCollection(id);
-                if(after!=null)after.accept(u);else{openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();}
-            }).setNegativeButton("Отмена",null).create());
+            .setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
+        styledDialog(dialog);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(value(name).isEmpty()){name.setError("Введите название коллекции");name.requestFocus();return;}
+            boolean firstCollection=store.unifiedCollections().isEmpty();
+            long id=store.createUnifiedCollection(value(name));
+            // Only the first collection is selected implicitly.
+            if(firstCollection)activateUnified(id);
+            LocalStore.UnifiedCollection u=store.unifiedCollection(id);
+            dialog.dismiss();
+            if(after!=null)after.accept(u);else{openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();}
+        });
     }
     private void showUnifiedSelector(){
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
@@ -6945,11 +6959,14 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void openCollectionToAdd(LocalStore.UnifiedCollection u){
+        openUnifiedId=u.id;selectedGroup=u.groupId;selectedDeck=u.deckId;
+        screen=Screen.COLLECTION_DETAIL;render();
+    }
     private void startActiveStudy(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null){newUnifiedCollection(null);return;}
         if(bible.isReady())store.syncUnifiedCollection(u.id,bible);
-        if(store.entries(u.groupId).isEmpty()){openUnifiedId=u.id;screen=Screen.COLLECTION_DETAIL;render();
-            toast("Добавь стихи в коллекцию");return;}
+        if(store.entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
         selectedGroup=u.groupId;startStudyCollection(u.groupId);
     }
     private void startActiveCards(){
@@ -6957,7 +6974,10 @@ public final class MainActivity extends Activity {
         if(bible.isReady())store.syncUnifiedCollection(u.id,bible);
         selectedDeck=u.deckId;cardFromUnified=true;
         if(eligibleSessionCards().isEmpty()){
-            toast(!bible.isReady()?"Библия ещё загружается":"Сначала добавь стихи в коллекцию");return;
+            if(!bible.isReady()&&!store.entries(u.groupId).isEmpty()){
+                toast("Библия ещё загружается");return;
+            }
+            openCollectionToAdd(u);return;
         }
         startCardSession();
     }
@@ -7188,12 +7208,14 @@ public final class MainActivity extends Activity {
     private void renameUnified(LocalStore.UnifiedCollection u){
         EditText name=input("Название коллекции",false);name.setText(u.title);
         LinearLayout box=column();box.setPadding(dp(18),dp(10),dp(18),dp(8));add(box,name,0);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Переименовать коллекцию").setView(box)
-            .setPositiveButton("Сохранить",(d,w)->{
-                if(value(name).isEmpty()){toast("Укажи название");return;}
-                store.renameUnifiedCollection(u.id,value(name));render();
-            }).setNegativeButton("Отмена",null).create());
+            .setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        styledDialog(dialog);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            if(value(name).isEmpty()){name.setError("Укажи название");name.requestFocus();return;}
+            store.renameUnifiedCollection(u.id,value(name));dialog.dismiss();render();
+        });
     }
     private void deleteUnified(LocalStore.UnifiedCollection u){
         styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
@@ -7382,7 +7404,14 @@ public final class MainActivity extends Activity {
         LocalStore.UnifiedCollection u=activeUnified();if(u==null)return;
         buildRunLines(u);
         if(runLines.isEmpty()){
-            toast("В коллекции пока нет стихов, закреплённых отложенным повторением");return;
+            if(store.entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
+            styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                .setTitle("Пока нет стихов для проверки памяти")
+                .setMessage("Сначала изучи стихи и закрепи их отложенным повторением.")
+                .setPositiveButton("Изучение стихов",(d,w)->startActiveStudy())
+                .setNeutralButton("Повторение",(d,w)->startActiveReview(false))
+                .setNegativeButton("Закрыть",null).create());
+            return;
         }
         runCollectionId=u.id;
         List<String> material=new ArrayList<>();
