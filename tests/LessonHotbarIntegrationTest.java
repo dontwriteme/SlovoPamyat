@@ -156,6 +156,36 @@ public class LessonHotbarIntegrationTest {
             assertSame(passage,get("activePassage"));assertSame(strip,((View)get("root")).findViewWithTag("lesson-progress-strip"));
         }
     }
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void introHintKeepsHideButtonStationaryAtEveryMask()throws Exception{
+        View root=(View)get("root");
+        ViewGroup hint=root.findViewWithTag("lesson-intro-hint");
+        TextView hide=text(root,"Скрыть 25% слов");
+        assertNotNull(hint);assertNotNull(hide);
+        TextView read=text(hint,LearningHelp.INTRO_READ);
+        TextView hold=text(hint,LearningHelp.INTRO_HOLD);
+        assertNotNull(read);assertNotNull(hold);
+        for(int width:new int[]{320,480}){
+            layoutIntro(root,width);
+            int height=hint.getHeight(),top=hide.getTop();
+            assertTrue(height>0);
+            assertEquals(Math.max(read.getMeasuredHeight(),hold.getMeasuredHeight()),height);
+            for(int expected:new int[]{25,50,75,100,0}){
+                hide.performClick();
+                layoutIntro(root,width);
+                assertEquals(expected,get("mask"));
+                assertEquals("Hint height changed at mask "+expected,height,hint.getHeight());
+                assertEquals("Hide button moved at mask "+expected,top,hide.getTop());
+                assertEquals(expected==0?View.VISIBLE:View.INVISIBLE,read.getVisibility());
+                assertEquals(expected==0?View.INVISIBLE:View.VISIBLE,hold.getVisibility());
+            }
+        }
+    }
+    private void layoutIntro(View root,int width){
+        root.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,width,560);
+    }
     @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
         assertSeamlessFooter();
         store.finishExercise(id,0,1);invoke("render");
