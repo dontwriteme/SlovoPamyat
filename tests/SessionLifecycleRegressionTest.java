@@ -407,6 +407,18 @@ public class SessionLifecycleRegressionTest {
         assertTrue(store.isStepMastered(id,"VERSE",2,3));
     }
 
+    @Test public void wordlessFlashcardStaysAvailableAsCardButCannotCreateLesson()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Карточки");
+        store.addCustomFlashcard(u.deckId,"Знак","…");
+        set("selectedDeck",u.deckId);
+        int before=store.allEntries().size();
+        invoke("studyCardDeck");
+        assertEquals(before,store.allEntries().size());
+        assertEquals(1,store.flashcards(u.deckId).size());
+        assertEquals("…",store.flashcards(u.deckId).get(0).content);
+        assertTrue(((List<?>)get("cardStudyQueue")).isEmpty());
+    }
+
     @Test public void warmMemoryRunBuildDoesNotQueryEachVerse()throws Exception{
         LocalStore.UnifiedCollection u=collection("Большая коллекция");
         for(int i=0;i<80;i++)consolidate(add(u,"Свой текст "+i,"Строка "+i));
