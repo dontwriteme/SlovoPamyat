@@ -6004,28 +6004,41 @@ public final class MainActivity extends Activity {
         }
     }
     private void advanceAfterSuccess(LocalStore.Entry e){
-        final GroupLearningLogic.Candidate pending=!reviewMode&&!groupMode?
-            pendingAfterCurrent(e,activeStep.start):null;
-        if(reviewMode){advanceReviewSession();}
-        else if(groupMode){
+        if(reviewMode){
+            applyLessonDestination(e,LessonNavigationFlow.afterSuccess(true,false,null,0,0,false,false));
+            return;
+        }
+        boolean returnedFromGroup=groupMode;
+        GroupLearningLogic.Candidate pending;
+        int nextVerse;
+        if(returnedFromGroup){
             getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
                 .remove("linked_"+selectedEntry+"_pending").apply();
             groupMode=false;forcedStep=null;studyStage=StudyPlanLogic.Stage.VERSE;
             stepCursor=returnVerseCursor;resetTrainingStep(e);saveTrainingSession();
-            GroupLearningLogic.Candidate more=pendingAfterCurrent(e,stepCursor);
-            if(more!=null){openGroup(more);return;}
-            if(stepCursor+1<e.lines().size()){
-                stepCursor++;resetTrainingStep(e);saveTrainingSession();render();
-            }else if(executingCollectionQueue&&collectionQueueCursor>=0){advanceStudyCollectionAfterGroups(e);}
-            else if(cardStudyCursor>=0){advanceCardStudy();}
-            else advanceStudyCollectionOrExit(e);
-        }else if(pending!=null)openGroup(pending);
-        else if(activeStep.end<e.lines().size()){
-            stepCursor=activeStep.end;studyStage=StudyPlanLogic.Stage.VERSE;
-            resetTrainingStep(e);saveTrainingSession();render();
-        }else if(executingCollectionQueue&&collectionQueueCursor>=0)advanceStudyCollectionAfterGroups(e);
-        else if(cardStudyCursor>=0)advanceCardStudy();
-        else onBackPressed();
+            pending=pendingAfterCurrent(e,stepCursor);
+            nextVerse=stepCursor+1;
+        }else{
+            pending=pendingAfterCurrent(e,activeStep.start);
+            nextVerse=activeStep.end;
+        }
+        applyLessonDestination(e,LessonNavigationFlow.afterSuccess(false,returnedFromGroup,
+            pending,nextVerse,e.lines().size(),executingCollectionQueue&&collectionQueueCursor>=0,
+            cardStudyCursor>=0));
+    }
+
+    private void applyLessonDestination(LocalStore.Entry e,LessonNavigationFlow.Decision decision){
+        switch(decision.destination()){
+            case REVIEW:advanceReviewSession();return;
+            case GROUP:openGroup(decision.group());return;
+            case VERSE:
+                stepCursor=decision.verse();studyStage=StudyPlanLogic.Stage.VERSE;
+                resetTrainingStep(e);saveTrainingSession();render();return;
+            case COLLECTION_AFTER_GROUPS:advanceStudyCollectionAfterGroups(e);return;
+            case CARD:advanceCardStudy();return;
+            case GROUPS_OR_EXIT:advanceStudyCollectionOrExit(e);return;
+            case EXIT:onBackPressed();return;
+        }
     }
 
     private void advanceStudyCollectionOrExit(LocalStore.Entry e){
