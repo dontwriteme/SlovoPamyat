@@ -3004,7 +3004,8 @@ public final class MainActivity extends Activity {
             int[] b=passageSelection.bounds();
             pickerSelectionLabel.setText(Bible.reference(passageSelection.book,b[0],b[1],b[2],b[3])+" · "+PassageSelection.verses(count));
         }else pickerSelectionLabel.setText(passageSelection.complete()?
-            "Конец раньше начала. Измените начало или конец отрывка.":"Выберите начало и конец отрывка.");
+            "Конец раньше начала. Измените начало или конец отрывка.":"");
+        pickerSelectionLabel.setVisibility(valid||passageSelection.complete()?View.VISIBLE:View.GONE);
         pickerSelectionLabel.setTextColor(passageSelection.complete()&&!valid?RED:WHITE);
         pickerSaveButton.setEnabled(valid&&count>0);pickerSaveButton.setAlpha(pickerSaveButton.isEnabled()?1f:.45f);
     }
