@@ -1,0 +1,11 @@
+// Install alongside normal builds. The destructive fixture runner checks this ID.
+allprojects {
+    afterEvaluate { p ->
+        if (p.path == ':app') {
+            p.android.defaultConfig.applicationId = 'org.biblememory.app.r2fixture'
+            p.android.defaultConfig.testInstrumentationRunner = 'org.biblememory.app.R2BackupCheck'
+            p.android.sourceSets.androidTest.java.srcDirs = [rootProject.file('tests/device')]
+            p.android.sourceSets.androidTest.assets.srcDirs = [rootProject.file('tests/fixtures')]
+        }
+    }
+}

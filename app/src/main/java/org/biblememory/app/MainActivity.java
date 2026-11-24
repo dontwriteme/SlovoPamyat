@@ -387,6 +387,10 @@ public final class MainActivity extends Activity {
     private final String COLLECTION_PREFS="collection_study_queue";
     private boolean resetInProgress=false;
     private boolean backupInProgress=false;
+    private boolean ownsData,resumed;
+    private Bundle startupState;
+    private String dataGeneration="";
+    private AlertDialog backupDialog;
     private float swipeStartX,swipeStartY;
     private boolean swipeIntercepted=false;
     private int lastNavIndex=0;
@@ -451,7 +455,32 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(CARD);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        startupState=savedInstanceState;
+        if(BackupCoordinator.attach(this))openData();
+    }
+
+    private void openData(){
         store=new LocalStore(this);
+        try{
+            if(SvetochBackup.pending(store)){
+                store.close();store=null;
+                BackupCoordinator.request(this,BackupCoordinator.Operation.RECOVER,null);
+                return;
+            }
+        }catch(RuntimeException failure){
+            store.close();store=null;
+            showBackupFailure(failure);
+            return;
+        }
+        ownsData=true;
+        BackupCoordinator.opened();
+        dataGeneration=SvetochBackup.generation(this);
+        Bundle savedInstanceState=startupState;
+        startupState=null;
+        if(savedInstanceState!=null&&!dataGeneration.equals(savedInstanceState.getString("data_generation","")))
+            savedInstanceState=null;
+        if(savedInstanceState!=null&&savedInstanceState.getBoolean("backup_return_settings"))
+            screen=Screen.SETTINGS;
         collectionStore=new LocalStore(getApplicationContext());
         try{
             LearningReset.recover(getApplicationContext(),store);
@@ -473,6 +502,7 @@ public final class MainActivity extends Activity {
         restorePickerState(savedInstanceState);
         render();
         // The worker owns collectionStore until its queued close in onDestroy.
+        if(resumed)scheduleHomeRefresh();
         collectionExecutor.execute(this::loadBibleAndSyncCollections);
     }
 
@@ -512,6 +542,12 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle out){
         super.onSaveInstanceState(out);
+        if(!ownsData){
+            if(startupState!=null)out.putAll(startupState);
+            return;
+        }
+        out.putString("data_generation",dataGeneration);
+        if(backupInProgress&&screen==Screen.SETTINGS)out.putBoolean("backup_return_settings",true);
         if(!isPickerScreen(screen))return;
         out.putString("picker_screen",screen.name());out.putString("picker_target",pickerTarget.name());
         out.putString("picker_back",pickerBackScreen.name());out.putLong("picker_id",pickerTargetId);
@@ -552,12 +588,16 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        resumed=true;
+        if(!ownsData||backupInProgress)return;
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
         if(store!=null && root!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
+        resumed=false;
+        if(!ownsData||backupInProgress){super.onPause();return;}
         dismissModeInfo(false);
         settleBibleIcons();
         settleHomeIcons();
@@ -1105,6 +1145,7 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        if(backupInProgress)return;
         boolean collectionWasLoading=collectionDetailLoading;
         collectionDetailLoading=false;
         collectionGeneration++;
@@ -3322,6 +3363,7 @@ public final class MainActivity extends Activity {
         }catch(JSONException ignored){}
     }
     private void nextFlashcard(){
+        if(backupInProgress)return;
         if(cardSequence.isEmpty()){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
         if(cardIndex+1<cardSequence.size())cardIndex++;
         else{
@@ -3946,13 +3988,23 @@ public final class MainActivity extends Activity {
     }
 
     private void runCollectionMutation(Runnable write,java.util.function.Consumer<Boolean> finished){
+        runCollectionMutation(write,finished,null);
+    }
+
+    private void runCollectionMutation(Runnable write,java.util.function.Consumer<Boolean> finished,
+            Runnable detachedSuccess){
+        if(isDestroyed()||isFinishing()||backupInProgress)return;
         collectionExecutor.execute(()->{
             boolean saved=false;
             try{write.run();saved=true;}
             catch(RuntimeException error){android.util.Log.e("CollectionBooks","Unable to save Bible chapters",error);}
             boolean success=saved;
-            collectionHandler.post(()->{
-                if(isDestroyed()||isFinishing())return;
+            // Persistent cleanup must survive rotation and run before the worker's release notice.
+            runOnUiThread(()->{
+                if(isDestroyed()||isFinishing()){
+                    if(success&&detachedSuccess!=null)detachedSuccess.run();
+                    return;
+                }
                 if(!success)toast("Не удалось изменить коллекцию");
                 finished.accept(success);
             });
@@ -7112,7 +7164,7 @@ public final class MainActivity extends Activity {
             .setTitle("Сброс прогресса").setMessage("Удаляем историю изучения…")
             .setCancelable(false).create();
         styledDialog(resetting);
-        new Thread(()->{
+        collectionExecutor.execute(()->{
             // Independent helper survives destruction of this Activity.
             try(LocalStore worker=new LocalStore(getApplicationContext())){
                 LearningReset.request(getApplicationContext(),worker);
@@ -7147,7 +7199,7 @@ public final class MainActivity extends Activity {
                         .setCancelable(false).setPositiveButton("Закрыть",(d,w)->finish()).show();
                 });
             }
-        },"ResetLearningProgress").start();
+        });
     }
     static String countedRussian(int count,String one,String few,String many){
         int last=count%10, lastTwo=count%100;
@@ -7260,6 +7312,14 @@ public final class MainActivity extends Activity {
                     if(screen==origin&&(origin!=Screen.COLLECTION_DETAIL||openUnifiedId==u.id)){
                         screen=Screen.COLLECTIONS;render();
                     }
+                },()->{
+                    // Rotation can retire the owner before its deletion callback reaches the looper.
+                    // Compare persisted IDs so we preserve a newer selection made by another screen.
+                    SharedPreferences queue=getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);
+                    if(queue.getLong("group",-1)==u.groupId)queue.edit().clear().apply();
+                    SharedPreferences library=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
+                    if(library.getLong("active",-1)==u.id)library.edit().remove("active").apply();
+                    clearRunState(u.id);
                 });
             }).setNegativeButton("Отмена",null).create());
     }
@@ -7633,7 +7693,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(!ownsData||backupInProgress||result!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
         if(request==EXPORT)runBackupTask(uri,false);
         else if(request==IMPORT){
@@ -7649,52 +7709,78 @@ public final class MainActivity extends Activity {
     }
     private void runBackupTask(Uri uri,boolean restore){
         if(backupInProgress||resetInProgress)return;
-        backupInProgress=true;
-        AlertDialog progress=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle(restore?"Восстановление":"Резервное копирование")
-            .setMessage(restore?"Проверяем файл и восстанавливаем данные…":
-                "Сохраняем коллекции, карточки и прогресс…")
-            .setCancelable(false).create();
-        styledDialog(progress);
-        new Thread(()->{
-            Exception failure=null;
-            // Keep file I/O independent of the Activity's database lifetime.
-            try(LocalStore worker=new LocalStore(getApplicationContext())) {
-                if(restore)SvetochBackup.restoreFrom(getApplicationContext(),worker,uri);
-                else SvetochBackup.exportTo(getApplicationContext(),worker,uri);
-            }catch(Exception error){
-                failure=error;
-                android.util.Log.e("SvetochBackup","Backup action failed",error);
-            }
-            final Exception outcome=failure;
-            runOnUiThread(()->{
-                if(isDestroyed())return;
-                progress.dismiss();
-                backupInProgress=false;
-                if(outcome!=null){
-                    styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-                        .setTitle(restore?"Не удалось восстановить копию":
-                            "Не удалось сохранить копию")
-                        .setMessage(outcome.getMessage()==null?"Ошибка файла":
-                            outcome.getMessage())
-                        .setPositiveButton("Понятно",null).create());
-                }else if(restore){
-                    toast("Резервная копия восстановлена");
-                    // Discard all caches and stale references, reinitialize both DB
-                    // helpers and restore selection/session from imported preferences.
-                    recreate();
-                }else toast("Резервная копия создана");
-            });
-        },restore?"SvetochBackupRestore":"SvetochBackupExport").start();
+        BackupCoordinator.request(this,restore?BackupCoordinator.Operation.IMPORT:
+            BackupCoordinator.Operation.EXPORT,uri);
     }
+
+    void waitForBackup(BackupCoordinator.Operation operation){
+        backupInProgress=true;
+        if(isFinishing()||isDestroyed())return;
+        boolean export=operation==BackupCoordinator.Operation.EXPORT;
+        if(backupDialog!=null)backupDialog.dismiss();
+        backupDialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            .setTitle(export?"Резервное копирование":"Восстановление")
+            .setMessage(export?"Сохраняем коллекции, карточки и прогресс…":"Восстанавливаем данные…")
+            .setCancelable(false).create();
+        styledDialog(backupDialog);
+        if(!ownsData)return;
+        // Flush the same drafts as onPause before retiring this generation of views.
+        if(screen==Screen.TRAIN)saveTrainingSession();
+        if(screen==Screen.CARD_SESSION)saveCardSession();
+        if(screen==Screen.RUN)saveRunSession();
+        rememberHomeScroll();
+        homeHandler.removeCallbacks(homeTicker);
+        tabWarmGeneration++;
+        cancelBibleSearchWork();
+        // Earlier writes may post a queue/preference update back to the main looper.
+        // The FIFO sentinel lets those callbacks finish before destruction.
+        collectionExecutor.execute(()->runOnUiThread(()->{
+            if(!isFinishing()&&!isDestroyed())recreate();
+        }));
+    }
+
+    void backupFinished(BackupCoordinator.Operation operation,Exception failure){
+        if(isFinishing()||isDestroyed())return;
+        if(backupDialog!=null){backupDialog.dismiss();backupDialog=null;}
+        if(failure!=null){
+            showBackupFailure(failure);
+            return;
+        }
+        backupInProgress=false;
+        if(operation!=BackupCoordinator.Operation.EXPORT)startupState=null;
+        openData();
+        if(ownsData){
+            toast(operation==BackupCoordinator.Operation.EXPORT?
+                "Резервная копия создана":"Резервная копия восстановлена");
+        }
+    }
+
+    private void showBackupFailure(Exception failure){
+        backupInProgress=true;
+        backupDialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            .setTitle("Не удалось завершить операцию")
+            .setMessage(failure.getMessage()==null?"Ошибка сохранения данных":failure.getMessage())
+            .setCancelable(false).setPositiveButton("Продолжить",(d,w)->{
+                backupInProgress=false;
+                // Probe the journal again before allowing even a read of session data.
+                openData();
+            }).setNegativeButton("Закрыть",(d,w)->finish()).create();
+        styledDialog(backupDialog);
+    }
+
     @Override protected void onDestroy(){
+        BackupCoordinator.detach(this);
+        if(backupDialog!=null)backupDialog.dismiss();
         tabWarmGeneration++;
         tabWarmHandler.removeCallbacksAndMessages(null);
         collectionGeneration++;
         if(collectionTask!=null)collectionTask.cancel(false);
         collectionHandler.removeCallbacksAndMessages(null);
         // Queue close behind any running read, never close its database mid-query.
-        collectionExecutor.execute(()->{if(collectionStore!=null)collectionStore.close();});
+        collectionExecutor.execute(()->{
+            try{if(collectionStore!=null)collectionStore.close();}
+            finally{if(ownsData)BackupCoordinator.releasedFromWorker();}
+        });
         collectionExecutor.shutdown();
         dismissModeInfo(false);
         settleBibleIcons();

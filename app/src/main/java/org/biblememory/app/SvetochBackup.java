@@ -42,7 +42,25 @@ final class SvetochBackup {
         "unified_library_ui","home_ui","home_verse","bible_last_chapter"
     };
 
+    // The journal exists only between import commit and successful preference replay.
+    private static final String JOURNAL="pending_backup_restore";
+    private static final int CHUNK=32*1024;
+    interface Checkpoint { void reached(String point) throws IOException; }
+    private static final Checkpoint NONE=point->{};
+
+    static boolean pending(LocalStore store){
+        try(Cursor rows=store.getReadableDatabase().rawQuery(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",new String[]{JOURNAL})){
+            return rows.moveToFirst();
+        }
+    }
+
+    static String generation(Context context){
+        return context.getSharedPreferences("backup_generation",Context.MODE_PRIVATE).getString("id","");
+    }
+
     static void exportTo(Context context,LocalStore store,Uri uri) throws Exception {
+        if(pending(store))throw new IOException("Сначала завершите восстановление");
         JSONObject data=new JSONObject();
         SQLiteDatabase db=store.getReadableDatabase();
         data.put("schema",db.getVersion());
@@ -74,10 +92,10 @@ final class SvetochBackup {
                 }
                 tables.put(table,rows);
             }
+            data.put("preferences",encodePreferences(snapshotPreferences(context)));
             db.setTransactionSuccessful();
         }finally{db.endTransaction();}
         data.put("tables",tables);
-        data.put("preferences",encodePreferences(snapshotPreferences(context)));
         data.put("createdAt",System.currentTimeMillis());
 
         String body=data.toString();
@@ -96,6 +114,11 @@ final class SvetochBackup {
     }
 
     static void restoreFrom(Context context,LocalStore store,Uri uri) throws Exception {
+        restoreFrom(context,store,uri,NONE);
+    }
+
+    static void restoreFrom(Context context,LocalStore store,Uri uri,Checkpoint checkpoint) throws Exception {
+        if(pending(store))throw new IOException("Сначала завершите восстановление");
         byte[] buffer;
         try(InputStream input=context.getContentResolver().openInputStream(uri)){
             if(input==null)throw new IOException("Не удалось открыть выбранный файл");
@@ -122,7 +145,9 @@ final class SvetochBackup {
         if(data.getInt("schema")!=db.getVersion())
             throw new IOException("Версия базы данных в резервной копии несовместима с приложением");
         JSONObject tables=data.getJSONObject("tables");
-        // Reject missing/unknown columns before touching existing data.
+        if(tables.length()!=TABLES.length)throw new IOException("Неверный набор таблиц в копии");
+        // Check the archive representation before opening the replacement transaction.
+        // SQLite enforces keys and relationships on the uncommitted replacement.
         for(String table:TABLES){
             JSONArray rows=tables.getJSONArray(table);
             Set<String> columns=new HashSet<>();
@@ -133,15 +158,26 @@ final class SvetochBackup {
                 JSONObject row=rows.getJSONObject(index);
                 if(row.length()!=columns.size())
                     throw new IOException("Неверная структура таблицы "+table);
-                for(Iterator<String> it=row.keys();it.hasNext();)
-                    if(!columns.contains(it.next()))
-                        throw new IOException("Неизвестное поле в таблице "+table);
+                for(Iterator<String> it=row.keys();it.hasNext();){
+                    String column=it.next();
+                    if(!columns.contains(column))throw new IOException("Неизвестное поле в таблице "+table);
+                    Object value=row.get(column);
+                    if(value instanceof JSONObject){
+                        JSONObject blob=(JSONObject)value;
+                        if(blob.length()!=1||!(blob.opt("$blob") instanceof String))
+                            throw new IOException("Неверное двоичное поле в таблице "+table);
+                        Base64.decode(blob.getString("$blob"),Base64.DEFAULT);
+                    }else if(!(value instanceof String||value instanceof Number||value==JSONObject.NULL)){
+                        throw new IOException("Неверный тип данных в таблице "+table);
+                    }
+                    if(column.equals("id")&&value==JSONObject.NULL)
+                        throw new IOException("Отсутствует идентификатор в таблице "+table);
+                }
             }
         }
-        Map<String,Map<String,Object>> restoredPrefs=decodePreferences(
-            data.getJSONObject("preferences"));
-        Map<String,Map<String,Object>> originalPrefs=snapshotPreferences(context);
-        boolean prefsChanged=false;
+        JSONObject preferences=data.getJSONObject("preferences");
+        if(preferences.length()!=PREFERENCES.length)throw new IOException("Неверный набор настроек в копии");
+        for(String name:PREFERENCES)decodeGroup(preferences.getJSONObject(name));
         db.beginTransaction();
         try {
             // Deleting child rows first prevents FK violations. The insert order is
@@ -172,14 +208,56 @@ final class SvetochBackup {
                 if(check.moveToFirst())throw new IOException(
                     "Нарушена целостность связей между сохранёнными данными");
             }
-            prefsChanged=true;
-            applyPreferences(context,restoredPrefs);
+            db.execSQL("CREATE TABLE "+JOURNAL+
+                " (space TEXT NOT NULL, part INTEGER NOT NULL, payload BLOB NOT NULL, PRIMARY KEY(space,part))");
+            writeChunks(db,"generation",UUID.randomUUID().toString());
+            for(String name:PREFERENCES)writeChunks(db,name,preferences.getJSONObject(name).toString());
+            checkpoint.reached("beforeCommit");
             db.setTransactionSuccessful();
-        }catch(Exception failure){
-            if(prefsChanged)try{applyPreferences(context,originalPrefs);}
-                catch(Exception rollback){failure.addSuppressed(rollback);}
-            throw failure;
         }finally{db.endTransaction();}
+        checkpoint.reached("afterCommit");
+        recover(context,store,checkpoint);
+    }
+
+    private static void writeChunks(SQLiteDatabase db,String name,String value){
+        byte[] bytes=value.getBytes(StandardCharsets.UTF_8);
+        for(int offset=0;offset<bytes.length;offset+=CHUNK){
+            db.execSQL("INSERT INTO "+JOURNAL+" VALUES(?,?,?)",new Object[]{name,offset/CHUNK,
+                Arrays.copyOfRange(bytes,offset,Math.min(bytes.length,offset+CHUNK))});
+        }
+    }
+
+    private static String readChunks(SQLiteDatabase db,String name)throws IOException{
+        ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+        try(Cursor rows=db.query(JOURNAL,new String[]{"part","payload"},"space=?",new String[]{name},
+                null,null,"part")){
+            int expected=0;
+            while(rows.moveToNext()){
+                if(rows.getInt(0)!=expected++)throw new IOException("Повреждён журнал восстановления");
+                bytes.write(rows.getBlob(1));
+            }
+            if(expected==0)throw new IOException("В журнале отсутствует "+name);
+        }
+        return bytes.toString("UTF-8");
+    }
+
+    static void recover(Context context,LocalStore store)throws Exception{
+        recover(context,store,NONE);
+    }
+
+    static void recover(Context context,LocalStore store,Checkpoint checkpoint)throws Exception{
+        if(!pending(store))return;
+        SQLiteDatabase db=store.getWritableDatabase();
+        for(String name:PREFERENCES){
+            Map<String,Object> values=decodeGroup(new JSONObject(readChunks(db,name)));
+            applyGroup(context,name,values);
+            checkpoint.reached(name);
+        }
+        if(!context.getSharedPreferences("backup_generation",Context.MODE_PRIVATE).edit()
+                .putString("id",readChunks(db,"generation")).commit())
+            throw new IOException("Не удалось сохранить отметку восстановления");
+        checkpoint.reached("beforeCleanup");
+        db.execSQL("DROP TABLE "+JOURNAL);
     }
 
     private static String sha256(String text) throws Exception {
@@ -226,56 +304,61 @@ final class SvetochBackup {
         return out;
     }
 
-    private static Map<String,Map<String,Object>> decodePreferences(JSONObject data)
-            throws Exception {
-        Map<String,Map<String,Object>> result=new LinkedHashMap<>();
-        for(String name:PREFERENCES){
-            JSONObject group=data.getJSONObject(name);
-            Map<String,Object> entries=new LinkedHashMap<>();
-            for(Iterator<String> it=group.keys();it.hasNext();){
-                String key=it.next();
-                JSONObject packed=group.getJSONObject(key);
-                String type=packed.getString("t");
-                Object value;
-                switch(type){
-                    case "string":value=packed.getString("v");break;
-                    case "int":value=packed.getInt("v");break;
-                    case "long":value=packed.getLong("v");break;
-                    case "float":value=(float)packed.getDouble("v");break;
-                    case "boolean":value=packed.getBoolean("v");break;
-                    case "set":
-                        Set<String> words=new HashSet<>();
-                        JSONArray items=packed.getJSONArray("v");
-                        for(int i=0;i<items.length();i++)words.add(items.getString(i));
-                        value=words;break;
-                    default:throw new IOException("Неизвестный параметр в копии");
-                }
-                entries.put(key,value);
+    private static Map<String,Object> decodeGroup(JSONObject group)throws Exception {
+        Map<String,Object> entries=new LinkedHashMap<>();
+        for(Iterator<String> it=group.keys();it.hasNext();){
+            String key=it.next();
+            JSONObject packed=group.getJSONObject(key);
+            String type=packed.getString("t");
+            Object value=packed.get("v");
+            switch(type){
+                case "string":if(!(value instanceof String))throw invalidPreference();break;
+                case "int":
+                    if(!(value instanceof Integer))throw invalidPreference();
+                    break;
+                case "long":
+                    if(!(value instanceof Integer||value instanceof Long))throw invalidPreference();
+                    value=((Number)value).longValue();break;
+                case "float":
+                    if(!(value instanceof Number))throw invalidPreference();
+                    float number=((Number)value).floatValue();
+                    if(!Float.isFinite(number))throw invalidPreference();
+                    value=number;break;
+                case "boolean":if(!(value instanceof Boolean))throw invalidPreference();break;
+                case "set":
+                    Set<String> words=new HashSet<>();
+                    JSONArray items=packed.getJSONArray("v");
+                    for(int i=0;i<items.length();i++){
+                        if(!(items.get(i) instanceof String))throw invalidPreference();
+                        words.add(items.getString(i));
+                    }
+                    value=words;break;
+                default:throw new IOException("Неизвестный параметр в копии");
             }
-            result.put(name,entries);
+            entries.put(key,value);
         }
-        return result;
+        return entries;
     }
 
-    private static void applyPreferences(Context context,Map<String,Map<String,Object>> values)
-            throws IOException {
-        for(Map.Entry<String,Map<String,Object>> group:values.entrySet()){
-            SharedPreferences.Editor edit=context.getSharedPreferences(
-                group.getKey(),Context.MODE_PRIVATE).edit().clear();
-            for(Map.Entry<String,Object> entry:group.getValue().entrySet()){
-                String k=entry.getKey();Object v=entry.getValue();
-                if(v instanceof String)edit.putString(k,(String)v);
-                else if(v instanceof Integer)edit.putInt(k,(Integer)v);
-                else if(v instanceof Long)edit.putLong(k,(Long)v);
-                else if(v instanceof Float)edit.putFloat(k,(Float)v);
-                else if(v instanceof Boolean)edit.putBoolean(k,(Boolean)v);
-                else if(v instanceof Set){
-                    @SuppressWarnings("unchecked") Set<String> strings=(Set<String>)v;
-                    edit.putStringSet(k,strings);
-                }
+    private static IOException invalidPreference(){
+        return new IOException("Неверный тип сохранённого параметра");
+    }
+
+    private static void applyGroup(Context context,String name,Map<String,Object> values)throws IOException{
+        SharedPreferences.Editor edit=context.getSharedPreferences(name,Context.MODE_PRIVATE).edit().clear();
+        for(Map.Entry<String,Object> entry:values.entrySet()){
+            String k=entry.getKey();Object v=entry.getValue();
+            if(v instanceof String)edit.putString(k,(String)v);
+            else if(v instanceof Integer)edit.putInt(k,(Integer)v);
+            else if(v instanceof Long)edit.putLong(k,(Long)v);
+            else if(v instanceof Float)edit.putFloat(k,(Float)v);
+            else if(v instanceof Boolean)edit.putBoolean(k,(Boolean)v);
+            else if(v instanceof Set){
+                @SuppressWarnings("unchecked") Set<String> strings=(Set<String>)v;
+                edit.putStringSet(k,strings);
             }
-            if(!edit.commit())throw new IOException(
-                "Не удалось записать сохранённые параметры: "+group.getKey());
         }
+        if(!edit.commit())throw new IOException(
+            "Не удалось записать сохранённые параметры: "+name);
     }
 }

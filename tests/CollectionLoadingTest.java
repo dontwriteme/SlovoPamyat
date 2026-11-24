@@ -54,6 +54,44 @@ public class CollectionLoadingTest {
   assertFalse(db.isOpen());
   assertSame(page,field("root"));
  }
+ @Test public void pendingDeletionCleansPersistedSelectionBeforeRetiredWorkerReleasesBackup()throws Exception{
+  long uid=store.createUnifiedCollection("To delete");
+  LocalStore.UnifiedCollection collection=store.unifiedCollection(uid);
+  android.content.SharedPreferences library=activity.getSharedPreferences("unified_library_ui",0);
+  android.content.SharedPreferences queue=activity.getSharedPreferences("collection_study_queue",0);
+  library.edit().putLong("active",uid).putString("writing_run_"+uid+"_draft","old").commit();
+  queue.edit().putLong("group",collection.groupId).putBoolean("active",true).commit();
+  CountDownLatch release=new CountDownLatch(1);
+  ActivityTestWorkers.executor(activity,"collectionExecutor").submit(()->{
+   assertTrue(release.await(30,TimeUnit.SECONDS));return null;
+  });
+  try{
+   call("deleteUnified",new Class<?>[]{LocalStore.UnifiedCollection.class},collection);
+   org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+       .getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+   Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+   controller.pause().stop().destroy();
+   controller=null;
+  }finally{release.countDown();}
+  ActivityTestWorkers.awaitDestroyed(activity);
+  try(LocalStore observer=new LocalStore(activity.getApplicationContext())){
+   assertNull(observer.unifiedCollection(uid));
+  }
+  assertFalse(queue.contains("group"));assertFalse(library.contains("active"));
+  assertFalse(library.contains("writing_run_"+uid+"_draft"));
+ }
+ @Test public void lateDeletionConfirmationCannotSubmitWorkAfterDestruction()throws Exception{
+  long uid=store.createUnifiedCollection("Keep");
+  call("deleteUnified",new Class<?>[]{LocalStore.UnifiedCollection.class},store.unifiedCollection(uid));
+  org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog()
+      .getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick();
+  controller.pause().stop().destroy();
+  controller=null;
+  ActivityTestWorkers.awaitDestroyed(activity);
+  try(LocalStore observer=new LocalStore(activity.getApplicationContext())){
+   assertNotNull(observer.unifiedCollection(uid));
+  }
+ }
  @Test public void openingReturningAndStudyStartKeepTheSelectedCollection()throws Exception{
   long uid=store.createUnifiedCollection("Галатам целиком");LocalStore.UnifiedCollection u=store.unifiedCollection(uid);
   Bible bible=(Bible)field("bible");List<Bible.Verse> lines=new ArrayList<>();for(int i=1;i<=6;i++)lines.addAll(bible.chapter(48,i));assertEquals(149,lines.size());
