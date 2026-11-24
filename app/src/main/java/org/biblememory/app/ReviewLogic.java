@@ -1,6 +1,5 @@
 package org.biblememory.app;
 
-import java.text.Normalizer;
 import java.util.*;
 
 /** Pure Java training logic; runnable independently of Android. */
@@ -98,23 +97,4 @@ public final class ReviewLogic {
         return selected;
     }
 
-    public static final class Schedule {
-        public final int repetitions, intervalDays;
-        public final double ease;
-        public final long nextDue;
-        public Schedule(int reps,int days,double ease,long due) {
-            this.repetitions=reps;this.intervalDays=days;this.ease=ease;this.nextDue=due;
-        }
-    }
-    public static Schedule update(int repetitions,int previousInterval,double previousEase,
-                                   int accuracy,long now,boolean passageCompleted) {
-        // SM-2-inspired schedule, based on objective word accuracy.
-        int quality=accuracy>=99?5:accuracy>=90?4:accuracy>=75?3:accuracy>=60?2:1;
-        if(!passageCompleted) return new Schedule(repetitions,previousInterval,previousEase,now);
-        if(quality<3) return new Schedule(0,1,Math.max(1.3,previousEase),now+86400000L);
-        double ease=Math.max(1.3,previousEase+0.1-(5-quality)*(0.08+(5-quality)*0.02));
-        int nextRep=repetitions+1;
-        int interval=nextRep==1?1:nextRep==2?3:Math.max(1,Math.round((float)(previousInterval*ease)));
-        return new Schedule(nextRep,interval,ease,now+interval*86400000L);
-    }
 }
