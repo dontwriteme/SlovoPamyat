@@ -7624,9 +7624,10 @@ public final class MainActivity extends Activity {
         styledDialog(progress);
         new Thread(()->{
             Exception failure=null;
-            try {
-                if(restore)SvetochBackup.restoreFrom(getApplicationContext(),store,uri);
-                else SvetochBackup.exportTo(getApplicationContext(),store,uri);
+            // Keep file I/O independent of the Activity's database lifetime.
+            try(LocalStore worker=new LocalStore(getApplicationContext())) {
+                if(restore)SvetochBackup.restoreFrom(getApplicationContext(),worker,uri);
+                else SvetochBackup.exportTo(getApplicationContext(),worker,uri);
             }catch(Exception error){
                 failure=error;
                 android.util.Log.e("SvetochBackup","Backup action failed",error);
@@ -7653,6 +7654,8 @@ public final class MainActivity extends Activity {
         },restore?"SvetochBackupRestore":"SvetochBackupExport").start();
     }
     @Override protected void onDestroy(){
+        tabWarmGeneration++;
+        tabWarmHandler.removeCallbacksAndMessages(null);
         collectionGeneration++;
         if(collectionTask!=null)collectionTask.cancel(false);
         collectionHandler.removeCallbacksAndMessages(null);
