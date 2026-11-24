@@ -1,0 +1,6 @@
+gradle.projectsEvaluated {
+    rootProject.project(':app').tasks.withType(Test).configureEach {
+        forkEvery = 1
+        maxParallelForks = 1
+    }
+}

@@ -1,0 +1,20 @@
+Success
+
+__SV_EXIT__0
+Success
+
+__SV_EXIT__0
+Captured 00-inactive-open-book
+Captured 01-bookmark-withdraws
+Captured 02-pages-turn
+Captured 03-third-page
+Captured 04-cross-rises-behind-book
+Captured 05-glow
+Captured 06-active-resting
+Captured 07-repeat-one-page
+Captured 08-leave-during-pages
+Captured 09-resumed-active
+PASS: bookmark/pages/cross/glow, repeat, rapid exit, catalog, 176-verse grid, lifecycle
+Images: /storage/emulated/0/Android/data/org.biblememory.app/files/bible-icon-check
+
+__SV_EXIT__0

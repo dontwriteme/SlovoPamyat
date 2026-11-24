@@ -1,0 +1,8 @@
+gradle.projectsEvaluated {
+    def app = rootProject.project(':app')
+    def source = app.findProperty('auditProbeDir')
+    if (source == null) {
+        throw new GradleException('Pass -PauditProbeDir with the path to the audit repro directory')
+    }
+    app.android.sourceSets.test.java.srcDir(new File(source))
+}

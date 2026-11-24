@@ -1,0 +1,16 @@
+scenario,unit,local_9683baa,published_5baddb9
+galatians_149_home_render_layout_first,ms,270.877741,109.437170
+galatians_149_home_render_layout_first,readQuery_calls,1052,10
+galatians_149_home_render_layout_second,ms,169.104097,62.948367
+galatians_149_home_render_layout_second,readQuery_calls,1046,4
+galatians_149_memory_preparation,ms,51.361094,1.162179
+galatians_149_memory_preparation,readQuery_calls,449,2
+galatians_1_progress_24_verses,ms,22.429909,76.562196
+galatians_1_progress_24_verses,readQuery_calls,289,193
+esther_8_9_assembly_open_with_layout,ms,63.391352,59.899259
+esther_8_9_assembly_taps_p50,ms,4.179835,3.022441
+esther_8_9_assembly_taps_p95,ms,7.400897,9.265177
+esther_8_9_assembly_taps_max,ms,12.364424,10.995702
+esther_8_9_correct_tiles,count,128,127
+esther_8_9_chunk_count,count,12,11
+esther_8_9_distinct_observed_reads_per_tile,readQuery_calls,5,0/2
