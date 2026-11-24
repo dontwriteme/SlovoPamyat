@@ -166,9 +166,9 @@ public class RecallAtomicityTest {
         check.performClick();
         assertEquals(before,snapshot());
         assertEquals(draftSession,session.getAll());
-        assertEquals(WRONG,get("draft"));
+        assertEquals(WRONG,((LessonWritingState)get("lessonWriting")).draft);
         assertNull(get("answerReview"));
-        assertEquals(false,get("lessonWriteHadFeedback"));
+        assertEquals(false,((LessonWritingState)get("lessonWriting")).hadFeedback);
         assertEquals(-1,get("lastAccuracy"));
         assertEquals(-1,get("weakVerse"));
         assertEquals(-1,get("weakTransitionFrom"));
@@ -178,7 +178,7 @@ public class RecallAtomicityTest {
         List<List<List<String>>> committed=snapshot();
         assertNotEquals(before,committed);
         assertNotNull(get("answerReview"));
-        assertEquals(true,get("lessonWriteHadFeedback"));
+        assertEquals(true,((LessonWritingState)get("lessonWriting")).hadFeedback);
         assertEquals(1,store.recentFailures(id,"VERSE",0,1));
         assertEquals(2,rows("review_attempts").size());
         assertEquals("",session.getString("review_draft",""));
@@ -190,7 +190,7 @@ public class RecallAtomicityTest {
         long id=add(VERSE);
         store.finishExercise(id,0,4);
         call("openTraining",long.class,id);
-        set("lessonWriteVariant",Integer.MAX_VALUE);
+        ((LessonWritingState)get("lessonWriting")).variant=Integer.MAX_VALUE;
         render();
         TextView check=submit(WRONG);
         List<List<List<String>>> before=snapshot();
@@ -218,7 +218,7 @@ public class RecallAtomicityTest {
         // Open the full writing variant of a group whose introduction and assembly are complete.
         set("groupIntroDone",true);
         set("groupBuildDone",true);
-        set("lessonWriteVariant",Integer.MAX_VALUE);
+        ((LessonWritingState)get("lessonWriting")).variant=Integer.MAX_VALUE;
         render();
         String answer=VERSE+" "+WRONG_SECOND+" "+THIRD;
         TextView check=submit(answer);
@@ -235,7 +235,7 @@ public class RecallAtomicityTest {
             refuse(failure[0],failure[1],failure[2]);
             assertUnchangedOnFailure(check,answer,before);
             assertNull(get("answerReview"));
-            assertEquals(false,get("lessonWriteHadFeedback"));
+            assertEquals(false,((LessonWritingState)get("lessonWriting")).hadFeedback);
             allow();
         }
         check.performClick();
@@ -323,19 +323,19 @@ public class RecallAtomicityTest {
         store.commitSuccessfulRecall(id,"VERSE",0,1,false,true,FIRST_ATTEMPT);
         openReview(id,"VERSE",1);
         // Model a correction while feedback is still attributed to the current answer.
-        set("lessonWriteHadFeedback",true);
+        ((LessonWritingState)get("lessonWriting")).hadFeedback=true;
         TextView check=submit(VERSE);
         List<List<List<String>>> before=snapshot();
         refuse("recall_activity","INSERT");
         assertUnchangedOnFailure(check,VERSE,before);
-        assertEquals(true,get("lessonWriteHadFeedback"));
+        assertEquals(true,((LessonWritingState)get("lessonWriting")).hadFeedback);
         assertEquals(false,get("passed"));
         allow();
 
         check.performClick();
         assertEquals(false,get("passed"));
-        assertEquals(false,get("lessonWriteHadFeedback"));
-        assertEquals("",get("draft"));
+        assertEquals(false,((LessonWritingState)get("lessonWriting")).hadFeedback);
+        assertEquals("",((LessonWritingState)get("lessonWriting")).draft);
         assertEquals(before.get(2),rows("review_attempts"));
         assertEquals(before.get(3),rows("review_schedule"));
         List<String> recall=rows("recall_activity").get(0);
