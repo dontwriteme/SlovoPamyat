@@ -254,7 +254,8 @@ public class LessonHotbarIntegrationTest {
         assertSame(passage,get("activePassage"));
         assertEquals(0xFF553722,passage.getCurrentTextColor());
         assertNotNull(panel.getBackground());
-        assertNotNull(hide.getCompoundDrawablesRelative()[0]);
+        assertNull(hide.getCompoundDrawablesRelative()[0]);
+        assertNotNull(hide.getCompoundDrawablesRelative()[2]);
         assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
             ((android.graphics.drawable.GradientDrawable)next.getBackground()).getColors());
         layoutIntro(root,320);
