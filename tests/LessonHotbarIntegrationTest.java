@@ -302,9 +302,8 @@ public class LessonHotbarIntegrationTest {
         assertEquals(0,review.totals[0]);assertEquals(0,review.totals[1]);assertEquals(review.totals[2],review.total);
     }
     @Test public void stripFitsNarrowScreenAndRetainsTalkBackCountsForManyTasks()throws Exception{
-        Class<?> type=Class.forName("org.biblememory.app.MainActivity$LessonSegmentedBar");
-        Constructor<?> constructor=type.getDeclaredConstructor(MainActivity.class,LessonHotbarLogic.Model.class);constructor.setAccessible(true);
-        View strip=(View)constructor.newInstance(activity,LessonHotbarLogic.calculate(0,1,1000,3,0,0,0,false));
+        View strip=new LessonProgressView.LessonSegmentedBar(activity,new ScreenUi(activity),
+            LessonHotbarLogic.calculate(0,1,1000,3,0,0,0,false));
         strip.measure(View.MeasureSpec.makeMeasureSpec(240,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(7,View.MeasureSpec.EXACTLY));strip.layout(0,0,240,7);
         assertEquals(240,strip.getWidth());assertEquals(7,strip.getHeight());assertTrue(strip.getContentDescription().toString().contains("1004"));
         ViewGroup progress=((View)get("root")).findViewWithTag("lesson-progress");

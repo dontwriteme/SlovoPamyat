@@ -5,14 +5,8 @@ import android.os.*;
 import android.content.*;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.text.style.ForegroundColorSpan;
-import android.text.SpannableString;
 import android.graphics.Canvas;
 import android.graphics.Path;
-import android.graphics.PathMeasure;
-import android.graphics.RadialGradient;
-import android.graphics.LinearGradient;
-import android.graphics.Shader;
 import android.animation.ValueAnimator;
 import android.view.animation.DecelerateInterpolator;
 import android.graphics.Paint;
@@ -35,6 +29,9 @@ import static org.biblememory.app.ScreenUi.*;
 /** Bright, entirely native Android UI with zero runtime dependencies. */
 public final class MainActivity extends Activity {
     private final ScreenUi ui = new ScreenUi(this);
+    private final LessonScreenView lessonScreen=new LessonScreenView(this,ui);
+    private final LessonCompletionView lessonCompletion=new LessonCompletionView(this,ui);
+    private final LessonProgressView lessonProgress=new LessonProgressView(this,ui);
     private final LessonReadingView readingView=new LessonReadingView(this,ui);
     private final ScreenMenus menus = new ScreenMenus(ui);
     private final ModeInfoPopover modeInfo = new ModeInfoPopover(ui);
@@ -100,7 +97,6 @@ public final class MainActivity extends Activity {
     // recomputing all three layouts on each tile tap stalls the UI thread.
     private String savedAssemblyFingerprint="";
     // Presentation only: one adaptive strip, independent of text/answer Views.
-    private LessonSegmentedBar lessonHotbarStrip;
 
     private int weakVerse=-1,weakTransitionFrom=-1;
     // One selection model shared by tapping verses and the chapter/verse range picker.
@@ -673,6 +669,7 @@ public final class MainActivity extends Activity {
         readingView.clear();
         assemblyView.clear();
         writingView.clear();
+        lessonProgress.clear();
         if(backupInProgress)return;
         if(screen!=Screen.HOME)lessonWaitingForBible=null;
         boolean collectionWasLoading=collectionDetailLoading;
@@ -3362,19 +3359,12 @@ public final class MainActivity extends Activity {
         answerReview=null;
         trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;
     }
-    /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderUnlearnableLine(LocalStore.Entry entry,int invalidLine){
-        root=ui.column();root.setBackground(ui.pageBackground());
-        root.setPadding(ui.dp(22),ui.dp(24),ui.dp(22),ui.dp(24));
         currentScroller=null;
-        LinearLayout panel=ui.card(root);
-        ui.add(panel,ui.displayText("Текст требует исправления",22),0);
-        ui.helper(panel,CustomStudyText.message(invalidLine)+". Исправь строку, чтобы продолжить обучение.");
-        ui.action(panel,"Изменить текст",true,()->{
+        root=lessonScreen.invalidLine(invalidLine,()->{
             onBackPressed();
             editCustomStudyEntry(entry);
-        });
-        ui.action(panel,"Выйти из урока",false,this::onBackPressed);
+        },this::onBackPressed);
         setContentView(root);
     }
 
@@ -3396,59 +3386,16 @@ public final class MainActivity extends Activity {
         int invalidLine=CustomStudyText.firstUnlearnable(e.lines(),activeStep.start,activeStep.end);
         if(invalidLine>=0){renderUnlearnableLine(e,invalidLine);return;}
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
-        root=ui.column();root.setBackground(assembling?assemblyView.background():ui.pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        LinearLayout top=ui.column();top.setPadding(ui.dp(22),ui.dp(15),ui.dp(22),ui.dp(6));
-        LinearLayout topRow=ui.row();
-        TextView close=ui.txt("×",30,WHITE,false);close.setGravity(Gravity.CENTER);
-        close.setContentDescription("Выйти из урока");
-        close.setOnClickListener(v->onBackPressed());
-        // SV_DEVELOPER_MODE_UPDATE_1: long-press the close icon for debugging.
-        close.setOnLongClickListener(v->{
-            final int bookId=bookForEntry(e);
-            DeveloperModeController.open(this,e,
-                chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
-                store.masteryCount(e.id));
-            return true;
-        });
-        topRow.addView(close,new LinearLayout.LayoutParams(ui.dp(45),ui.dp(45)));
-        if(assembling){
-            close.setTextColor(LessonAssemblyView.BUILD_INK);
-            close.setBackground(ui.outlined(0xFFFFF1E2,24,0xFFFFF9F0));
-            close.setElevation(ui.dp(2));
-            TextView title=ui.displayText("Сборка",27);
-            title.setTextColor(LessonAssemblyView.BUILD_INK);
-            title.setGravity(Gravity.CENTER);
-            topRow.setGravity(Gravity.CENTER_VERTICAL);
-            topRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-            if(!DeveloperModeController.isEnabled(this))
-                topRow.addView(new View(this),new LinearLayout.LayoutParams(ui.dp(45),ui.dp(45)));
-        }else topRow.addView(new View(this),new LinearLayout.LayoutParams(0,ui.dp(45),1));
-        if(DeveloperModeController.isEnabled(this)){
-            TextView devButton=ui.txt("DEV",12,GREEN,true);
-            devButton.setGravity(Gravity.CENTER);
-            devButton.setContentDescription("Открыть режим разработчика");
-            devButton.setOnClickListener(v->{
-                final int bookId=bookForEntry(e);
-                DeveloperModeController.open(this,e,
-                    chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
-                    store.masteryCount(e.id));
-            });
-            topRow.addView(devButton,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(45)));
-        }
-        top.addView(topRow);
-        lessonHotbarStrip=null;
-        root.addView(top,new LinearLayout.LayoutParams(-1,-2));
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
-        scroll.setClipToPadding(false);currentScroller=scroll;
-        content=ui.column();content.setPadding(ui.dp(20),ui.dp(11),ui.dp(20),ui.dp(18));scroll.addView(content);
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        LessonScreenView.Parts parts=lessonScreen.create(assembling?assemblyView.background():ui.pageBackground(),
+            assembling,DeveloperModeController.isEnabled(this),this::onBackPressed,()->openLessonDeveloper(e));
+        root=parts.root();content=parts.content();currentScroller=parts.scroll();
         TextView mainAction;
-        int number=stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
             lessonPhaseHeader("Ознакомление",e);
             renderLessonIntro();
             mainAction=ui.button("Продолжить",true,()->{
+                if(root!=parts.root()||screen!=Screen.TRAIN)return;
                 if(groupMode)groupIntroDone=true;
                 else store.finishExercise(e.id,activeStep.start,1);
                 lessonVariant=0;lessonChunk=0;lessonWriting.variant=0;resetLessonTiles();mask=0;
@@ -3459,30 +3406,34 @@ public final class MainActivity extends Activity {
             assemblyView.reference(content,lessonFullReference(e));
             boolean complete=renderLessonBuild(e);
             mainAction=ui.button("Продолжить",true,()->{
-                if(lessonAssembly.picked()>=assemblyView.required())advanceLessonBuild(e);
+                if(root==parts.root()&&screen==Screen.TRAIN&&lessonAssembly.picked()>=assemblyView.required())
+                    advanceLessonBuild(e);
             });
             assemblyView.installAction(mainAction,complete);
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
                 answerReviewView.render(content,answerReview.expected,answerReview.result);
-                mainAction=ui.button("Написать ещё раз",true,this::retryLessonWriting);
+                mainAction=ui.button("Написать ещё раз",true,()->{if(root==parts.root())retryLessonWriting();});
             }else{
                 lessonPhaseHeader("Написание",e);
                 renderLessonWriting();
-                mainAction=ui.button("Проверить",true,()->validateLessonWriting(e));
+                mainAction=ui.button("Проверить",true,()->{if(root==parts.root())validateLessonWriting(e);});
             }
         } else {
             renderCompletion(e);
             return;
         }
-        renderLessonHotbar(top,phase,e);
-        LinearLayout footer=ui.column();footer.setPadding(ui.dp(24),ui.dp(12),ui.dp(24),ui.dp(22));
-        ui.animateLessonPress(mainAction);
-        mainAction.setMinimumHeight(ui.dp(58));
-        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,assembling||answerReview!=null?-2:ui.dp(58)));
-        root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+        lessonProgress.render(parts.top(),lessonHotbarModel(phase,e));
+        lessonScreen.footer(root,mainAction,assembling||answerReview!=null);
         setContentView(root);
+    }
+
+    private void openLessonDeveloper(LocalStore.Entry entry){
+        int book=bookForEntry(entry);
+        DeveloperModeController.open(this,entry,
+            chapter->book>0&&bible.isReady()?bible.chapter(book,chapter).size():0,
+            store.masteryCount(entry.id));
     }
 
     private String lessonFullReference(LocalStore.Entry e){
@@ -3497,97 +3448,17 @@ public final class MainActivity extends Activity {
                 Integer.parseInt(last[0]),Integer.parseInt(last[1]));
         }catch(Exception ex){return e.reference;}
     }
-    /** Celebratory page: the approved crown/check composition in the same warm scenic UI. */
     private void renderCompletion(LocalStore.Entry e){
-        root=ui.column();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
-        FrameLayout scenery=new FrameLayout(this);
-        ImageView image=new ImageView(this);
-        image.setImageResource(artwork.landscapeFor(e.id));
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        scenery.addView(image,new FrameLayout.LayoutParams(-1,-1));
-        View haze=new View(this);
-        haze.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0xFFFFF2E9,0xFEFFF0E6,0xDFFFF0E5,0x7DFFF0E4,0x77FFF0E4}));
-        scenery.addView(haze,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout central=ui.column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
-        central.setPadding(ui.dp(16),ui.dp(16),ui.dp(16),ui.dp(12));
-        root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
-        TextView crown=ui.txt("👑",34,GOLD,true);crown.setGravity(Gravity.CENTER);
-        central.addView(crown,new LinearLayout.LayoutParams(ui.dp(75),ui.dp(65)));
-        TextView reference=ui.displayText(lessonFullReference(e),21);
-        reference.setGravity(Gravity.CENTER);reference.setPadding(ui.dp(14),ui.dp(6),ui.dp(14),ui.dp(6));
-        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,-2);
-        rp.topMargin=ui.dp(12);central.addView(reference,rp);
-        TextView heading=ui.displayText(groupMode?"Связка освоена!":"Стих освоен!",38);
-        heading.setGravity(Gravity.CENTER);heading.setTextColor(0xFF35452E);
-        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
-        hp.topMargin=ui.dp(14);central.addView(heading,hp);
-        SuccessArt art=new SuccessArt();
-        int availableArt=Math.min(270,Math.max(140,
-            Math.round(getResources().getDisplayMetrics().heightPixels /
-                getResources().getDisplayMetrics().density)-410));
-        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,ui.dp(availableArt));
-        ap.topMargin=ui.dp(10);central.addView(art,ap);
-        LinearLayout footer=ui.column();footer.setPadding(ui.dp(24),ui.dp(14),ui.dp(24),ui.dp(25));
         ReviewSession.Exercise review=reviewSession.current();
-        TextView continueButton=ui.button("Продолжить",true,()->{
-            if(review!=null&&(screen!=Screen.TRAIN||reviewSession.current()!=review||!checked||!passed))return;
-            advanceAfterSuccess(e);
-        });
-        ui.animateLessonPress(continueButton);
-        continueButton.setTextSize(20);
-        footer.addView(continueButton,new LinearLayout.LayoutParams(-1,ui.dp(61)));
-        root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
-        scenery.addView(root,new FrameLayout.LayoutParams(-1,-1));
-        setContentView(scenery);
-        reference.setAlpha(0f);heading.setAlpha(0f);
-        if(ValueAnimator.areAnimatorsEnabled()){
-            reference.animate().alpha(1f).setDuration(170).start();
-            heading.animate().alpha(1f).setStartDelay(140).setDuration(180).start();
-            art.start();
-        }else{reference.setAlpha(1f);heading.setAlpha(1f);art.setFinished();}
-    }
-    private final class SuccessArt extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float reveal=0f;
-        SuccessArt(){super(MainActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
-        void start(){ValueAnimator animator=ValueAnimator.ofFloat(0f,1f);
-            animator.setStartDelay(270);animator.setDuration(670);
-            animator.addUpdateListener(a->{reveal=(float)a.getAnimatedValue();invalidate();});animator.start();}
-        void setFinished(){reveal=1f;invalidate();}
-        @Override protected void onDraw(Canvas c){
-            super.onDraw(c);float scale=Math.min(getWidth()/350f,getHeight()/300f);
-            float cx=getWidth()/2f,cy=getHeight()/2f;
-            c.save();c.translate(cx,cy);c.scale(scale,scale);
-            paint.setShader(new RadialGradient(0,0,145,new int[]{0xAA6BB37B,0x5567A86E,0x00FFF0E5},null,Shader.TileMode.CLAMP));
-            c.drawCircle(0,0,145,paint);paint.setShader(null);
-            paint.setColor(0x444ED383);c.drawCircle(0,0,105,paint);
-            paint.setShader(new LinearGradient(-84,-90,80,94,0xFFB9D47A,0xFF4E9464,Shader.TileMode.CLAMP));
-            c.drawCircle(0,0,91,paint);paint.setShader(null);
-            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2.3f);
-            paint.setColor(0xFFB1FAC7);c.drawCircle(0,0,90,paint);
-            paint.setStrokeWidth(13f);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setColor(Color.WHITE);
-            Path tick=new Path();tick.moveTo(-36,0);tick.lineTo(-10,25);tick.lineTo(44,-33);
-            Path partial=new Path();PathMeasure pm=new PathMeasure(tick,false);
-            pm.getSegment(0,pm.getLength()*Math.max(0,reveal),partial,true);c.drawPath(partial,paint);
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFFFFD565);
-            sparkle(c,-113,-85,13);sparkle(c,116,78,12);sparkle(c,-139,-36,7);
-            paint.setColor(0xFF7CF3AB);
-            for(int i=0;i<3;i++){
-                c.save();c.rotate(-22+i*20,-130,60);c.drawRoundRect(-133,45+i*15,-128,60+i*15,2,2,paint);c.restore();
-                c.save();c.rotate(-15+i*20,120,-70);c.drawRoundRect(118,-104+i*17,123,-86+i*17,2,2,paint);c.restore();
-            }
-            c.restore();
-        }
-        private void sparkle(Canvas c,float x,float y,float r){
-            Path p=new Path();p.moveTo(x,y-r);p.quadTo(x+r*.18f,y-r*.2f,x+r,y);
-            p.quadTo(x+r*.2f,y+r*.18f,x,y+r);p.quadTo(x-r*.18f,y+r*.18f,x-r,y);
-            p.quadTo(x-r*.2f,y-r*.2f,x,y-r);c.drawPath(p,paint);
-        }
+        LessonCompletionView.Page page=lessonCompletion.create(artwork.landscapeFor(e.id),lessonFullReference(e),groupMode,
+            ()->{
+                if(review!=null&&(screen!=Screen.TRAIN||reviewSession.current()!=review||!checked||!passed))return;
+                advanceAfterSuccess(e);
+            });
+        root=page.root();
+        setContentView(page.scenery());
+        page.animate().run();
     }
     private void advanceAfterSuccess(LocalStore.Entry e){
         if(reviewSession.active()){
@@ -3662,96 +3533,8 @@ public final class MainActivity extends Activity {
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
             state.introDone(),buildDone,lessonWriting.variant,state.writingOnly());
     }
-    /** Use the same compact phase-based progress strip throughout the lesson. */
-    private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
-                                     LocalStore.Entry e){
-        LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
-        LinearLayout bar=ui.column();bar.setTag("lesson-progress");
-        lessonHotbarStrip=new LessonSegmentedBar(model);
-        lessonHotbarStrip.setTag("lesson-progress-strip");
-        bar.setBackground(ui.shape(0xBFFFF8EE,12));
-        bar.setPadding(ui.dp(4),ui.dp(3),ui.dp(4),ui.dp(3));
-        bar.addView(lessonHotbarStrip,new LinearLayout.LayoutParams(-1,ui.dp(9)));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(ui.dp(190),-2);
-        lp.gravity=Gravity.CENTER_HORIZONTAL;
-        lp.topMargin=ui.dp(8);
-        top.addView(bar,lp);
-    }
-
-    /** One segment per scheduled phase; each fills according to its completed tasks. */
-    private final class LessonSegmentedBar extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private LessonHotbarLogic.Model model;
-        private final float[] fill=new float[3];
-        private ValueAnimator fillAnimator;
-        LessonSegmentedBar(LessonHotbarLogic.Model model){
-            super(MainActivity.this);
-            setModel(model);
-            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        }
-        void setModel(LessonHotbarLogic.Model value){
-            if(model==null||!Arrays.equals(value.finished,model.finished)||
-                    !Arrays.equals(value.totals,model.totals)){
-                if(fillAnimator!=null)fillAnimator.cancel();
-                float[] target=new float[3];
-                for(int i=0;i<3;i++)if(value.totals[i]>0)target[i]=value.finished[i]/(float)value.totals[i];
-                if(model!=null&&isAttachedToWindow()&&ValueAnimator.areAnimatorsEnabled()){
-                    float[] start=fill.clone();
-                    fillAnimator=ValueAnimator.ofFloat(0f,1f);
-                    fillAnimator.setDuration(190);
-                    fillAnimator.setInterpolator(new DecelerateInterpolator());
-                    fillAnimator.addUpdateListener(animation->{
-                        float fraction=(float)animation.getAnimatedValue();
-                        for(int i=0;i<3;i++)fill[i]=start[i]+(target[i]-start[i])*fraction;
-                        invalidate();
-                    });
-                    fillAnimator.start();
-                }else System.arraycopy(target,0,fill,0,fill.length);
-            }
-            model=value;
-            String[] names={"Читай","Собери","Напиши"};
-            setContentDescription(names[model.activePhase]+". Текущее задание "+model.currentNumber+
-                " из "+model.total+". Выполнено "+model.completedCount+" из "+model.total);
-            invalidate();
-        }
-        @Override protected void onDraw(Canvas canvas){
-            super.onDraw(canvas);
-            if(model.total<=0||getWidth()<=0)return;
-            drawLessonPhases(canvas);
-        }
-        private void drawLessonPhases(Canvas canvas){
-            int groups=0;
-            for(int total:model.totals)if(total>0)groups++;
-            if(groups==0)return;
-            float gap=ui.dp(4),width=(getWidth()-gap*(groups-1))/groups;
-            if(width<=0)return;
-            float radius=getHeight()/2f,left=0f;
-            for(int i=0;i<3;i++){
-                if(model.totals[i]==0)continue;
-                paint.setColor(0xFFD2C5B7);
-                canvas.drawRoundRect(left,0,left+width,getHeight(),radius,radius,paint);
-                if(fill[i]>0f){
-                    paint.setColor(0xFF648C3C);
-                    canvas.drawRoundRect(left,0,left+width*fill[i],getHeight(),radius,radius,paint);
-                }
-                left+=width+gap;
-            }
-        }
-        @Override protected void onDetachedFromWindow(){
-            if(fillAnimator!=null)fillAnimator.cancel();
-            super.onDetachedFromWindow();
-        }
-        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info){
-            super.onInitializeAccessibilityNodeInfo(info);
-            info.setClassName(android.widget.ProgressBar.class.getName());
-            if(model.total>0)info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
-                android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,0,model.total,model.completedCount));
-        }
-    }
-    /** Refresh progress without changing exercise state or rendering captions. */
     private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
-        if(lessonHotbarStrip==null)return;
-        lessonHotbarStrip.setModel(lessonHotbarModel(phase,e));
+        if(lessonProgress.visible())lessonProgress.update(lessonHotbarModel(phase,e));
     }
     private LessonStageFlow.State lessonStageState(LocalStore.Entry e){
         return new LessonStageFlow.State(studyStage,groupMode?0:store.exerciseDone(e.id,activeStep.start),
@@ -3761,22 +3544,8 @@ public final class MainActivity extends Activity {
         return lessonStageState(e).phase();
     }
     private void lessonPhaseHeader(String stage,LocalStore.Entry e){
-        TextView pill=ui.txt(stage,15,0xFFAA563F,true);
-        pill.setGravity(Gravity.CENTER);
-        pill.setPadding(ui.dp(17),ui.dp(8),ui.dp(17),ui.dp(8));
-        pill.setBackground(ui.shape(0xFFF9E1D2,24));
-        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-2,-2);
-        pp.gravity=Gravity.CENTER_HORIZONTAL;pp.topMargin=ui.dp(9);
-        content.addView(pill,pp);
-        addLessonReference(e);
-    }
-    private void addLessonReference(LocalStore.Entry e){
-        String ref=lessonFullReference(e);
         int book=bookForEntry(e);
-        int ink=book<1?GREEN:ui.bookInk(book);
-        TextView cite=ui.displayText(ref,20);
-        cite.setTextColor(ink);cite.setGravity(Gravity.CENTER);
-        ui.add(content,cite,17);
+        lessonScreen.phaseHeader(content,stage,lessonFullReference(e),book<1?GREEN:ui.bookInk(book));
     }
 
     private void renderLessonIntro(){
@@ -4419,6 +4188,7 @@ public final class MainActivity extends Activity {
         readingView.clear();
         assemblyView.clear();
         writingView.clear();
+        lessonProgress.clear();
         writingWorker.close();
         BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
