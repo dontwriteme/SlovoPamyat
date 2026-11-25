@@ -59,16 +59,19 @@ public class SessionLifecycleRegressionTest {
         call("activateUnified",new Class<?>[]{long.class},u.id);
         invoke("startActiveRun");
         assertEquals("RUN",get("screen").toString());
-        String oldFingerprint=(String)get("runMaterialFingerprint");
-        set("runDraft","Первый стих");invoke("saveRunSession");
+        String oldFingerprint=activity.getSharedPreferences("unified_library_ui",0)
+            .getString("writing_run_"+u.id+"_fingerprint","");
+        ((KnowledgeCheckSession)get("knowledgeCheck")).edit("Первый стих");
         activity.onBackPressed();
         store.clearUnifiedCollection(u.id);
         long next=add(u,"Матфея 1:1","Другой стих");consolidate(next);
         invoke("startActiveRun");
         assertEquals("RUN",get("screen").toString());
-        assertNotEquals(oldFingerprint,get("runMaterialFingerprint"));
-        assertEquals("",get("runDraft"));assertEquals(0,get("runCursor"));
-        assertEquals(0,get("runCorrect"));
+        assertNotEquals(oldFingerprint,activity.getSharedPreferences("unified_library_ui",0)
+            .getString("writing_run_"+u.id+"_fingerprint",""));
+        KnowledgeCheckSession run=(KnowledgeCheckSession)get("knowledgeCheck");
+        assertEquals("",run.task().draft());assertEquals(0,run.task().position());
+        assertEquals(0,run.result().correct());
         assertTrue(store.isStepMastered(old,"VERSE",0,1));
     }
 
@@ -484,9 +487,9 @@ public class SessionLifecycleRegressionTest {
         for(int i=0;i<80;i++)consolidate(add(u,"Свой текст "+i,"Строка "+i));
         store.collectionProgress();
         long before=store.readQueryCount();
-        call("buildRunLines",new Class<?>[]{LocalStore.UnifiedCollection.class},u);
+        List<KnowledgeCheckSession.Question> questions=KnowledgeCheckMaterial.questions(store.collectionProgress(),u.groupId);
         long queries=store.readQueryCount()-before;
-        assertEquals(80,((List<?>)get("runLines")).size());
+        assertEquals(80,questions.size());
         assertTrue("Unexpected per-verse SQL queries: "+queries,queries<=3);
     }
 }

@@ -52,19 +52,8 @@ public final class MainActivity extends Activity {
     private long activeUnifiedId=-1,openUnifiedId=-1;
     private boolean cardFromUnified=false;
     private long reviewCollectionGroup=-1;
-    private static final class RunLine {
-        final long entryId;final int position;final String reference,text;
-        RunLine(long entryId,int position,String reference,String text){
-            this.entryId=entryId;this.position=position;this.reference=reference;this.text=text;
-        }
-    }
-    private final List<RunLine> runLines=new ArrayList<>();
-    private long runCollectionId=-1;
-    private String runMaterialFingerprint="";
-    private int runCursor=0,runCorrect=0;
-    private final List<String> runMistakes=new ArrayList<>();
-    private String runDraft="";
-    private boolean runChecked=false,runPassed=false;
+    private KnowledgeCheckSession knowledgeCheck;
+    private final KnowledgeCheckView knowledgeCheckView = new KnowledgeCheckView(ui);
 
     private LocalStore store;
     private final Bible bible=Bible.shared();
@@ -488,6 +477,7 @@ public final class MainActivity extends Activity {
                 .setCancelable(false).setPositiveButton("Закрыть",(d,w)->finish()).show();
             return;
         }
+        knowledgeCheck = new KnowledgeCheckSession(getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE));
         activeUnifiedId=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).getLong("active",-1);
         ensureActiveUnified();
         restoreCollectionQueue();
@@ -628,7 +618,7 @@ public final class MainActivity extends Activity {
         revealCleanup.run();
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)saveCardSession();
-        if(screen==Screen.RUN)saveRunSession();
+        if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
         homeHandler.removeCallbacks(homeTicker);
         super.onPause();
@@ -670,7 +660,7 @@ public final class MainActivity extends Activity {
                 openedCollectionBook=null;openedBookProgress=null;
                 screen=Screen.COLLECTION_DETAIL;render();break;
             case COLLECTION_CHAPTER:screen=Screen.COLLECTION_BOOK;render();break;
-            case RUN:saveRunSession();screen=Screen.HOME;render();break;
+            case RUN:knowledgeCheck.save();screen=Screen.HOME;render();break;
             case RUN_SUMMARY:screen=Screen.HOME;render();break;
             case CARD_DECK:screen=Screen.CARDS;render();break;
             case CARD_PICK:screen=Screen.CARD_DECK;render();break;
@@ -4926,17 +4916,6 @@ public final class MainActivity extends Activity {
         if(tapped!=null){tv.setClickable(true);tv.setFocusable(true);tv.setOnClickListener(v->tapped.run());}
         return tv;
     }
-    private TextView typedFeedback(String expected,String actual){
-        android.text.SpannableStringBuilder annotated=new android.text.SpannableStringBuilder();
-        for(TypingDiffLogic.Piece part:TypingDiffLogic.compare(expected,actual)){
-            String fragment=part.kind==TypingDiffLogic.Kind.MISSING?"⟨пропуск: "+part.text+"⟩":part.text;
-            int start=annotated.length();annotated.append(fragment);
-            if(part.kind!=TypingDiffLogic.Kind.CORRECT)
-                annotated.setSpan(new ForegroundColorSpan(RED),start,annotated.length(),
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
-        TextView tv=ui.txt("",17,WHITE,false);tv.setText(annotated);return tv;
-    }
     private int bookForEntry(LocalStore.Entry e){
         if(e==null||e.reference==null)return -1;
         for(int n=1;n<=66;n++)if(e.reference.startsWith(Bible.NAMES[n-1]+" "))return n;
@@ -6328,7 +6307,7 @@ public final class MainActivity extends Activity {
             List<Bible.Verse> lines=snapshot.verses(e.id);
             int book=bookForEntry(e);
             for(int i=0;i<lines.size();i++){
-                if(!seenVerses.add(verseIdentity(e,book,i,lines.get(i))))continue;
+                if(!seenVerses.add(KnowledgeCheckMaterial.identity(e,book,i,lines.get(i))))continue;
                 verses++;
                 if(snapshot.exerciseDone(e.id,i)>=5)learned++;
             }
@@ -6520,10 +6499,8 @@ public final class MainActivity extends Activity {
                     executingCollectionQueue=false;collectionQueueNewStep=false;
                     cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                     reviewQueue.clear();reviewPointer=0;reviewMode=false;
-                    runLines.clear();runMistakes.clear();runCursor=0;runCorrect=0;
-                    runCollectionId=-1;runMaterialFingerprint="";
+                    knowledgeCheck.clear();
                     savedAssemblyFingerprint="";lessonChunkCache.clear();lessonChunkCacheKey="";
-                    runDraft="";runChecked=false;runPassed=false;
                     lessonWriting.draft="";checked=false;passed=false;answerReview=null;
                     lessonWriting.hadFeedback=false;lessonPracticeAgain=false;
                     readyTabs.clear();savedScrollY.clear();
@@ -6620,14 +6597,8 @@ public final class MainActivity extends Activity {
                 "Отменить очистку нельзя.")
             .setPositiveButton("Очистить",(d,w)->{
                 store.clearUnifiedCollection(u.id);
-                String run=runKey(u.id);
-                getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-                    .remove("run_history_"+u.id).remove(run+"active")
-                    .remove(run+"cursor").remove(run+"correct")
-                    .remove(run+"draft").remove(run+"checked")
-                    .remove(run+"passed").remove(run+"missed").remove(run+"fingerprint").apply();
+                knowledgeCheck.clearCollection(u.id,true);
                 if(collectionQueueGroup==u.groupId)clearCollectionQueue();
-                if(runCollectionId==u.id){runLines.clear();runCollectionId=-1;}
                 render();toast("Коллекция очищена");
             }).setNegativeButton("Отмена",null).create());
     }
@@ -6652,7 +6623,7 @@ public final class MainActivity extends Activity {
                 runCollectionMutation(()->collectionStore.deleteUnifiedCollection(u.id),success->{
                     if(!success)return;
                     if(collectionQueueGroup==u.groupId)clearCollectionQueue();
-                    clearRunState(u.id);
+                    knowledgeCheck.clearCollection(u.id,false);
                     ensureActiveUnified();
                     if(screen==origin&&(origin!=Screen.COLLECTION_DETAIL||openUnifiedId==u.id)){
                         screen=Screen.COLLECTIONS;render();
@@ -6664,7 +6635,7 @@ public final class MainActivity extends Activity {
                     if(queue.getLong("group",-1)==u.groupId)queue.edit().clear().apply();
                     SharedPreferences library=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
                     if(library.getLong("active",-1)==u.id)library.edit().remove("active").apply();
-                    clearRunState(u.id);
+                    knowledgeCheck.clearCollection(u.id,false);
                 });
             }).setNegativeButton("Отмена",null).create());
     }
@@ -6814,35 +6785,11 @@ public final class MainActivity extends Activity {
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
     }
 
-    // ===== Independent writing run: diagnostic only, never modifies lesson/review tables. =====
-    private String runKey(long collection){return "writing_run_"+collection+"_";}
-    private static List<String> verseIdentity(LocalStore.Entry e,int book,int position,Bible.Verse line){
-        return book>0?Arrays.asList("bible",Integer.toString(book),line.ref,line.text):
-            Arrays.asList("custom",Long.toString(e.id),Integer.toString(position));
-    }
-    private void buildRunLines(LocalStore.UnifiedCollection u){
-        runLines.clear();
-        // A transactionally consistent snapshot replaces thousands of per-verse
-        // lookups and resolves shared progress across collections once.
-        CollectionProgressSnapshot snapshot=store.collectionProgress();
-        Set<List<String>> seen=new HashSet<>();
-        for(LocalStore.Entry e:snapshot.entries(u.groupId)){
-            int book=bookForEntry(e);
-            List<Bible.Verse> lines=snapshot.verses(e.id);
-            for(int i=0;i<lines.size();i++){
-                Bible.Verse line=lines.get(i);
-                List<String> key=verseIdentity(e,book,i,line);
-                if(!snapshot.verseConsolidated(e.id,i)||!seen.add(key))continue;
-                String reference=book>0?Bible.NAMES[book-1]+" "+line.ref:
-                    e.reference+(lines.size()>1?" · "+(i+1):"");
-                runLines.add(new RunLine(e.id,i,reference,line.text));
-            }
-        }
-    }
     private void startActiveRun(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null)return;
-        buildRunLines(u);
-        if(runLines.isEmpty()){
+        KnowledgeCheckSession.Availability available=knowledgeCheck.prepare(u.id,
+            KnowledgeCheckMaterial.questions(store.collectionProgress(),u.groupId));
+        if(available==KnowledgeCheckSession.Availability.EMPTY){
             if(store.entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
             ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Пока нет стихов для проверки памяти")
@@ -6852,170 +6799,47 @@ public final class MainActivity extends Activity {
                 .setNegativeButton("Закрыть",null).create());
             return;
         }
-        runCollectionId=u.id;
-        List<String> material=new ArrayList<>();
-        for(RunLine line:runLines){
-            material.add(Long.toString(line.entryId));
-            material.add(Integer.toString(line.position));
-            material.add(line.reference);material.add(line.text);
-        }
-        runMaterialFingerprint=SessionIntegrityLogic.fingerprint(material);
-        android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-        String key=runKey(u.id);
-        boolean active=p.getBoolean(key+"active",false);
-        if(active&&SessionIntegrityLogic.canResumeRun(p.getString(key+"fingerprint",""),
-                runMaterialFingerprint,p.getInt(key+"cursor",-1),p.getInt(key+"correct",-1),runLines.size())){
+        if(available==KnowledgeCheckSession.Availability.RESUME){
             ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Незавершённая проверка памяти")
                 .setMessage("Продолжить с сохранённого стиха или начать проверку заново?")
-                .setPositiveButton("Продолжить",(d,w)->{restoreRunSession();screen=Screen.RUN;render();})
-                .setNegativeButton("Сначала",(d,w)->{resetRun();screen=Screen.RUN;render();}).create());
+                .setPositiveButton("Продолжить",(d,w)->openKnowledgeCheck(true))
+                .setNegativeButton("Сначала",(d,w)->openKnowledgeCheck(false)).create());
         }else{
-            if(active)toast("Состав стихов изменился. Начинаем новую проверку.");
-            resetRun();screen=Screen.RUN;render();
+            if(available==KnowledgeCheckSession.Availability.CHANGED)
+                toast("Состав стихов изменился. Начинаем новую проверку.");
+            openKnowledgeCheck(false);
         }
     }
-    private void clearRunState(long collectionId){
-        android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-        android.content.SharedPreferences.Editor edit=p.edit();
-        String prefix=runKey(collectionId);
-        for(String key:p.getAll().keySet())if(key.startsWith(prefix))edit.remove(key);
-        edit.apply();
-        if(runCollectionId==collectionId){runLines.clear();runCollectionId=-1;runMaterialFingerprint="";}
+
+    private void openKnowledgeCheck(boolean resume){
+        if(resume)knowledgeCheck.restore();
+        else knowledgeCheck.restart();
+        screen=Screen.RUN;render();
     }
-    private void resetRun(){
-        runCursor=0;runCorrect=0;runMistakes.clear();runChecked=false;runPassed=false;runDraft="";
-        saveRunSession();
-    }
-    private void restoreRunSession(){
-        String key=runKey(runCollectionId);
-        android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-        runCursor=Math.min(Math.max(0,p.getInt(key+"cursor",0)),Math.max(0,runLines.size()-1));
-        runCorrect=p.getInt(key+"correct",0);
-        runDraft=p.getString(key+"draft","");
-        runChecked=p.getBoolean(key+"checked",false);
-        runPassed=p.getBoolean(key+"passed",false);
-        runMistakes.clear();
-        try{JSONArray arr=new JSONArray(p.getString(key+"missed","[]"));
-            for(int i=0;i<arr.length();i++)runMistakes.add(arr.getString(i));
-        }catch(Exception ignored){}
-    }
-    private void saveRunSession(){
-        if(runCollectionId<0||runLines.isEmpty())return;
-        String key=runKey(runCollectionId);
-        getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit()
-            .putBoolean(key+"active",true).putString(key+"fingerprint",runMaterialFingerprint)
-            .putInt(key+"cursor",runCursor)
-            .putInt(key+"correct",runCorrect).putString(key+"draft",runDraft)
-            .putBoolean(key+"checked",runChecked).putBoolean(key+"passed",runPassed)
-            .putString(key+"missed",new JSONArray(runMistakes).toString()).apply();
-    }
-    private void finishRunLine(){
-        if(runLines.isEmpty())return;
-        RunLine line=runLines.get(runCursor);
-        if(runChecked&&runPassed)runCorrect++;
-        else runMistakes.add(line.reference);
-        runCursor++;runDraft="";runChecked=false;runPassed=false;
-        if(runCursor>=runLines.size()){
-            saveCompletedRun();
-            screen=Screen.RUN_SUMMARY;render();
-        }else{saveRunSession();render();}
-    }
-    private void saveCompletedRun(){
-        try{
-            android.content.SharedPreferences p=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-            String historyKey="run_history_"+runCollectionId;
-            JSONArray history=new JSONArray(p.getString(historyKey,"[]"));
-            JSONObject result=new JSONObject();
-            result.put("timestamp",System.currentTimeMillis());
-            result.put("total",runLines.size());result.put("correct",runCorrect);
-            result.put("mistakes",new JSONArray(runMistakes));
-            JSONArray updated=new JSONArray();updated.put(result);
-            for(int i=0;i<Math.min(history.length(),19);i++)updated.put(history.getJSONObject(i));
-            // Commit the result and close its session together.
-            p.edit().putString(historyKey,updated.toString())
-                .remove(runKey(runCollectionId)+"active").apply();
-        }catch(JSONException error){
-            android.util.Log.e("MemoryRun","Unable to save result",error);
-            toast("Не удалось сохранить результат проверки");
-        }
-    }
+
     private void renderWritingRun(){
-        if(runLines.isEmpty()){screen=Screen.HOME;render();return;}
-        runCursor=Math.min(runCursor,runLines.size()-1);
-        RunLine line=runLines.get(runCursor);
-        root=ui.column();root.setBackground(ui.pageBackground());
+        KnowledgeCheckSession.Task task=knowledgeCheck.task();
+        if(task==null){screen=Screen.HOME;render();return;}
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        LinearLayout top=ui.row();top.setPadding(ui.dp(17),ui.dp(12),ui.dp(17),ui.dp(7));
-        TextView exit=ui.txt("×",30,WHITE,false);exit.setGravity(Gravity.CENTER);
-        exit.setContentDescription("Сохранить проверку памяти и выйти");
-        exit.setOnClickListener(v->onBackPressed());
-        top.addView(exit,new LinearLayout.LayoutParams(ui.dp(43),ui.dp(46)));
-        TextView count=ui.txt((runCursor+1)+" из "+runLines.size(),15,MUTED,true);
-        count.setGravity(Gravity.CENTER);
-        top.addView(count,new LinearLayout.LayoutParams(0,ui.dp(45),1));
-        root.addView(top,new LinearLayout.LayoutParams(-1,-2));
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
-        content=ui.column();content.setPadding(ui.dp(21),ui.dp(18),ui.dp(21),ui.dp(24));scroll.addView(content);
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        ui.progress(content,runCursor,runLines.size());
-        TextView heading=ui.displayText(line.reference,24);heading.setGravity(Gravity.CENTER);
-        ui.add(content,heading,20);
-        TextView instruction=ui.txt(runChecked?
-            runPassed?"Нажми «Следующий стих», чтобы продолжить.":
-                "Сравни ответ с правильным текстом и перейди к следующему стиху.":
-            "Напиши стих по памяти и нажми «Проверить». Если стих не вспоминается, нажми «Пропустить стих».",16,MUTED,false);
-        instruction.setGravity(Gravity.CENTER);ui.add(content,instruction,12);
-        EditText write=ui.input("Начни писать стих…",true);
-        ui.forbidKeyboardHints(write,true);write.setMinLines(5);
-        write.setText(runDraft);write.setSelection(write.length());
-        write.setEnabled(!runChecked);
-        write.addTextChangedListener(new TextWatcher(){
-            public void beforeTextChanged(CharSequence s,int a,int b,int c){}
-            public void onTextChanged(CharSequence s,int a,int b,int c){
-                runDraft=s.toString();saveRunSession();
-            }
-            public void afterTextChanged(Editable e){}
-        });
-        ui.add(content,write,22);
-        if(runChecked){
-            ui.add(content,ui.txt(runPassed?"✓ Без ошибок":"Обнаружены ошибки",20,
-                runPassed?SUCCESS:RED,true),16);
-            if(!runPassed){
-                ui.add(content,typedFeedback(AcceptedTextLogic.bestExpected(
-                    line.text,runDraft,AcceptedTextLogic.matthew513Verse(line.reference)),runDraft),9);
-                ui.label(content,"Правильный текст");ui.add(content,ui.prose(line.text,17),8);
-            }
-        }
-        LinearLayout footer=ui.column();footer.setPadding(ui.dp(20),ui.dp(10),ui.dp(20),ui.dp(20));
-        TextView go=ui.button(runChecked?"Следующий стих": "Проверить",true,()->{
-            if(runChecked){finishRunLine();return;}
-            if(runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}
-            runPassed=AcceptedTextLogic.exact(line.text,runDraft,
-                AcceptedTextLogic.matthew513Verse(line.reference));
-            runChecked=true;saveRunSession();render();
-        });
-        ui.animateLessonPress(go);
-        footer.addView(go,new LinearLayout.LayoutParams(-1,ui.dp(55)));
-        if(!runChecked){
-            TextView skip=ui.button("Пропустить стих",false,this::finishRunLine);
-            ui.animateLessonPress(skip);
-            footer.addView(skip,new LinearLayout.LayoutParams(-1,ui.dp(47)));
-        }
-        root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+        KnowledgeCheckView.Layout layout=knowledgeCheckView.task(this,task,this::onBackPressed,
+            knowledgeCheck::edit,()->{
+                if(!knowledgeCheck.check()){toast("Введи стих или выбери «Пропустить»");return;}
+                render();
+            },()->{
+                if(screen!=Screen.RUN)return;
+                KnowledgeCheckSession.Advance next=knowledgeCheck.advance(System.currentTimeMillis());
+                if(next==KnowledgeCheckSession.Advance.SAVE_FAILED)toast("Не удалось сохранить результат проверки");
+                if(next!=KnowledgeCheckSession.Advance.CONTINUE)screen=Screen.RUN_SUMMARY;
+                render();
+            });
+        root=layout.root();content=layout.body();
         setContentView(root);lastRenderedScreen=screen;
     }
+
     private void renderRunSummary(){
         title("Проверка памяти завершена",null);
-        LinearLayout report=ui.headerCard(content);
-        ui.add(report,ui.txt(runCorrect+" из "+runLines.size()+" стихов без ошибок",22,WHITE,true),0);
-        ui.progress(report,runCorrect,runLines.size());
-        if(!runMistakes.isEmpty()){
-            ui.label(content,"Требуют внимания");
-            for(String ref:runMistakes)ui.add(content,ui.txt("• "+ref,16,RED,false),7);
-        }else ui.helper(content,"Все стихи воспроизведены без ошибок!");
-        ui.helper(content,"Итог сохранён в истории коллекции. Статусы освоения и расписание повторений остаются прежними.");
-        ui.action(content,"На главную",true,()->{screen=Screen.HOME;render();});
+        knowledgeCheckView.summary(content,knowledgeCheck.result(),()->{screen=Screen.HOME;render();});
     }
 
     /** Android system picker: the app never requests access to other storage. */
@@ -7073,7 +6897,7 @@ public final class MainActivity extends Activity {
         // Flush the same drafts as onPause before retiring this generation of views.
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)saveCardSession();
-        if(screen==Screen.RUN)saveRunSession();
+        if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
         homeHandler.removeCallbacks(homeTicker);
         tabWarmGeneration++;

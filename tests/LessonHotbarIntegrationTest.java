@@ -252,14 +252,13 @@ public class LessonHotbarIntegrationTest {
 
     @SuppressWarnings({"rawtypes","unchecked"})
     @Test public void memoryCheckFooterUsesTheSamePageBackground()throws Exception{
-        Class<?> lineType=Class.forName("org.biblememory.app.MainActivity$RunLine");
-        Constructor<?> ctor=lineType.getDeclaredConstructor(long.class,int.class,String.class,String.class);
-        ctor.setAccessible(true);
-        ((List)get("runLines")).add(ctor.newInstance(id,0,"Бытие 1:1","Слово истины живо"));
+        KnowledgeCheckSession run=(KnowledgeCheckSession)get("knowledgeCheck");
+        run.prepare(42,List.of(new KnowledgeCheckSession.Question(id,0,"Бытие 1:1","Слово истины живо")));
+        run.restart();
         set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$Screen"),"RUN"));
         invoke("render");
         assertSeamlessFooter();
-        set("runChecked",true);invoke("render");
+        run.edit("Слово истины живо");assertTrue(run.check());invoke("render");
         assertSeamlessFooter();
     }
 
