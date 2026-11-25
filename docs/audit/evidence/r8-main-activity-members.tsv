@@ -1,0 +1,580 @@
+start	end	kind	member
+44	44	constant	BG: int
+44	44	constant	CARD: int
+44	44	constant	CARD_ALT: int
+45	45	constant	WHITE: int
+45	45	constant	MUTED: int
+45	45	constant	GREEN: int
+46	46	constant	VIOLET: int
+46	46	constant	BORDER: int
+46	46	constant	RED: int
+47	47	constant	HOME_SURFACE: int
+47	47	constant	HOME_BORDER: int
+48	48	constant	SUCCESS: int
+48	48	constant	GOLD: int
+49	49	constant	PRIMARY_ON: int
+50	50	constant	EXPORT: int
+50	50	constant	IMPORT: int
+51	51	nested	Screen
+52	52	reassignable	screen: Screen
+53	53	constant	UNIFIED_PREFS: String
+54	54	reassignable	activeUnifiedId: long
+54	54	reassignable	openUnifiedId: long
+55	55	reassignable	cardFromUnified: boolean
+56	56	reassignable	reviewCollectionGroup: long
+57	62	nested	RunLine
+63	63	final-reference	runLines: List<RunLine>
+64	64	reassignable	runCollectionId: long
+65	65	reassignable	runMaterialFingerprint: String
+66	66	reassignable	runCursor: int
+66	66	reassignable	runCorrect: int
+67	67	final-reference	runMistakes: List<String>
+68	68	reassignable	runDraft: String
+69	69	reassignable	runChecked: boolean
+69	69	reassignable	runPassed: boolean
+71	71	reassignable	store: LocalStore
+72	72	final-reference	bible: Bible
+73	73	reassignable	bibleStartup: java.util.concurrent.CompletableFuture<Void>
+74	74	reassignable	bibleError: String
+75	75	reassignable	selectedBook: int
+75	75	reassignable	selectedChapter: int
+75	75	reassignable	mask: int
+75	75	reassignable	stepCursor: int
+76	76	reassignable	focusVerse: int
+77	77	reassignable	focusPickerSearchHit: boolean
+78	78	reassignable	studyStage: StudyPlanLogic.Stage
+79	79	reassignable	selectedGroup: long
+79	79	reassignable	selectedEntry: long
+80	80	reassignable	customTargetGroupId: long
+81	81	reassignable	checked: boolean
+81	81	reassignable	passed: boolean
+82	82	nested	TrainingMode
+83	83	reassignable	trainingMode: TrainingMode
+84	84	reassignable	testAssisted: boolean
+85	85	reassignable	currentScroller: ScrollView
+87	87	constant	HOME_UI_PREFS: String
+88	88	reassignable	homeCollectionsExpanded: boolean
+89	89	reassignable	homeScrollY: int
+90	90	reassignable	homeScrollRestored: boolean
+91	91	reassignable	lastRenderedScreen: Screen
+92	92	reassignable	collectionAnimator: ValueAnimator
+94	94	reassignable	lastExpected: String
+95	95	final-reference	lessonWriting: LessonWritingState
+96	96	reassignable	homeIndex: int
+97	97	constant	HOME_REFS: int[][]
+98	98	reassignable	lastAccuracy: int
+99	99	reassignable	content: LinearLayout
+99	99	reassignable	root: LinearLayout
+100	100	final-reference	homeHandler: Handler
+101	101	final-reference	homeTicker: Runnable
+102	102	reassignable	activeTextArea: LinearLayout
+103	103	reassignable	activePassage: TextView
+104	104	constant	SESSION_PREFS: String
+105	105	reassignable	activeEntry: LocalStore.Entry
+106	106	reassignable	activeStep: StudyPlanLogic.Step
+107	107	reassignable	reviewMode: boolean
+107	107	reassignable	groupMode: boolean
+108	108	reassignable	returnVerseCursor: int
+109	109	reassignable	forcedStep: StudyPlanLogic.Step
+110	110	reassignable	currentReview: LocalStore.DueItem
+111	111	reassignable	reviewMaterialFingerprint: String
+112	112	reassignable	blurSeed: int
+114	114	reassignable	lessonVariant: int
+114	114	reassignable	lessonChunk: int
+115	115	reassignable	lessonSeed: long
+116	116	final-reference	lessonAssembly: LessonAssemblyState
+117	117	reassignable	lessonPracticeAgain: boolean
+118	118	reassignable	revealCleanup: Runnable
+119	119	final-reference	reviewQueue: List<LocalStore.DueItem>
+120	120	reassignable	reviewPointer: int
+121	121	reassignable	lessonBuildAction: TextView
+122	122	final-reference	lessonBuildSlots: List<BuildSlot>
+123	123	constant	BUILD_INK: int
+124	124	final-reference	lessonBuildTiles: List<TextView>
+125	125	reassignable	lessonBuildRequired: int
+128	129	final-reference	lessonChunkCache: EnumMap<LessonCurriculumLogic.Variant, List<String[]>>
+130	130	reassignable	lessonChunkCacheKey: String
+131	131	reassignable	savedAssemblyFingerprint: String
+133	133	reassignable	lessonHotbarStrip: LessonSegmentedBar
+135	135	reassignable	weakVerse: int
+135	135	reassignable	weakTransitionFrom: int
+136	136	reassignable	readerVerseNumber: int
+137	137	reassignable	chapterFromVerseGrid: boolean
+139	139	reassignable	selectingPassage: boolean
+140	140	reassignable	rangeStartChapter: int
+140	140	reassignable	rangeStartVerse: int
+140	140	reassignable	rangeEndChapter: int
+140	140	reassignable	rangeEndVerse: int
+141	141	reassignable	groupBuildDone: boolean
+142	142	reassignable	groupIntroDone: boolean
+143	143	final-reference	inlineFields: List<EditText>
+144	144	final-reference	inlineExpected: List<String>
+147	147	reassignable	bibleSearchQuery: String
+148	148	reassignable	bibleSearchError: String
+149	149	reassignable	bibleSearchActive: boolean
+149	149	reassignable	bibleSearchLoading: boolean
+150	150	reassignable	bibleSearchHits: List<BibleSearchLogic.Hit>
+152	152	reassignable	searchVisibleLimit: int
+153	153	reassignable	searchGeneration: int
+154	154	final-reference	bibleSearchHandler: Handler
+155	156	final-reference	bibleSearchExecutor: java.util.concurrent.ExecutorService
+157	157	reassignable	bibleSearchTask: java.util.concurrent.Future<?>
+158	158	reassignable	bibleSearchDebounce: Runnable
+159	159	reassignable	bibleSearchNeedsRefresh: boolean
+161	161	final-reference	savedScrollY: EnumMap<Screen, Integer>
+162	162	final-reference	collectionQueue: List<Long>
+163	163	reassignable	collectionQueueCursor: int
+164	164	reassignable	collectionQueueGroup: long
+165	165	reassignable	executingCollectionQueue: boolean
+166	166	reassignable	collectionQueueNewStep: boolean
+167	167	reassignable	insertAfterEntryId: long
+167	167	reassignable	insertAfterCardId: long
+169	169	final-reference	studyInsertionTrail: List<Long>
+170	170	final-reference	cardInsertionTrail: List<Long>
+173	190	nested	ReadyTab
+192	193	final-reference	readyTabs: EnumMap<Screen, ReadyTab>
+195	196	final-reference	tabWarmHandler: Handler
+198	198	reassignable	tabWarmGeneration: int
+199	199	reassignable	tabSwitchOldNav: View
+201	206	method	isMainTab(Screen)
+208	243	method	prepareOtherTabs()
+245	331	method	prepareTab(Screen)
+333	376	method	animatePreparedTabIndicator(LinearLayout, int, int)
+379	379	reassignable	tabSwitchAnimator: ValueAnimator
+380	380	reassignable	tabSwitchLeaving: LinearLayout
+380	380	reassignable	tabSwitchEntering: LinearLayout
+381	381	reassignable	tabSwitchInProgress: boolean
+382	382	final-reference	COLLECTION_PREFS: String
+383	383	reassignable	resetInProgress: boolean
+384	384	reassignable	backupInProgress: boolean
+385	385	reassignable	ownsData: boolean
+385	385	reassignable	resumed: boolean
+386	386	reassignable	startupState: Bundle
+387	387	reassignable	lessonWaitingForBible: Bundle
+388	388	reassignable	lessonSourceEntry: long
+388	388	reassignable	lessonSourceGroup: long
+389	389	reassignable	lessonSessionMaterial: String
+390	390	reassignable	lessonSourceMaterial: String
+391	391	reassignable	cardStudyMaterial: String
+392	392	reassignable	dataGeneration: String
+393	393	reassignable	backupDialog: AlertDialog
+394	394	reassignable	swipeStartX: float
+394	394	reassignable	swipeStartY: float
+395	395	reassignable	swipeIntercepted: boolean
+396	396	reassignable	lastNavIndex: int
+397	397	reassignable	selectedDeck: long
+398	398	final-reference	cardSequence: List<Long>
+399	399	reassignable	cardIndex: int
+400	400	reassignable	cardShowReference: boolean
+400	400	reassignable	cardRevealed: boolean
+401	401	final-reference	cardRandom: Random
+402	402	nested	BibleTarget
+403	403	reassignable	pickerTarget: BibleTarget
+404	404	reassignable	pickerTargetId: long
+405	405	reassignable	pickerRange: boolean
+406	406	reassignable	pickerHasAnchor: boolean
+406	406	reassignable	pickerChooseEnd: boolean
+407	407	reassignable	pickerBackScreen: Screen
+408	408	final-reference	passageSelection: PassageSelection
+409	409	final-reference	pickerQuickButtons: List<View>
+410	410	reassignable	pickerSelectionLabel: TextView
+410	410	reassignable	pickerSaveButton: TextView
+411	411	reassignable	pickerSelectionPanel: LinearLayout
+412	412	reassignable	pickerRestoredScroll: int
+413	413	reassignable	pickerQuickBook: int
+413	413	reassignable	pickerQuickChapter: int
+413	413	reassignable	pickerQuickScroll: int
+413	413	reassignable	pickerVerseNumber: int
+414	414	reassignable	readerBookBeforePicker: int
+414	414	reassignable	readerChapterBeforePicker: int
+417	417	final-reference	cardStudyQueue: List<Long>
+418	418	reassignable	cardStudyCursor: int
+419	419	reassignable	cardStudyDeckId: long
+421	421	reassignable	rotationExerciseKey: String
+421	421	reassignable	rotationMask: String
+422	422	reassignable	rotationExerciseSeed: long
+429	430	final-reference	collectionExecutor: java.util.concurrent.ExecutorService
+431	431	final-reference	collectionHandler: Handler
+432	432	reassignable	collectionTask: java.util.concurrent.Future<?>
+433	433	reassignable	collectionStore: LocalStore
+434	434	constant	BULK_INK: int
+435	435	constant	BULK_SELECTED: int
+436	436	final-reference	pendingBooks: Set<String>
+437	437	final-reference	pickerBookActions: Map<Integer, BookToggle>
+438	438	final-reference	selectedPickerChapters: SortedSet<Integer>
+439	439	final-reference	pickerChapterButtons: Map<Integer, TextView>
+440	440	reassignable	pickerChapterFooter: LinearLayout
+441	441	reassignable	pickerChapterAdd: TextView
+441	441	reassignable	pickerChapterCancel: TextView
+442	442	reassignable	savingPickerChapters: boolean
+443	443	reassignable	openedCollectionChapter: int
+444	444	reassignable	openedCollectionBook: SortedMap<Integer, Long>
+445	445	reassignable	openedBookProgress: CollectionProgressSnapshot
+446	446	reassignable	openedBookName: String
+448	448	reassignable	collectionGeneration: long
+449	449	reassignable	collectionDetailLoading: boolean
+451	458	method	onCreate(Bundle)
+460	509	method	openData()
+511	520	method	loadBibleForScreen(Bible, Context, MainActivity)
+522	534	method	onBibleLoaded(Throwable)
+536	549	method	syncCollectionsAfterBibleLoad()
+551	557	method	refreshAfterBibleLoad()
+559	562	method	isPickerScreen(Screen)
+563	589	method	onSaveInstanceState(Bundle)
+590	612	method	restorePickerState(Bundle)
+613	621	method	onResume()
+622	637	method	onPause()
+638	644	method	scheduleHomeRefresh()
+645	662	method	refreshHomeIndex(boolean)
+663	718	method	onBackPressed()
+719	719	method	dp(float)
+720	722	method	shape(int, int)
+723	725	method	outlined(int, int, int)
+726	730	method	gradient()
+732	759	method	pageBackground()
+760	763	method	softAccent()
+764	768	method	displayText(String, int)
+769	773	method	prose(String, int)
+774	779	method	bookInk(int)
+781	801	method	illustratedBanner(LinearLayout, String, long, int)
+802	808	method	txt(String, int, int, boolean)
+809	809	method	column()
+810	810	method	row()
+811	813	method	add(LinearLayout, View, int)
+814	814	method	gap(LinearLayout, int)
+815	819	method	card(LinearLayout)
+820	823	method	headerCard(LinearLayout)
+825	834	method	landscapeFor(long)
+836	840	method	homeSurface()
+841	841	constant	MAX_LANDSCAPE_THUMBNAIL_DP: int
+843	843	final-reference	landscapeThumbnails: android.util.SparseArray<Bitmap>
+846	871	method	landscapeThumbnail(long)
+876	1069	method	homeVerseHero(int, String, String)
+1073	1080	method	button(String, boolean, Runnable)
+1081	1106	method	animateLessonPress(View)
+1107	1111	method	animateLessonScale(View, float, long)
+1112	1112	method	action(LinearLayout, String, boolean, Runnable)
+1113	1122	method	tapCard(LinearLayout, String, String, String, Runnable)
+1123	1123	method	label(LinearLayout, String)
+1124	1124	method	helper(LinearLayout, String)
+1125	1133	method	progress(LinearLayout, int, int)
+1134	1145	method	input(String, boolean)
+1146	1152	method	forbidKeyboardHints(EditText, boolean)
+1153	1156	method	numeric(String, String)
+1157	1157	method	number(EditText)
+1158	1158	method	value(EditText)
+1159	1159	method	toast(String)
+1161	1163	method	tabWordmark()
+1164	1174	method	title(String, String)
+1176	1187	method	testamentHeading(String, boolean)
+1188	1193	method	rememberHomeScroll()
+1194	1330	method	render()
+1332	1378	method	renderScrollingBibleSearch(LinearLayout)
+1380	1380	method	isBibleSearchScreen()
+1381	1387	method	cancelBibleSearchWork()
+1388	1397	method	resumeBibleSearchIfNeeded()
+1398	1407	method	findBibleSearchInput(View)
+1408	1418	method	renderBibleSearchKeepingInput()
+1419	1425	method	visibleSearchResults()
+1426	1447	method	onBibleSearchChanged(String, EditText)
+1448	1488	method	submitBibleSearch(String)
+1489	1495	method	highlightSearchWords(String, BibleSearchLogic.WordMatcher)
+1496	1508	nested	SearchListState
+1510	1538	method	renderSearchResults()
+1541	1545	nested	SearchRowHolder
+1547	1745	method	createSearchResultsList()
+1749	1866	nested	NavigationGlyph
+1868	1912	nested	BibleGroupGlyph
+1913	1913	reassignable	collectionsIconCycle: int
+1915	1977	method	addNav(LinearLayout)
+1978	1982	method	animateCollectionsIcon(View, boolean, boolean)
+1983	1986	method	settleCollectionsIcons()
+1987	1990	method	settleCollectionsIcon(View)
+1991	1995	method	animateHomeIcon(View, boolean, boolean)
+1996	1999	method	settleHomeIcons()
+2000	2003	method	settleHomeIcon(View)
+2004	2008	method	animateBibleIcon(View, boolean, boolean, float[])
+2009	2012	method	settleBibleIcons()
+2013	2016	method	settleBibleIcon(View)
+2017	2030	method	mainTabIndex()
+2033	2071	method	finishTabTransition()
+2076	2334	method	goToMainTab(int)
+2336	2370	method	dispatchTouchEvent(MotionEvent)
+2375	2383	method	collectionQueueMatches(long, List<LocalStore.Entry>)
+2384	2396	method	restoreCollectionQueue()
+2397	2404	method	persistCollectionQueue()
+2405	2409	method	clearCollectionQueue()
+2410	2435	method	startStudyCollection(long)
+2436	2443	method	resumeCollectionTraining()
+2444	2455	method	advanceStudyCollection()
+2456	2458	method	studyProgressFor(long)
+2459	2466	method	studyProgressFor(long, CollectionProgressSnapshot)
+2468	2478	method	chooseCardDeck(Pick)
+2479	2484	method	newCardDeck(Pick)
+2486	2508	method	deckPlayButton(LocalStore.CardDeck)
+2509	2530	method	renderCardDecks()
+2533	2545	method	showCardDeckActions(LocalStore.CardDeck, View)
+2547	2547	nested	ActionSelection
+2550	2615	method	showActionsMenu(View, String[], String[], ActionSelection)
+2618	2680	nested	MenuGlyph
+2681	2690	method	renameCardDeck(LocalStore.CardDeck)
+2691	2698	method	confirmDeleteCardDeck(LocalStore.CardDeck)
+2699	2713	method	showNewCustomFlashcard(long)
+2714	2733	method	renderCardDeck()
+2737	2851	method	addCardDeckFooter(LocalStore.CardDeck, boolean)
+2854	2861	method	addBibleFooter(BibleTarget, long, Screen)
+2864	2967	method	addStudyCollectionFooter(LocalStore.Group)
+2971	2984	method	openBiblePicker(BibleTarget, long, Screen)
+2986	2991	method	openPickerRange()
+2992	3001	method	beginPickerBoundary(boolean)
+3002	3006	method	pickerBoundaryReference(boolean)
+3007	3022	method	renderUnifiedBiblePicker()
+3023	3039	method	updatePickerRangeSummary()
+3040	3047	method	afterPickerLayout(View, Runnable)
+3049	3049	method	renderPickerVerseGrid()
+3050	3092	method	renderVerseGrid(boolean)
+3094	3158	method	renderPickerVerseText()
+3159	3168	method	savePickerRange()
+3169	3175	method	pickerCollectionContainsVerse(int, int, int)
+3178	3204	method	togglePickerCollectionVerse(int, int, int)
+3206	3213	method	quickBibleVerseExists(int, int, int)
+3214	3234	method	toggleQuickBibleVerse(int, int, int)
+3235	3244	method	pickerHasReference(String, int, int, int)
+3245	3247	method	savePickedPassage(int, int, int, int)
+3248	3286	method	savePickedPassageFor(int, int, int, int, int)
+3287	3307	method	removePickedVerse(String, int, int, int)
+3308	3317	method	saveBibleVerseToGroup(long, int, int, int)
+3319	3345	method	studyCardDeck()
+3346	3354	method	advanceCardStudy()
+3356	3367	method	renderCardPicker()
+3368	3371	method	addCardFromSelection(long)
+3372	3381	method	addBibleCard(long, int, int, int, int, int)
+3382	3384	method	clearSavedCardSession(long)
+3385	3387	method	cardIds(List<LocalStore.Flashcard>)
+3388	3396	method	eligibleSessionCards()
+3397	3415	method	startCardSession()
+3416	3424	method	saveCardSession()
+3425	3437	method	nextFlashcard()
+3438	3470	nested	SwipeCardLayout
+3472	3520	nested	EyeButton
+3521	3594	method	renderCardSession()
+3596	3606	method	renderHome()
+3608	3629	nested	ChevronView
+3632	3639	method	createHomeCollection()
+3640	3662	method	collectionTile(LocalStore.Group)
+3663	3723	method	renderHomeCollections()
+3725	3729	method	collectionCountNoun(int)
+3731	3761	method	animateHomeCollections(FrameLayout, LinearLayout, boolean)
+3762	3765	method	stat(LinearLayout, String, String)
+3766	3771	method	bibleNotReady()
+3772	3785	method	bookGroupName(BookColorLogic.Group)
+3786	3852	method	renderBooks()
+3854	3857	method	lastReadChapter(int)
+3858	3861	method	rememberChapter(int, int)
+3862	3867	method	openReaderVerseGrid(int)
+3868	3908	method	renderChapters()
+3909	3911	method	canBulkPick()
+3913	3950	nested	BookToggle
+3952	3958	method	applyBookToggle(BookToggle, long, int, boolean)
+3960	3975	method	changeWholeBook(long, int, boolean)
+3977	3981	method	togglePickerChapter(int)
+3983	3986	method	clearPickerChapterSelection()
+3988	3995	method	stylePickerChapter(int, TextView)
+3997	4009	method	updatePickerChapterSelection()
+4011	4028	method	addPickerChapterFooter()
+4030	4048	method	commitPickerChapters()
+4050	4052	method	runCollectionMutation(Runnable, java.util.function.Consumer<Boolean>)
+4054	4072	method	runCollectionMutation(Runnable, java.util.function.Consumer<Boolean>, Runnable)
+4074	4076	method	refreshCollectionAfterBulkChange(long)
+4078	4080	method	clearPassageSelection()
+4081	4091	method	selectPassageVerse(int, int)
+4092	4097	method	inPassageRange(int, int)
+4098	4103	method	passageSummary()
+4104	4153	method	renderChapter()
+4154	4169	method	spinnerAdapter(String[])
+4170	4176	method	chapterPicker(int)
+4177	4182	method	updateVersePicker(Spinner, int, int)
+4183	4191	method	bindChapterVerse(Spinner, Spinner)
+4192	4255	method	showChapterJump()
+4257	4257	method	renderInlineRangeBuilder()
+4258	4362	method	renderInlineRangeBuilder(boolean)
+4363	4372	method	bindChapterVerseAndUpdate(Spinner, Spinner, Runnable)
+4373	4408	method	previewPassage()
+4409	4420	method	styledDialog(AlertDialog)
+4421	4421	nested	Pick
+4422	4432	method	chooseGroup(Pick)
+4433	4438	method	newGroup(Pick)
+4440	4451	method	showStudyGroupActions(LocalStore.Group, View)
+4452	4459	method	confirmDeleteStudyGroup(LocalStore.Group)
+4462	4491	method	renderEntries()
+4493	4501	method	renameGroup(LocalStore.Group)
+4503	4506	method	clearInsertionContext()
+4507	4517	method	removedInsertionCandidate(long, boolean)
+4518	4523	method	repositionStudyAfter(long, long, long)
+4524	4529	method	repositionCardAfter(long, long, long)
+4531	4541	method	renderStudyReorder()
+4542	4548	method	renderCardReorder()
+4549	4575	method	renderReorderRow(long, String, List<Long>, boolean)
+4577	4577	nested	OnBibleRangeEdit
+4578	4584	method	parseBibleLocation(String)
+4585	4626	method	editBibleRange(String, int, int, int, int, int, OnBibleRangeEdit)
+4627	4643	method	editStudyEntry(LocalStore.Entry)
+4644	4669	method	editCustomStudyEntry(LocalStore.Entry)
+4670	4692	method	editCardEntry(LocalStore.Flashcard)
+4694	4712	method	showEntryActions(LocalStore.Entry, View)
+4713	4731	method	showCardActions(LocalStore.Flashcard, View)
+4733	4750	method	manageEntry(LocalStore.Entry)
+4751	4753	method	entryCard(LocalStore.Entry)
+4754	4774	method	entryCard(LocalStore.Entry, CollectionProgressSnapshot)
+4775	4775	method	date(long)
+4776	4804	method	renderCustom()
+4806	4835	method	startReviewSession()
+4836	4858	method	populateReviewQueue(ReviewSchedule, long, LocalStore.DueItem)
+4859	4866	method	reviewMaterial(List<Bible.Verse>, LocalStore.DueItem)
+4868	4876	method	renderDue()
+4877	4879	method	openReview(LocalStore.DueItem)
+4880	4896	method	prepareReview(LocalStore.DueItem)
+4897	4919	method	advanceReviewSession()
+4920	4929	method	rememberRecent(long)
+4930	4938	method	recentIds()
+4939	4941	method	resumableWritingDraft(String, boolean)
+4942	4978	method	saveActiveLesson()
+4980	4982	method	lessonMaterial(LocalStore.Entry)
+4984	4991	method	cardLessonMaterial(List<LocalStore.Flashcard>)
+4993	5081	method	restoreActiveLesson(Bundle)
+5083	5105	method	saveTrainingSession()
+5106	5106	method	restoreTrainingSession(long)
+5107	5109	method	restoreTrainingSession(long, boolean)
+5110	5112	method	sameLessonDraft(SharedPreferences, String)
+5113	5133	method	restoreTrainingSession(String, boolean)
+5134	5183	method	openTraining(long)
+5184	5191	method	selectRecommendation(LocalStore.Entry)
+5192	5195	method	isSermon(LocalStore.Entry)
+5196	5199	method	studySteps(LocalStore.Entry)
+5200	5204	method	studySteps(LocalStore.Entry, StudyPlanLogic.Stage)
+5205	5231	method	resetTrainingStep(LocalStore.Entry)
+5232	5236	method	texts(List<Bible.Verse>)
+5237	5268	method	updateBlurText()
+5270	5307	method	installTemporaryReveal(TextView)
+5309	5355	nested	WrapLayout
+5356	5362	method	wordTile(String, int, int, int, Runnable)
+5363	5373	method	typedFeedback(String, String)
+5374	5378	method	bookForEntry(LocalStore.Entry)
+5379	5381	method	nextGroup(LocalStore.Entry)
+5382	5385	method	nextGroup(LocalStore.Entry, CollectionProgressSnapshot)
+5386	5391	method	pendingAfterCurrent(LocalStore.Entry, int)
+5392	5396	method	openGroup(GroupLearningLogic.Candidate)
+5397	5410	method	prepareGroup(GroupLearningLogic.Candidate)
+5412	5426	method	renderUnlearnableLine(LocalStore.Entry, int)
+5428	5537	method	renderFullscreenLesson()
+5539	5550	method	lessonFullReference(LocalStore.Entry)
+5552	5598	method	renderCompletion(LocalStore.Entry)
+5599	5638	nested	SuccessArt
+5639	5661	method	advanceAfterSuccess(LocalStore.Entry)
+5663	5675	method	applyLessonDestination(LocalStore.Entry, LessonNavigationFlow.Decision)
+5677	5681	method	advanceStudyCollectionOrExit(LocalStore.Entry)
+5683	5687	method	advanceStudyCollectionAfterGroups(LocalStore.Entry)
+5689	5711	method	lessonHotbarModel(LessonCurriculumLogic.Phase, LocalStore.Entry)
+5713	5726	method	renderLessonHotbar(LinearLayout, LessonCurriculumLogic.Phase, LocalStore.Entry)
+5729	5797	nested	LessonSegmentedBar
+5799	5802	method	refreshLessonPhaseProgress(LessonCurriculumLogic.Phase, LocalStore.Entry)
+5803	5806	method	lessonStageState(LocalStore.Entry)
+5807	5809	method	lessonPhase(LocalStore.Entry)
+5810	5819	method	lessonPhaseHeader(String, LocalStore.Entry)
+5820	5827	method	addLessonReference(LocalStore.Entry)
+5829	5855	method	renderLessonIntro()
+5858	5896	nested	LessonIntroHint
+5897	5899	method	resetLessonTiles()
+5900	5936	nested	BuildSlot
+5938	5954	method	assemblyReference(LocalStore.Entry)
+5956	5964	method	styleAssemblyContinue(TextView, boolean)
+5966	6004	method	assemblyBackground()
+6008	6059	method	lessonChunks(List<String>, LessonCurriculumLogic.Variant)
+6060	6091	method	assemblyChunkFits(String[], LessonCurriculumLogic.Variant, Paint, float, float, float, float, float)
+6092	6113	method	assemblyEstimatedHeight(float[], boolean[], boolean, float, float, float)
+6114	6121	method	assemblyRows(float[], float, float)
+6122	6144	method	updateLessonBuildView()
+6146	6166	method	lessonMissingPositions(String[], LessonCurriculumLogic.Variant)
+6167	6243	method	renderLessonBuild(LocalStore.Entry)
+6244	6260	method	advanceLessonBuild(LocalStore.Entry)
+6261	6263	method	writingVariants(LocalStore.Entry)
+6264	6266	method	writingVariants(String)
+6267	6275	method	writingExpected(String, LessonCurriculumLogic.Variant)
+6277	6302	method	renderLessonWriting()
+6303	6403	method	renderInlineGapInputs(LessonCurriculumLogic.Variant)
+6404	6412	nested	AnswerReview
+6413	6413	reassignable	answerReview: AnswerReview
+6415	6425	method	openAnswerReview(AnswerReview)
+6427	6434	method	retryLessonWriting()
+6436	6442	method	renderAnswerReview(AnswerReview)
+6444	6449	method	answerReviewPanel(int, int)
+6451	6484	nested	ReviewErrorSpan
+6486	6513	method	addAnswerReviewCard(String, String, List<AnswerReviewLogic.Mark>, boolean, int, int, int)
+6515	6519	method	answerReviewText(CharSequence, int)
+6521	6522	final-reference	writingExecutor: java.util.concurrent.ExecutorService
+6523	6523	final-reference	writingHandler: Handler
+6524	6524	reassignable	writingTask: java.util.concurrent.Future<?>
+6525	6526	nested	WritingCheck
+6527	6527	reassignable	pendingWritingCheck: WritingCheck
+6529	6533	method	cancelWritingCheck()
+6535	6579	method	validateLessonWriting(LocalStore.Entry)
+6581	6636	method	applyWritingAssessment(WritingCheck, WritingAssessment.Result)
+6638	6642	method	bibleReadyForRecall()
+6644	6648	method	showRecallSaveError(RuntimeException)
+6651	6656	method	ensureActiveUnified()
+6657	6659	method	activeUnified()
+6660	6664	method	activateUnified(long)
+6665	6665	nested	UnifiedCreated
+6666	6683	method	newUnifiedCollection(UnifiedCreated)
+6684	6731	method	showUnifiedSelector()
+6732	6778	method	renderUnifiedHomePanel()
+6780	6786	method	addHelpLabel(LinearLayout, TextView, LearningHelp, int)
+6788	6809	method	unifiedModeRow(LinearLayout, LearningHelp, String, Runnable)
+6811	6820	method	helpIcon(LearningHelp, String)
+6822	6822	reassignable	modeInfoPopup: PopupWindow
+6823	6823	reassignable	modeInfoAnchor: View
+6825	6835	method	dismissModeInfo(boolean)
+6837	6947	method	showModeInfo(View, LearningHelp)
+6950	6991	nested	ModeInfoSurface
+6993	6996	method	openCollectionToAdd(LocalStore.UnifiedCollection)
+6997	7002	method	startActiveStudy()
+7003	7014	method	startActiveCards()
+7015	7020	method	startActiveReview(boolean)
+7021	7058	method	renderUnifiedCollections()
+7060	7099	method	renderSettings()
+7100	7109	method	confirmResetProgress()
+7110	7153	method	resetAllLearningProgress()
+7154	7158	method	countedRussian(int, String, String, String)
+7159	7184	method	renderUnifiedCollectionRows(LinearLayout, String, List<LocalStore.UnifiedCollection>, CollectionProgressSnapshot)
+7186	7202	method	unifiedSettingRow(LinearLayout, String, String, boolean, Runnable)
+7203	7218	method	showUnifiedCollectionSettings(LocalStore.UnifiedCollection)
+7219	7238	method	clearUnified(LocalStore.UnifiedCollection)
+7239	7250	method	renameUnified(LocalStore.UnifiedCollection)
+7251	7275	method	deleteUnified(LocalStore.UnifiedCollection)
+7276	7309	method	renderUnifiedCollectionDetail()
+7310	7332	method	populateCollectionDetail(LocalStore.UnifiedCollection, CollectionProgressSnapshot, SortedMap<Integer, SortedMap<Integer, Long>>, List<LocalStore.Entry>, long, int)
+7333	7347	method	appendCollectionEntries(List<LocalStore.Entry>, CollectionProgressSnapshot, int, long, int)
+7349	7361	method	collectionBookRow(String, String, Runnable)
+7363	7374	method	renderCollectionBook()
+7376	7395	method	renderCollectionChapter()
+7398	7420	method	addUnifiedCollectionFooter()
+7423	7423	method	runKey(long)
+7424	7427	method	verseIdentity(LocalStore.Entry, int, int, Bible.Verse)
+7428	7446	method	buildRunLines(LocalStore.UnifiedCollection)
+7447	7482	method	startActiveRun()
+7483	7490	method	clearRunState(long)
+7491	7494	method	resetRun()
+7495	7507	method	restoreRunSession()
+7508	7517	method	saveRunSession()
+7518	7528	method	finishRunLine()
+7529	7547	method	saveCompletedRun()
+7548	7612	method	renderWritingRun()
+7613	7624	method	renderRunSummary()
+7627	7636	method	exportFile()
+7637	7643	method	importFile()
+7644	7659	method	onActivityResult(int, int, Intent)
+7660	7664	method	runBackupTask(Uri, boolean)
+7666	7691	method	waitForBackup(BackupCoordinator.Operation)
+7693	7707	method	backupFinished(BackupCoordinator.Operation, Exception)
+7709	7720	method	showBackupFailure(Exception)
+7722	7745	method	onDestroy()
