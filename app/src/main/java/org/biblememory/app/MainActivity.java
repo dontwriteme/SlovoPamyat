@@ -5713,6 +5713,7 @@ public final class MainActivity extends Activity {
         mainAction.setMinimumHeight(dp(58));
         footer.addView(mainAction,new LinearLayout.LayoutParams(-1,scenicLesson||answerReview!=null?-2:dp(58)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+        if(writingInput)KeyboardAwareFooter.bind(root,footer);
         setContentView(root);
     }
 
@@ -7970,6 +7971,7 @@ public final class MainActivity extends Activity {
             footer.addView(skip,new LinearLayout.LayoutParams(-1,dp(47)));
         }
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+        if(!runChecked)KeyboardAwareFooter.bind(root,footer);
         setContentView(root);lastRenderedScreen=screen;
     }
     private void renderRunSummary(){
