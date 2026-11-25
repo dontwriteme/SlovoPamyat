@@ -32,6 +32,22 @@ public final class BookColorLogic {
             default:return 0xFFA74F53;         // Revelation muted red
         }
     }
+    /** Dark, distinct category inks specifically for abbreviations on ivory cards. */
+    public static int abbreviationColor(int bookNumber) {
+        if(bookNumber<1||bookNumber>66)return 0xFF4B5563;
+        switch(group(bookNumber)){
+            case PENTATEUCH:return 0xFF645080;
+            case HISTORY:return 0xFF875126;
+            case POETRY:return 0xFF256645;
+            case MAJOR_PROPHETS:return 0xFF963C63;
+            case MINOR_PROPHETS:return 0xFF80621D;
+            case GOSPELS:return 0xFFA44612;
+            case ACTS:return 0xFF126D73;
+            case GENERAL_LETTERS:return 0xFF28712B;
+            case PAULINE_LETTERS:return 0xFF606918;
+            default:return 0xFFA13D40;
+        }
+    }
     public static String shortName(int n) {
         String[] a={"Быт","Исх","Лев","Чис","Втор","Нав","Суд","Руфь",
             "1Цар","2Цар","3Цар","4Цар","1Пар","2Пар","Ездр","Неем","Есф","Иов","Пс",
