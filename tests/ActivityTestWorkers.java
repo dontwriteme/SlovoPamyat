@@ -13,9 +13,18 @@ final class ActivityTestWorkers {
     private ActivityTestWorkers() {}
 
     static ExecutorService executor(MainActivity activity,String name)throws Exception{
+        if("writingExecutor".equals(name))return (ExecutorService)writingField(activity,"executor");
         Field field=MainActivity.class.getDeclaredField(name);
         field.setAccessible(true);
         return (ExecutorService)field.get(activity);
+    }
+
+    static Object writingField(MainActivity activity,String name)throws Exception{
+        Field owner=MainActivity.class.getDeclaredField("writingWorker");
+        owner.setAccessible(true);
+        Field field=LessonWritingWorker.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(owner.get(activity));
     }
 
     static void awaitStartup(MainActivity activity)throws Exception{

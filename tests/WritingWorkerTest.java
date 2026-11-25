@@ -87,10 +87,10 @@ public class WritingWorkerTest {
             input().setText(ANSWER);
             View button=check();
             button.performClick();
-            Object submitted=field("pendingWritingCheck");
+            Object submitted=ActivityTestWorkers.writingField(activity,"pending");
             assertNotNull(submitted);
             for(int i=0;i<5;i++)button.performClick();
-            assertSame(submitted,field("pendingWritingCheck"));
+            assertSame(submitted,ActivityTestWorkers.writingField(activity,"pending"));
             assertEquals(1,attempts());
         }finally{release.countDown();}
         ActivityTestWorkers.awaitWriting(activity);
@@ -102,11 +102,11 @@ public class WritingWorkerTest {
         EditText input=input();
         input.setText("Вставка ".repeat(1800));
         check().performClick();
-        assertNotNull(field("pendingWritingCheck"));
+        assertNotNull(ActivityTestWorkers.writingField(activity,"pending"));
         // The result is already posted. Keep the main looper paused until after the edit.
-        ((Future<?>)field("writingTask")).get(10,TimeUnit.SECONDS);
+        ((Future<?>)ActivityTestWorkers.writingField(activity,"task")).get(10,TimeUnit.SECONDS);
         input.setText(ANSWER);
-        assertNull(field("pendingWritingCheck"));
+        assertNull(ActivityTestWorkers.writingField(activity,"pending"));
         ActivityTestWorkers.awaitWriting(activity);
         assertEquals(1,attempts());
         assertEquals(ANSWER,((LessonWritingState)field("lessonWriting")).draft);
@@ -119,7 +119,7 @@ public class WritingWorkerTest {
             input().setText(ANSWER);
             check().performClick();
             activity.onBackPressed();
-            assertNull(field("pendingWritingCheck"));
+            assertNull(ActivityTestWorkers.writingField(activity,"pending"));
         }finally{release.countDown();}
         ActivityTestWorkers.awaitWriting(activity);
         assertEquals(1,attempts());
@@ -180,7 +180,7 @@ public class WritingWorkerTest {
         try{
             input().setText(ANSWER);
             check().performClick();
-            assertNotNull(field("pendingWritingCheck"));
+            assertNotNull(ActivityTestWorkers.writingField(activity,"pending"));
             store.getWritableDatabase().execSQL("UPDATE entries SET lines=? WHERE id=?",
                 new Object[]{"[{\"ref\":\"1\",\"text\":\"Новый текст\"}]",entry});
         }finally{release.countDown();}

@@ -110,6 +110,12 @@ public final class R44WritingCheck extends Instrumentation {
         Field field=MainActivity.class.getDeclaredField(name);field.setAccessible(true);return field;
     }
 
+    private static Object workerField(MainActivity activity,String name)throws Exception{
+        Field member=LessonWritingWorker.class.getDeclaredField(name);
+        member.setAccessible(true);
+        return member.get(field("writingWorker").get(activity));
+    }
+
     private void backup()throws Exception{
         app.deleteDatabase("slovo_pamyat.db");
         Uri uri=Uri.fromFile(new File(app.getCacheDir(),"r44.svbackup"));
@@ -124,7 +130,7 @@ public final class R44WritingCheck extends Instrumentation {
         }
         MainActivity activity=(MainActivity)startActivitySync(new Intent(app,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         CountDownLatch release=new CountDownLatch(1),entered=new CountDownLatch(1);
-        ExecutorService worker=(ExecutorService)field("writingExecutor").get(activity);
+        ExecutorService worker=(ExecutorService)workerField(activity,"executor");
         worker.submit(()->{entered.countDown();try{release.await();}catch(InterruptedException ignored){Thread.currentThread().interrupt();}});
         require(entered.await(15,TimeUnit.SECONDS),"worker barrier");
         String previous=SvetochBackup.generation(app);
@@ -138,9 +144,9 @@ public final class R44WritingCheck extends Instrumentation {
                     ((LessonWritingState)field("lessonWriting").get(activity)).draft=text.toString();
                     Method validate=MainActivity.class.getDeclaredMethod("validateLessonWriting",LocalStore.Entry.class);
                     validate.setAccessible(true);validate.invoke(activity,store.entry(entry));
-                    require(field("pendingWritingCheck").get(activity)!=null,"submission queued");
+                    require(workerField(activity,"pending")!=null,"submission queued");
                     BackupCoordinator.request(app,BackupCoordinator.Operation.IMPORT,uri);
-                    require(field("pendingWritingCheck").get(activity)==null,"restore retired submission");
+                    require(workerField(activity,"pending")==null,"restore retired submission");
                 }catch(Exception e){throw new AssertionError(e);}
             });
             long timeout=SystemClock.elapsedRealtime()+45000;

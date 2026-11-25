@@ -7,8 +7,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.text.style.ForegroundColorSpan;
 import android.text.SpannableString;
-import android.text.style.ReplacementSpan;
-import android.text.style.StrikethroughSpan;
 import android.graphics.Canvas;
 import android.graphics.Path;
 import android.graphics.PathMeasure;
@@ -80,6 +78,8 @@ public final class MainActivity extends Activity {
     private Screen lastRenderedScreen=null;
     private String lastExpected="";
     private final LessonWritingState lessonWriting=new LessonWritingState();
+    private final LessonWritingView writingView=new LessonWritingView(this,ui,lessonWriting);
+    private final LessonAnswerReviewView answerReviewView=new LessonAnswerReviewView(ui);
     private int lastAccuracy=-1;
     private LinearLayout content,root;
     private static final String SESSION_PREFS="study_session";
@@ -108,8 +108,6 @@ public final class MainActivity extends Activity {
     private int rangeStartChapter=-1,rangeStartVerse=-1,rangeEndChapter=-1,rangeEndVerse=-1;
     private boolean groupBuildDone=false;
     private boolean groupIntroDone=false;
-    private final List<EditText> inlineFields=new ArrayList<>();
-    private final List<String> inlineExpected=new ArrayList<>();
 
 
     private BibleSearchSession bibleSearch;
@@ -674,6 +672,7 @@ public final class MainActivity extends Activity {
         cancelWritingCheck();
         readingView.clear();
         assemblyView.clear();
+        writingView.clear();
         if(backupInProgress)return;
         if(screen!=Screen.HOME)lessonWaitingForBible=null;
         boolean collectionWasLoading=collectionDetailLoading;
@@ -3466,7 +3465,7 @@ public final class MainActivity extends Activity {
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
-                renderAnswerReview(answerReview);
+                answerReviewView.render(content,answerReview.expected,answerReview.result);
                 mainAction=ui.button("Написать ещё раз",true,this::retryLessonWriting);
             }else{
                 lessonPhaseHeader("Написание",e);
@@ -3872,134 +3871,21 @@ public final class MainActivity extends Activity {
         for(int position:gaps){if(response.length()>0)response.append(' ');response.append(tokens[position]);}
         return response.toString();
     }
-    /** Partial writing is edited directly in the sentence, not in a separate answer field. */
     private void renderLessonWriting(){
-        List<LessonCurriculumLogic.Variant> variants=writingVariants(activeEntry);
+        List<Bible.Verse> lines=activeEntry.lines().subList(activeStep.start,activeStep.end);
+        String source=texts(lines);
+        List<LessonCurriculumLogic.Variant> variants=writingVariants(source);
         lessonWriting.variant=Math.min(lessonWriting.variant,variants.size()-1);
         LessonCurriculumLogic.Variant variant=variants.get(lessonWriting.variant);
-        boolean full=variant==LessonCurriculumLogic.Variant.FULL;
+        List<String> refs=new ArrayList<>();
+        for(Bible.Verse verse:lines)refs.add(verse.ref);
+        writingView.render(content,source,variant,AcceptedTextLogic.matthew513(activeEntry.reference,refs),
+            tokens->lessonMissingPositions(tokens,variant),this::cancelWritingCheck,()->{
+                lastAccuracy=-1;
+                saveTrainingSession();
+            });
+    }
 
-        ui.helper(content,lessonWriting.practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:
-            full?LearningHelp.WRITE_FULL:LearningHelp.WRITE_GAPS);
-        if(!lessonWriting.practiceWeakFragment&&!full)renderInlineGapInputs(variant);
-        if(full){
-            EditText answer=ui.input(lessonWriting.practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
-            ui.forbidKeyboardHints(answer,true);
-            answer.setMinLines(6);answer.setText(lessonWriting.draft);
-            answer.addTextChangedListener(new TextWatcher(){
-                @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
-                @Override public void onTextChanged(CharSequence x,int a,int before,int count){
-                    cancelWritingCheck();
-                    lessonWriting.draft=x.toString();lastAccuracy=-1;
-                    saveTrainingSession();
-                }
-                @Override public void afterTextChanged(Editable x){}
-            });
-            ui.add(content,answer,18);
-        }
-        // Verification is always explicitly triggered by the existing footer button.
-    }
-    private void renderInlineGapInputs(LessonCurriculumLogic.Variant variant){
-        String source=texts(activeEntry.lines().subList(activeStep.start,activeStep.end));
-        String[] tokens=ExerciseTextLogic.tokens(source);
-        int[] originalPositions=lessonMissingPositions(tokens,variant);
-        int[] missing=InlineGapLogic.wordPositions(tokens,originalPositions);
-        // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
-        lessonWriting.restoreGaps(tokens,originalPositions);
-        LessonWordWrap inline=new LessonWordWrap(this,ui.dp(6));
-        inline.setPadding(0,ui.dp(12),0,ui.dp(12));
-        int maxWidth=getResources().getDisplayMetrics().widthPixels-ui.dp(58);
-        inlineFields.clear();inlineExpected.clear();
-        List<EditText> fields=inlineFields;
-        for(int i=0;i<tokens.length;i++){
-            String token=tokens[i];
-            int match=Arrays.binarySearch(missing,i);
-            if(match<0){
-                TextView item=ui.txt(token,19,WHITE,false);
-                item.setPadding(ui.dp(1),ui.dp(8),ui.dp(1),ui.dp(8));inline.addView(item);
-                continue;
-            }
-            final int gapIndex=match;
-            final String expected=InlineGapLogic.core(token);
-            inlineExpected.add(expected);
-            String prefix=InlineGapLogic.prefix(token);
-            if(!prefix.isEmpty()){
-                TextView punctuation=ui.txt(prefix,19,WHITE,false);
-                punctuation.setPadding(0,ui.dp(8),0,ui.dp(8));inline.addView(punctuation);
-            }
-            EditText field=new EditText(this);
-            field.setTextColor(WHITE);field.setHintTextColor(MUTED);field.setTextSize(19);
-            field.setSingleLine(true);ui.forbidKeyboardHints(field,false);
-            field.setPadding(ui.dp(3),ui.dp(6),ui.dp(3),ui.dp(6));
-            field.setGravity(Gravity.CENTER_VERTICAL);
-            // Android native underline: width is initially based on the original word,
-            // but the input itself has no maximum length.
-            field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
-            field.setHint(" ");
-            field.setText(lessonWriting.gap(gapIndex));
-            field.setSelectAllOnFocus(false);
-            int initial=Math.max(ui.dp(32),ui.dp(12)*Math.max(1,InlineGapLogic.letters(expected))+ui.dp(8));
-            final int baseline=Math.min(initial,maxWidth);
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(baseline,ui.dp(43));
-            field.setLayoutParams(params);field.setMinWidth(Math.min(initial,maxWidth));
-            field.setContentDescription("Пропущенное слово "+(gapIndex+1));
-            fields.add(field);inline.addView(field);
-            String suffix=InlineGapLogic.suffix(token);
-            if(!suffix.isEmpty()){
-                TextView punctuation=ui.txt(suffix,19,WHITE,false);
-                punctuation.setPadding(0,ui.dp(8),0,ui.dp(8));inline.addView(punctuation);
-            }
-        }
-        List<String> refsForBlanks=new ArrayList<>();
-        for(Bible.Verse line:activeEntry.lines().subList(activeStep.start,activeStep.end))
-            refsForBlanks.add(line.ref);
-        final boolean special=AcceptedTextLogic.matthew513(activeEntry.reference,refsForBlanks);
-        for(int k=0;k<fields.size();k++){
-            final int gapIndex=k;
-            EditText field=fields.get(k);
-            field.addTextChangedListener(new TextWatcher(){
-                private boolean changing=false;
-                @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
-                @Override public void onTextChanged(CharSequence x,int a,int before,int count){
-                    if(changing)return;
-                    String value=x.toString();
-                    boolean containsSpace=value.endsWith(" ");
-                    boolean allowed=containsSpace && InlineGapLogic.keepSpaceInside(
-                        InlineGapLogic.core(tokens[missing[gapIndex]]),value,
-                        special);
-                    if(containsSpace && !allowed){
-                        changing=true;
-                        String trimmed=value.substring(0,value.length()-1);
-                        field.setText(trimmed);field.setSelection(field.length());
-                        changing=false;value=trimmed;
-                        int next=gapIndex+1;
-                        while(next<fields.size() && !lessonWriting.gap(next).trim().isEmpty())next++;
-                        if(next<fields.size())fields.get(next).requestFocus();
-                        else {
-                            field.clearFocus();
-                            android.view.inputmethod.InputMethodManager keyboard=
-                                (android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);
-                            if(keyboard!=null)keyboard.hideSoftInputFromWindow(field.getWindowToken(),0);
-                        }
-                        // The last space NEVER starts validation; only the footer button does.
-                    }
-                    cancelWritingCheck();
-                    lessonWriting.editGap(gapIndex,value);
-                    field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
-                    float textPx=field.getPaint().measureText(value)+ui.dp(25);
-                    int baselineWidth = Math.min(maxWidth,
-                        Math.max(ui.dp(32), ui.dp(12) * Math.max(1,
-                            InlineGapLogic.letters(inlineExpected.get(gapIndex))) + ui.dp(8)));
-                    int width=Math.min(maxWidth,Math.max(baselineWidth,(int)Math.ceil(textPx)));
-                    ViewGroup.LayoutParams lp=field.getLayoutParams();
-                    if(lp.width!=width){lp.width=width;field.setLayoutParams(lp);}
-                    lastAccuracy=-1;saveTrainingSession();
-                }
-                @Override public void afterTextChanged(Editable x){}
-            });
-        }
-        ui.add(content,inline,18);
-    }
     private static final class AnswerReview {
         final String expected,actual;
         final AnswerReviewLogic.Result result;
@@ -4032,107 +3918,18 @@ public final class MainActivity extends Activity {
         render();
     }
 
-    private void renderAnswerReview(AnswerReview review){
-        addAnswerReviewCard("Твой ответ",review.result.summary==AnswerReviewLogic.Summary.EMPTY?
-            "Ответ не введён":review.result.displayedActual,review.result.actualMarks,false,
-            0xFFF9E9E4,0xFFECD2CA,0xFF923C37);
-        addAnswerReviewCard("Правильный ответ",review.expected,Collections.emptyList(),true,
-            0xFFF0F3E6,0xFFDDE5D4,0xFF436044);
-    }
-
-    private LinearLayout answerReviewPanel(int background,int border){
-        LinearLayout panel=ui.column();
-        panel.setPadding(ui.dp(16),ui.dp(12),ui.dp(16),ui.dp(14));
-        panel.setBackground(ui.outlined(background,18,border));
-        return panel;
-    }
-
-    private static final class ReviewErrorSpan extends ReplacementSpan {
-        private final float thickness;
-        ReviewErrorSpan(float thickness){this.thickness=thickness;}
-        @Override public int getSize(Paint paint,CharSequence text,int start,int end,Paint.FontMetricsInt metrics){
-            if(metrics!=null){
-                Paint.FontMetricsInt source=paint.getFontMetricsInt();
-                metrics.top=source.top;metrics.ascent=source.ascent;
-                metrics.descent=Math.max(source.descent,(int)Math.ceil(thickness*2));
-                metrics.bottom=Math.max(source.bottom,metrics.descent);
-                metrics.leading=source.leading;
-            }
-            boolean originalBold=paint.isFakeBoldText();
-            paint.setFakeBoldText(true);
-            int width=(int)Math.ceil(paint.measureText(text,start,end));
-            paint.setFakeBoldText(originalBold);
-            return width;
-        }
-        @Override public void draw(Canvas canvas,CharSequence text,int start,int end,float x,int top,
-                                   int baseline,int bottom,Paint paint){
-            int originalColor=paint.getColor();
-            boolean originalBold=paint.isFakeBoldText();
-            float originalWidth=paint.getStrokeWidth();
-            paint.setColor(0xFFB72F2B);
-            paint.setFakeBoldText(true);
-            float width=paint.measureText(text,start,end);
-            canvas.drawText(text,start,end,x,baseline,paint);
-            paint.setStrokeWidth(thickness);
-            float underline=Math.min(bottom-thickness/2f,baseline+thickness);
-            canvas.drawLine(x,underline,x+width,underline,paint);
-            paint.setStrokeWidth(originalWidth);
-            paint.setFakeBoldText(originalBold);
-            paint.setColor(originalColor);
-        }
-    }
-
-    private void addAnswerReviewCard(String title,String text,List<AnswerReviewLogic.Mark> marks,
-                                     boolean correct,int background,int border,int ink){
-        LinearLayout panel=answerReviewPanel(background,border);
-        LinearLayout heading=ui.row();
-        TextView icon=ui.txt(correct?"✓":"×",15,Color.WHITE,true);
-        icon.setGravity(Gravity.CENTER);
-        icon.setBackground(ui.shape(ink,20));
-        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams iconSize=new LinearLayout.LayoutParams(ui.dp(24),ui.dp(24));
-        iconSize.rightMargin=ui.dp(8);
-        heading.addView(icon,iconSize);
-        heading.addView(ui.txt(title,14,ink,true),new LinearLayout.LayoutParams(0,-2,1));
-        ui.add(panel,heading,0);
-        SpannableString marked=new SpannableString(text);
-        for(AnswerReviewLogic.Mark mark:marks){
-            if(mark.kind==AnswerReviewLogic.Kind.SPELLING){
-                marked.setSpan(new ReviewErrorSpan(ui.dp(2)),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }else{
-                marked.setSpan(new ForegroundColorSpan(0xFFAD3C37),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                if(mark.kind==AnswerReviewLogic.Kind.EXTRA)
-                    marked.setSpan(new StrikethroughSpan(),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-        }
-        TextView body=answerReviewText(marked,19);
-        body.setLineSpacing(ui.dp(3),1.08f);
-        ui.add(panel,body,8);
-        ui.add(content,panel,content.getChildCount()==0?0:10);
-    }
-
-    private TextView answerReviewText(CharSequence text,int size){
-        TextView view=ui.txt("",size,WHITE,false);
-        view.setText(text);
-        return view;
-    }
-
-    private final java.util.concurrent.ExecutorService writingExecutor=
-        java.util.concurrent.Executors.newSingleThreadExecutor(task->new Thread(task,"WritingAssessment"));
-    private final Handler writingHandler=new Handler(Looper.getMainLooper());
-    private java.util.concurrent.Future<?> writingTask;
     private record WritingCheck(WritingAssessment.Input input,LocalStore.Entry entry,
                                 StudyPlanLogic.Step step,String draft) {}
-    private WritingCheck pendingWritingCheck;
+    private final LessonWritingWorker<WritingCheck> writingWorker=new LessonWritingWorker<>(
+        this::applyWritingAssessment,error->{
+            android.util.Log.e("Learning","Unable to check written answer",error);
+            toast("Не удалось проверить ответ. Попробуй ещё раз.");
+        });
 
-    private void cancelWritingCheck(){
-        pendingWritingCheck=null;
-        if(writingTask!=null){writingTask.cancel(true);writingTask=null;}
-        writingHandler.removeCallbacksAndMessages(null);
-    }
+    private void cancelWritingCheck(){writingWorker.cancel();}
 
     private void validateLessonWriting(LocalStore.Entry e){
-        if(pendingWritingCheck!=null||screen!=Screen.TRAIN||backupInProgress||resetInProgress||
+        if(writingWorker.busy()||screen!=Screen.TRAIN||backupInProgress||resetInProgress||
             answerReview!=null||(checked&&passed))return;
         List<Bible.Verse> lines=e.lines().subList(activeStep.start,activeStep.end);
         String passage=texts(lines);
@@ -4146,40 +3943,12 @@ public final class MainActivity extends Activity {
         for(Bible.Verse line:lines){refs.add(line.ref);verses.add(line.text);}
         WritingAssessment.Input input=new WritingAssessment.Input(expected,entered,
             AcceptedTextLogic.matthew513(e.reference,refs),full,lessonWriting.practiceWeakFragment,verses,
-            full?Collections.emptyList():inlineExpected, full?Collections.emptyList():lessonWriting.gapAnswers());
+            full?Collections.emptyList():writingView.expectedGaps(), full?Collections.emptyList():lessonWriting.gapAnswers());
         WritingCheck check=new WritingCheck(input,e,activeStep,lessonWriting.draft);
-        pendingWritingCheck=check;
-        if(!input.requiresWorker()){
-            applyWritingAssessment(check,WritingAssessment.evaluate(input));
-            return;
-        }
-        Handler main=writingHandler;
-        java.lang.ref.WeakReference<MainActivity> target=new java.lang.ref.WeakReference<>(this);
-        writingTask=writingExecutor.submit(()->{
-            try{
-                WritingAssessment.Result result=WritingAssessment.evaluate(input);
-                main.post(()->{
-                    MainActivity activity=target.get();
-                    if(activity!=null)activity.applyWritingAssessment(check,result);
-                });
-            }catch(java.util.concurrent.CancellationException cancelled){
-                // The main thread already retired this submission.
-            }catch(RuntimeException error){
-                main.post(()->{
-                    MainActivity activity=target.get();
-                    if(activity!=null&&activity.pendingWritingCheck==check){
-                        activity.cancelWritingCheck();
-                        android.util.Log.e("Learning","Unable to check written answer",error);
-                        activity.toast("Не удалось проверить ответ. Попробуй ещё раз.");
-                    }
-                });
-            }
-        });
+        writingWorker.submit(check,input);
     }
 
     private void applyWritingAssessment(WritingCheck check,WritingAssessment.Result result){
-        if(pendingWritingCheck!=check)return;
-        pendingWritingCheck=null;writingTask=null;
         LocalStore.Entry e=check.entry();
         if(isDestroyed()||isFinishing()||backupInProgress||resetInProgress||screen!=Screen.TRAIN||
             selectedEntry!=e.id||activeStep!=check.step()||!lessonWriting.draft.equals(check.draft()))return;
@@ -4649,7 +4418,8 @@ public final class MainActivity extends Activity {
         cancelWritingCheck();
         readingView.clear();
         assemblyView.clear();
-        writingExecutor.shutdownNow();
+        writingView.clear();
+        writingWorker.close();
         BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
         if(backupDialog!=null)backupDialog.dismiss();
