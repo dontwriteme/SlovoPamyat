@@ -2,8 +2,11 @@ package org.biblememory.app;
 
 import java.util.EnumMap;
 
-/** Positions within routes. The Home scroll continues to live in HomePage. */
-final class NavigationScroll {
+/** Current route, last mounted route, and remembered positions within routes. */
+final class NavigationState {
+    Screen screen=Screen.HOME;
+    Screen lastRenderedScreen;
+
     private final EnumMap<Screen,Integer> positions=new EnumMap<>(Screen.class);
 
     void put(Screen route,int y){positions.put(route,y);}

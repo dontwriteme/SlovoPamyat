@@ -13,6 +13,7 @@ final class ActivityTestWorkers {
     private ActivityTestWorkers() {}
 
     static Object lessonField(MainActivity activity,String name)throws Exception{
+        if("screen".equals(name))return ((NavigationState)lessonField(activity,"navigation")).screen;
         if("store".equals(name))return ((ActivityDataLifetime)lessonField(activity,"dataLifetime")).store();
         try{
             Field member=MainActivity.class.getDeclaredField(name);
@@ -25,6 +26,7 @@ final class ActivityTestWorkers {
     }
 
     static void setLessonField(MainActivity activity,String name,Object value)throws Exception{
+        if("screen".equals(name)){((NavigationState)lessonField(activity,"navigation")).screen=(Screen)value;return;}
         try{
             Field member=MainActivity.class.getDeclaredField(name);
             member.setAccessible(true);

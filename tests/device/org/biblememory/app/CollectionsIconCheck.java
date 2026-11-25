@@ -78,8 +78,7 @@ public class CollectionsIconCheck extends HomeIconCheck {
                 main(()->{try{
                     // Exercise the existing section-root handler from a detail state,
                     // without creating or mutating a real collection fixture.
-                    java.lang.reflect.Field screen=MainActivity.class.getDeclaredField("screen");screen.setAccessible(true);
-                    for(Object value:screen.getType().getEnumConstants())if("COLLECTION_DETAIL".equals(value.toString()))screen.set(activity,value);
+                    LessonFixtureFields.set(activity,"screen",Screen.COLLECTION_DETAIL);
                     View previous=root();((View)icon().getParent()).performClick();
                     check("COLLECTIONS".equals(field(activity,"screen").toString())&&root()!=previous,"Reselect did not preserve detail-to-root navigation");
                     ((ValueAnimator)field(icon(),"animator")).end();

@@ -44,12 +44,6 @@ final class CollectionPassages {
             message.accept("Добавлено: "+ref);return true;
         }catch(Exception ex){message.accept(ex.getMessage()==null?"Не удалось добавить":ex.getMessage());return false;}
     }
-    static void repositionStudyAfter(LocalStore store,long group,long added,long after){
-        List<Long> ids=new ArrayList<>();
-        for(LocalStore.Entry item:store.entries(group))if(item.id!=added)ids.add(item.id);
-        int index=ids.indexOf(after);ids.add(index<0?ids.size():index+1,added);
-        store.reorderStudy(group,ids);
-    }
     static void repositionCardAfter(LocalStore store,long deck,long added,long after){
         List<Long> ids=new ArrayList<>();
         for(LocalStore.Flashcard f:store.flashcards(deck))if(f.id!=added)ids.add(f.id);

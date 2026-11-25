@@ -65,6 +65,7 @@ public final class R51LessonCheck extends Instrumentation {
                 review(true);
                 reviewCompletion();
             }else{
+                homeModes();
                 lesson();
                 group();
                 review(false);
@@ -77,6 +78,58 @@ public final class R51LessonCheck extends Instrumentation {
             results.putString("failure",android.util.Log.getStackTraceString(failure));
             finish(Activity.RESULT_CANCELED,results);
         }
+    }
+
+    private void homeModes()throws Exception{
+        awaitBible();
+        onMain(()->{
+            require("org.biblememory.app.r51fixture".equals(app.getPackageName()),"Isolated mode fixture");
+            long collectionId=store().createUnifiedCollection("Пять режимов R8");
+            LocalStore.UnifiedCollection collection=store().unifiedCollection(collectionId);
+            long entry=add(collection.groupId,TEXT);
+            store().addCustomFlashcard(collection.deckId,"Ссылка R8","Отдельная карточка");
+            store().commitSuccessfulRecall(entry,"VERSE",0,1,false,true,1000);
+            store().commitSuccessfulRecall(entry,"VERSE",0,1,false,true,86402000L);
+            call("activateUnified",new Class<?>[]{long.class},collection.id);
+            call("render",new Class<?>[0]);
+
+            enterMode(LearningHelp.STUDY,Screen.TRAIN);
+            activity.onBackPressed();
+            enterMode(LearningHelp.CARDS,Screen.CARD_SESSION);
+            View reveal=described((View)get("root"),"Показать ответ");
+            require(reveal!=null&&reveal.performClick(),"Card reveal");
+            require(described((View)get("root"),"Скрыть ответ")!=null,"Card answer visible");
+            activity.onBackPressed();
+            enterMode(LearningHelp.MEMORY,Screen.RUN);
+            require(((KnowledgeCheckSession)get("knowledgeCheck")).task().question().entryId()==entry,
+                "Knowledge check uses the consolidated item");
+            activity.onBackPressed();
+            enterMode(LearningHelp.REVIEW,Screen.TRAIN);
+            require(((ReviewSession)get("reviewSession")).group()==collection.groupId,"Collection review scope");
+            activity.onBackPressed();
+            enterMode(LearningHelp.ALL_REVIEWS,Screen.TRAIN);
+            require(((ReviewSession)get("reviewSession")).group()==-1L,"General review scope");
+            activity.onBackPressed();
+            return null;
+        });
+        results.putString("home_modes","study, cards with reveal, knowledge check, collection and general review");
+    }
+
+    private void enterMode(LearningHelp mode,Screen expected){
+        View launch=described((View)get("root"),mode.title);
+        require(launch!=null&&launch.performClick(),"Launch "+mode.title);
+        require(get("screen")==expected,"Expected "+expected+" for "+mode.title+", got "+get("screen"));
+    }
+
+    private static View described(View node,String description){
+        if(description.equals(node.getContentDescription()))return node;
+        if(node instanceof ViewGroup group){
+            for(int i=0;i<group.getChildCount();i++){
+                View match=described(group.getChildAt(i),description);
+                if(match!=null)return match;
+            }
+        }
+        return null;
     }
 
     private void lesson()throws Exception{

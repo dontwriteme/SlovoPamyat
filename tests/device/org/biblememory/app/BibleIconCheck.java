@@ -53,9 +53,7 @@ public class BibleIconCheck extends HomeIconCheck {
     void readerNavigation()throws Exception {
         main(()->{try {
             ((Bible)field(activity,"bible")).load(activity);
-            Class<?> screen=Class.forName("org.biblememory.app.Screen");
-            Object chapters=null;for(Object value:screen.getEnumConstants())if("CHAPTERS".equals(value.toString()))chapters=value;
-            Field mode=MainActivity.class.getDeclaredField("screen");mode.setAccessible(true);mode.set(activity,chapters);
+            LessonFixtureFields.set(activity,"screen",Screen.CHAPTERS);
             Field book=MainActivity.class.getDeclaredField("selectedBook");book.setAccessible(true);book.set(activity,19);
             Method render=MainActivity.class.getDeclaredMethod("render");render.setAccessible(true);render.invoke(activity);
             text(root(),"118").performClick();check("VERSES".equals(field(activity,"screen").toString()),"Skipped verse grid");

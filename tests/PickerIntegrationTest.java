@@ -23,8 +23,8 @@ public class PickerIntegrationTest {
     LocalStore store;
     Bible bible;
     long group;
-    Object field(String name)throws Exception {if("store".equals(name))return ActivityTestWorkers.lessonField(activity,name);Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
-    void set(String name,Object value)throws Exception {Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
+    Object field(String name)throws Exception {if("store".equals(name)||"screen".equals(name))return ActivityTestWorkers.lessonField(activity,name);Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
+    void set(String name,Object value)throws Exception {ActivityTestWorkers.setLessonField(activity,name,value);}
     Object call(String name,Class<?>[] types,Object... args)throws Exception {
         Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);
     }
@@ -435,7 +435,7 @@ public class PickerIntegrationTest {
         searchInput().setText("");
         layoutReader();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
-        assertEquals(Integer.valueOf(123),((Map<?,?>)navigationField("navigationScroll","positions")).get(books));
+        assertEquals(Integer.valueOf(123),((Map<?,?>)navigationField("navigation","positions")).get(books));
         assertEquals(123,((ScrollView)field("currentScroller")).getScrollY());
         assertNotNull(text("Бытие"));
     }
@@ -515,7 +515,7 @@ public class PickerIntegrationTest {
     @Test public void readerFocusOverridesPreviouslySavedChapterScroll()throws Exception {
         controller.visible();
         reader("CHAPTER",40,5);
-        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)navigationField("navigationScroll","positions");
+        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)navigationField("navigation","positions");
         saved.put(option("Screen","CHAPTER"),0);
         reader("VERSES",40,5);text("40").performClick();layoutReader();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));

@@ -18,6 +18,21 @@ enum Screen {
         return this==HOME||this==BOOKS||this==COLLECTIONS||this==SETTINGS;
     }
 
+    Screen backDestination(){
+        switch(this){
+            case BOOKS:case DUE:case CARDS:case COLLECTIONS:case SETTINGS:case RUN_SUMMARY:case ENTRIES:return HOME;
+            case COLLECTION_DETAIL:return COLLECTIONS;
+            case COLLECTION_CHAPTER:return COLLECTION_BOOK;
+            case CARD_DECK:return CARDS;
+            case CARD_PICK:case REORDER_CARDS:return CARD_DECK;
+            case PICKER_VERSES:return PICKER_CHAPTERS;
+            case PICKER_TEXT:return PICKER_VERSES;
+            case CHAPTERS:return BOOKS;
+            case VERSES:return CHAPTERS;
+            default:return null;
+        }
+    }
+
     int mainTabIndex(boolean orphanedStudyPicker){
         switch(this){
             case BOOKS:case CHAPTERS:case VERSES:case CHAPTER:return 1;

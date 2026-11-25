@@ -366,6 +366,6 @@ public final class R456Profile extends Instrumentation {
     }
     @SuppressWarnings({"unchecked","rawtypes"})
     private void screen(String value)throws Exception{
-        Field f=declared("screen");f.set(activity,Enum.valueOf((Class)f.getType(),value));call("render",new Class<?>[0]);
+        LessonFixtureFields.set(activity,"screen",Screen.valueOf(value));call("render",new Class<?>[0]);
     }
 }

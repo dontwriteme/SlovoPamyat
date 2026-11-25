@@ -7,6 +7,7 @@ final class LessonFixtureFields {
     private LessonFixtureFields(){}
 
     static Object get(MainActivity activity,String name)throws ReflectiveOperationException{
+        if("screen".equals(name))return ((NavigationState)get(activity,"navigation")).screen;
         if("store".equals(name))return ((ActivityDataLifetime)get(activity,"dataLifetime")).store();
         if("ownsData".equals(name))return ((ActivityDataLifetime)get(activity,"dataLifetime")).ownsData();
         try{
@@ -20,6 +21,7 @@ final class LessonFixtureFields {
     }
 
     static void set(MainActivity activity,String name,Object value)throws ReflectiveOperationException{
+        if("screen".equals(name)){((NavigationState)get(activity,"navigation")).screen=(Screen)value;return;}
         try{
             Field member=MainActivity.class.getDeclaredField(name);
             member.setAccessible(true);
