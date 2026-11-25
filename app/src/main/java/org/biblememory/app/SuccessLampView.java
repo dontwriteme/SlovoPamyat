@@ -5,7 +5,6 @@ import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -132,13 +131,13 @@ final class SuccessLampView extends View {
             float haloScale=.35f+.65f*spread;c.scale(haloScale,haloScale);
             c.translate(0,53);
             paint.setShader(haloGradient);
-            paint.setAlpha((int)(255*spread*(1f+.018f*wave)));
+            paint.setAlpha(Math.min(255,(int)(255*spread*(1f+.018f*wave))));
             c.drawCircle(0,-53,132,paint);paint.setShader(null);paint.setAlpha(255);
             c.restore();
         }
         paint.setColor(0x18A18B62);
         c.drawOval(-54,59,54,72,paint);
-        paint.setShader(bodyGradient);c.drawPath(bowl,paint);paint.setShader(null);
+        paint.setAlpha(255);paint.setShader(bodyGradient);c.drawPath(bowl,paint);paint.setShader(null);
         paint.setColor(0xFFA78D5E);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(1.6f);
         c.drawPath(bowl,paint);paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xFFD9C395);c.drawOval(-49,29,49,51,paint);
