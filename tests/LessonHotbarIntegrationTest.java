@@ -100,8 +100,7 @@ public class LessonHotbarIntegrationTest {
         }
         assertTrue(action.isEnabled());
         assertEquals(0xFFFFFFFF,action.getCurrentTextColor());
-        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
-            ((android.graphics.drawable.GradientDrawable)action.getBackground()).getColors());
+        assertMatteLessonAction(action);
         LessonHotbarLogic.Model filled=model(LessonCurriculumLogic.Phase.BUILD);
         assertEquals(before.completedCount+1,filled.completedCount);
         assertEquals(LessonHotbarLogic.DONE,filled.visual(1,0));
@@ -277,8 +276,7 @@ public class LessonHotbarIntegrationTest {
         assertNotNull(panel.getBackground());
         assertNull(hide.getCompoundDrawablesRelative()[0]);
         assertNotNull(hide.getCompoundDrawablesRelative()[2]);
-        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
-            ((android.graphics.drawable.GradientDrawable)next.getBackground()).getColors());
+        assertMatteLessonAction(next);
         layoutIntro(root,320);
         String original=passage.getText().toString();
         int lineCount=passage.getLineCount(),height=passage.getHeight(),hideTop=hide.getTop();
@@ -343,8 +341,7 @@ public class LessonHotbarIntegrationTest {
         assertNull(text(panel,LearningHelp.WRITE_GAPS));
         TextView check=text(root,"Проверить");
         assertTrue(check.isEnabled());
-        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
-            ((android.graphics.drawable.GradientDrawable)check.getBackground()).getColors());
+        assertMatteLessonAction(check);
         @SuppressWarnings("unchecked")
         List<EditText> fields=(List<EditText>)get("inlineFields");
         assertFalse(fields.isEmpty());
@@ -401,8 +398,7 @@ public class LessonHotbarIntegrationTest {
         assertEquals(android.graphics.Typeface.ITALIC,styles[0].getStyle());
         TextView check=text(root,"Проверить");
         assertNotNull(check);assertTrue(check.isEnabled());
-        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
-            ((android.graphics.drawable.GradientDrawable)check.getBackground()).getColors());
+        assertMatteLessonAction(check);
         StringBuilder longDraft=new StringBuilder();
         for(int i=0;i<60;i++)longDraft.append("Слово истины живо. ");
         String value=longDraft.toString();
@@ -764,6 +760,20 @@ public class LessonHotbarIntegrationTest {
             }
         }
         return null;
+    }
+
+    private void assertMatteLessonAction(TextView action){
+        android.graphics.drawable.GradientDrawable background=
+            (android.graphics.drawable.GradientDrawable)action.getBackground();
+        assertEquals(0xFF607B43,background.getColor().getDefaultColor());
+        assertEquals(13*action.getResources().getDisplayMetrics().density,
+            background.getCornerRadius(),1f);
+        assertNull(background.getColors());
+        assertEquals(0f,action.getElevation(),0.01f);
+        assertEquals(0f,action.getTranslationZ(),0.01f);
+        assertEquals(android.graphics.Color.WHITE,action.getCurrentTextColor());
+        assertEquals(android.graphics.Typeface.create("serif",android.graphics.Typeface.NORMAL),
+            action.getTypeface());
     }
 
 }
