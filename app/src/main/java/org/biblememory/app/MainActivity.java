@@ -5590,13 +5590,8 @@ public final class MainActivity extends Activity {
         if(phase!=LessonCurriculumLogic.Phase.WRITE)answerReview=null;
         if(phase==LessonCurriculumLogic.Phase.COMPLETE){renderCompletion(e);return;}
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
-        boolean gapWriting=false;
-        if(phase==LessonCurriculumLogic.Phase.WRITE && answerReview==null && !practiceWeakFragment){
-            List<LessonCurriculumLogic.Variant> variants=writingVariants(e);
-            gapWriting=variants.get(Math.max(0,Math.min(lessonWriteVariant,variants.size()-1)))
-                !=LessonCurriculumLogic.Variant.FULL;
-        }
-        boolean scenicLesson=assembling||gapWriting;
+        boolean writingInput=phase==LessonCurriculumLogic.Phase.WRITE&&answerReview==null;
+        boolean scenicLesson=assembling||writingInput;
         root=column();root.setBackground(scenicLesson?assemblyBackground():pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=column();top.setPadding(dp(22),dp(15),dp(22),dp(6));
@@ -5673,17 +5668,14 @@ public final class MainActivity extends Activity {
                 renderAnswerReview(answerReview);
                 mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
             }else{
-                if(gapWriting)assemblyReference(e);
-                else lessonPhaseHeader("Написание",e);
+                assemblyReference(e);
                 renderLessonWriting();
                 mainAction=button("Проверить",true,()->validateLessonWriting(e));
-                if(gapWriting){
-                    mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
-                    mainAction.setTextSize(22);
-                    mainAction.setElevation(dp(3));
-                    // Keep validation available, even for an empty or incomplete answer.
-                    styleAssemblyContinue(mainAction,true);
-                }
+                mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
+                mainAction.setTextSize(22);
+                mainAction.setElevation(dp(3));
+                // Keep validation available, even for an empty or incomplete answer.
+                styleAssemblyContinue(mainAction,true);
             }
         } else {
             renderCompletion(e);
@@ -6481,11 +6473,17 @@ public final class MainActivity extends Activity {
         boolean full=variant==LessonCurriculumLogic.Variant.FULL;
 
         if(!practiceWeakFragment&&!full)renderInlineGapInputs(variant);
-        else helper(content,practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:LearningHelp.WRITE_FULL);
+        else{
+            TextView instruction=prose(practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:LearningHelp.WRITE_FULL,16);
+            instruction.setTextColor(BUILD_INK);
+            instruction.setGravity(Gravity.CENTER);
+            add(content,instruction,14);
+        }
         if(full){
             EditText answer=input(practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
             forbidKeyboardHints(answer,true);
-            answer.setMinLines(6);answer.setText(draft);
+            styleFullWritingInput(answer);
+            answer.setText(draft);
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
                 @Override public void onTextChanged(CharSequence x,int a,int before,int count){
@@ -6499,6 +6497,34 @@ public final class MainActivity extends Activity {
         }
         // Verification is always explicitly triggered by the existing footer button.
     }
+    /** Native multiline editor; presentation only, without changing input or scoring rules. */
+    private void styleFullWritingInput(EditText answer){
+        answer.setTag("writing-full-input");
+        answer.setTextColor(BUILD_INK);
+        answer.setHintTextColor(MUTED);
+        answer.setTextSize(18);
+        answer.setTypeface(Typeface.create("serif",Typeface.NORMAL));
+        answer.setLineSpacing(dp(4),1.14f);
+        answer.setGravity(Gravity.TOP|Gravity.START);
+        answer.setBackgroundTintList(null);
+        answer.setBackground(outlined(0xF9FFF2E1,25,0xFFFFFAF3));
+        answer.setPadding(dp(20),dp(18),dp(20),dp(18));
+        answer.setElevation(dp(2));
+        answer.setMinLines(6);
+        answer.setMaxLines(12);
+        answer.setHorizontallyScrolling(false);
+        answer.setVerticalScrollBarEnabled(true);
+        SpannableString hint=new SpannableString(answer.getHint());
+        hint.setSpan(new android.text.style.StyleSpan(Typeface.ITALIC),0,hint.length(),
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        answer.setHint(hint);
+        if(Build.VERSION.SDK_INT>=29){
+            GradientDrawable cursor=shape(0xFF648C3C,1);
+            cursor.setSize(dp(2),dp(24));
+            answer.setTextCursorDrawable(cursor);
+        }
+    }
+
     private void renderInlineGapInputs(LessonCurriculumLogic.Variant variant){
         String source=texts(activeEntry.lines().subList(activeStep.start,activeStep.end));
         String[] tokens=ExerciseTextLogic.tokens(source);
