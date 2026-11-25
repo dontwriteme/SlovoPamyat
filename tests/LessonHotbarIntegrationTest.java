@@ -243,6 +243,68 @@ public class LessonHotbarIntegrationTest {
         root.layout(0,0,width,560);
     }
     @Test @Config(qualifiers="w320dp-h560dp")
+    public void introScenicCardPreservesTextAndRestoresHeldBlur()throws Exception{
+        lifecycle.visible();
+        View root=(View)get("root");
+        View panel=root.findViewWithTag("lesson-intro-panel");
+        TextView passage=root.findViewWithTag("lesson-intro-passage");
+        TextView hide=root.findViewWithTag("lesson-intro-hide");
+        TextView next=text(root,"Продолжить");
+        assertNotNull(panel);assertNotNull(passage);assertNotNull(hide);assertNotNull(next);
+        assertSame(passage,get("activePassage"));
+        assertEquals(0xFF553722,passage.getCurrentTextColor());
+        assertNotNull(panel.getBackground());
+        assertNotNull(hide.getCompoundDrawablesRelative()[0]);
+        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
+            ((android.graphics.drawable.GradientDrawable)next.getBackground()).getColors());
+        layoutIntro(root,320);
+        String original=passage.getText().toString();
+        int lineCount=passage.getLineCount(),height=passage.getHeight(),hideTop=hide.getTop();
+        for(int expected:new int[]{25,50,75,100}){
+            hide.performClick();
+            layoutIntro(root,320);
+            assertEquals(expected,get("mask"));
+            assertEquals(original,passage.getText().toString());
+            assertEquals(lineCount,passage.getLineCount());
+            assertEquals(height,passage.getHeight());
+            assertEquals(hideTop,hide.getTop());
+            assertEquals(0,store.exerciseDone(id,0));
+        }
+        android.text.Spannable hidden=(android.text.Spannable)passage.getText();
+        android.text.style.MaskFilterSpan[] spans=hidden.getSpans(0,hidden.length(),
+            android.text.style.MaskFilterSpan.class);
+        assertTrue(spans.length>0);
+        android.text.TextPaint paint=new android.text.TextPaint();
+        spans[0].updateDrawState(paint);
+        assertEquals(0xFF806B59,paint.getColor());
+        assertNotNull(paint.getMaskFilter());
+        int start=hidden.getSpanStart(spans[0]),end=hidden.getSpanEnd(spans[0]);
+        android.text.Layout layout=passage.getLayout();
+        int line=layout.getLineForOffset(start);
+        float x=passage.getTotalPaddingLeft()+
+            (layout.getPrimaryHorizontal(start)+layout.getPrimaryHorizontal(end))/2f;
+        float y=passage.getTotalPaddingTop()+
+            (layout.getLineTop(line)+layout.getLineBottom(line))/2f;
+        long now=android.os.SystemClock.uptimeMillis();
+        MotionEvent down=MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,x,y,0);
+        passage.dispatchTouchEvent(down);down.recycle();
+        assertEquals(spans.length-1,hidden.getSpans(0,hidden.length(),
+            android.text.style.MaskFilterSpan.class).length);
+        MotionEvent up=MotionEvent.obtain(now,now,MotionEvent.ACTION_UP,x,y,0);
+        passage.dispatchTouchEvent(up);up.recycle();
+        assertEquals(spans.length,hidden.getSpans(0,hidden.length(),
+            android.text.style.MaskFilterSpan.class).length);
+        hide.performClick();
+        assertEquals(0,get("mask"));
+        assertEquals(original,passage.getText().toString());
+        android.text.Spanned clear=(android.text.Spanned)passage.getText();
+        assertEquals(0,clear.getSpans(0,clear.length(),android.text.style.MaskFilterSpan.class).length);
+        assertEquals(0,store.exerciseDone(id,0));
+        next.performClick();
+        assertEquals(1,store.exerciseDone(id,0));
+    }
+
+    @Test @Config(qualifiers="w320dp-h560dp")
     public void gapWritingUsesScenicCardAndKeepsDraftAndValidation()throws Exception{
         id=store.add(store.entry(id).groupId,"Gap fixture","Свой текст",
             Collections.singletonList(new Bible.Verse("1:1",
