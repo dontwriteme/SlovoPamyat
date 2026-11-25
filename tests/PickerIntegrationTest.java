@@ -519,7 +519,7 @@ public class PickerIntegrationTest {
 
     @Test @Config(qualifiers="w1080dp-h1920dp")
     public void homeModeInfoButtonsOpenTheirOwnNonModalPopup()throws Exception {
-        set("activeUnifiedId",store.unifiedForGroup(group).id);
+        call("activateUnified",new Class<?>[]{long.class},store.unifiedForGroup(group).id);
         set("screen",option("Screen","HOME"));
         invoke("render");
         controller.visible();

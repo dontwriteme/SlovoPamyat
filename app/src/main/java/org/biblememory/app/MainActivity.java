@@ -42,12 +42,15 @@ public final class MainActivity extends Activity {
     private final ScreenMenus menus = new ScreenMenus(ui);
     private final ModeInfoPopover modeInfo = new ModeInfoPopover(ui);
     private final ScreenArtwork artwork=new ScreenArtwork(this,ui);
+    private final CollectionViews collectionViews=new CollectionViews(this,ui,artwork);
+    private final CollectionDialogs collectionDialogs=new CollectionDialogs(this,ui);
     // The warm landscape-based interface is shared by every screen, not just the home hero.
     private static final int EXPORT=10,IMPORT=11;
     private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY}
     private Screen screen=Screen.HOME;
-    private static final String UNIFIED_PREFS="unified_library_ui";
-    private long activeUnifiedId=-1,openUnifiedId=-1;
+    private static final String UNIFIED_PREFS=ActiveCollection.PREFS;
+    private final ActiveCollection activeCollection=new ActiveCollection(this);
+    private long openUnifiedId=-1;
     private boolean cardFromUnified=false;
     private long reviewCollectionGroup=-1;
     private KnowledgeCheckSession knowledgeCheck;
@@ -448,7 +451,7 @@ public final class MainActivity extends Activity {
             return;
         }
         knowledgeCheck = new KnowledgeCheckSession(getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE));
-        activeUnifiedId=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).getLong("active",-1);
+        activeCollection.load();
         ensureActiveUnified();
         restoreCollectionQueue();
         home.open();
@@ -1418,17 +1421,8 @@ public final class MainActivity extends Activity {
         openTraining(collectionQueue.get(collectionQueueCursor));
     }
     private String studyProgressFor(long groupId){
-        return studyProgressFor(groupId,store.collectionProgress());
+        return CollectionViews.studyProgress(groupId,store.collectionProgress());
     }
-    private String studyProgressFor(long groupId,CollectionProgressSnapshot progress){
-        int all=0,mastered=0;
-        for(LocalStore.Entry e:progress.entries(groupId)){
-            all+=progress.verseCount(e.id);
-            mastered+=progress.masteryCount(progress.canonicalId(e.id));
-        }
-        return mastered+" из "+all+" стихов";
-    }
-
     private void chooseCardDeck(Pick action){
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
         String[] options=new String[collections.size()+1];
@@ -4824,86 +4818,24 @@ public final class MainActivity extends Activity {
     }
 
     // ===== Unified Collections (v0.21) =====
-    private void ensureActiveUnified(){
-        if(store.unifiedCollection(activeUnifiedId)!=null)return;
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
-        activeUnifiedId=collections.isEmpty()?-1:collections.get(0).id;
-        getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit().putLong("active",activeUnifiedId).apply();
-    }
-    private LocalStore.UnifiedCollection activeUnified(){
-        ensureActiveUnified();return store.unifiedCollection(activeUnifiedId);
-    }
-    private void activateUnified(long id){
-        if(store.unifiedCollection(id)==null)return;
-        activeUnifiedId=id;
-        getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).edit().putLong("active",id).apply();
-    }
+    private void ensureActiveUnified(){activeCollection.ensure(store);}
+    private LocalStore.UnifiedCollection activeUnified(){return activeCollection.get(store);}
+    private void activateUnified(long id){activeCollection.select(store,id);}
     private interface UnifiedCreated {void accept(LocalStore.UnifiedCollection collection);}
     private void newUnifiedCollection(UnifiedCreated after){
-        EditText name=ui.input("Например: Нагорная проповедь",false);
-        LinearLayout wrap=ui.column();wrap.setPadding(ui.dp(19),ui.dp(12),ui.dp(19),ui.dp(9));ui.add(wrap,name,0);
-        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Новая коллекция").setView(wrap)
-            .setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
-        ui.styledDialog(dialog);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            if(value(name).isEmpty()){name.setError("Введите название коллекции");name.requestFocus();return;}
+        collectionDialogs.create(name->{
             boolean firstCollection=store.unifiedCollections().isEmpty();
-            long id=store.createUnifiedCollection(value(name));
-            // Only the first collection is selected implicitly.
+            long id=store.createUnifiedCollection(name);
             if(firstCollection)activateUnified(id);
-            LocalStore.UnifiedCollection u=store.unifiedCollection(id);
-            dialog.dismiss();
-            if(after!=null)after.accept(u);else{openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();}
+            LocalStore.UnifiedCollection collection=store.unifiedCollection(id);
+            return ()->{
+                if(after!=null)after.accept(collection);
+                else{openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();}
+            };
         });
     }
     private void showUnifiedSelector(){
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
-        LinearLayout panel=ui.column();
-        panel.setPadding(ui.dp(20),ui.dp(20),ui.dp(20),ui.dp(12));
-        LinearLayout header=ui.row();
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(ui.displayText("Выбрать коллекцию",23),new LinearLayout.LayoutParams(0,-2,1));
-        TextView close=ui.txt("×",28,MUTED,false);
-        close.setGravity(Gravity.CENTER);
-        close.setContentDescription("Закрыть выбор коллекции");
-        close.setFocusable(true);
-        header.addView(close,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
-        ui.add(panel,header,0);
-        int visibleHeight=Math.min(ui.dp(320),getResources().getDisplayMetrics().heightPixels/2);
-        ScrollView scroll=new ScrollView(this){
-            @Override protected void onMeasure(int widthSpec,int heightSpec){
-                int maximum=MeasureSpec.getMode(heightSpec)==MeasureSpec.UNSPECIFIED?visibleHeight:
-                    Math.min(visibleHeight,MeasureSpec.getSize(heightSpec));
-                super.onMeasure(widthSpec,MeasureSpec.makeMeasureSpec(maximum,MeasureSpec.AT_MOST));
-            }
-        };
-        LinearLayout choices=ui.column();
-        scroll.addView(choices);
-        ui.add(panel,scroll,12);
-        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setView(panel).create();
-        close.setOnClickListener(v->dialog.dismiss());
-        for(LocalStore.UnifiedCollection collection:collections){
-            boolean selected=collection.id==activeUnifiedId;
-            LinearLayout choice=ui.row();
-            choice.setGravity(Gravity.CENTER_VERTICAL);
-            choice.setMinimumHeight(ui.dp(52));
-            choice.setPadding(ui.dp(12),ui.dp(8),ui.dp(12),ui.dp(8));
-            choice.setBackground(selected?ui.outlined(CARD_ALT,14,BORDER):ui.shape(CARD,14));
-            choice.addView(ui.txt(collection.title,17,WHITE,selected),new LinearLayout.LayoutParams(0,-2,1));
-            if(selected){
-                TextView check=ui.txt("✓",20,GREEN,true);
-                check.setGravity(Gravity.CENTER);
-                choice.addView(check,new LinearLayout.LayoutParams(ui.dp(32),-2));
-            }
-            choice.setSelected(selected);
-            choice.setFocusable(true);
-            choice.setOnClickListener(v->{dialog.dismiss();activateUnified(collection.id);render();});
-            ui.add(choices,choice,4);
-        }
-        if(collections.isEmpty())scroll.setVisibility(View.GONE);
-        dialog.setCanceledOnTouchOutside(true);
-        ui.styledDialog(dialog);
+        collectionDialogs.select(store.unifiedCollections(),activeCollection.id(),id->{activateUnified(id);render();});
     }
     private void openCollectionToAdd(LocalStore.UnifiedCollection u){
         openUnifiedId=u.id;selectedGroup=u.groupId;selectedDeck=u.deckId;
@@ -4934,41 +4866,10 @@ public final class MainActivity extends Activity {
         startReviewSession();
     }
     private void renderUnifiedCollections(){
-        // Prominent full-width search field: accent border, magnifier, larger input.
-        LinearLayout searchBar=ui.row();searchBar.setGravity(Gravity.CENTER_VERTICAL);
-        searchBar.setPadding(ui.dp(14),ui.dp(3),ui.dp(8),ui.dp(3));
-        searchBar.setMinimumHeight(ui.dp(58));
-        GradientDrawable searchFrame=ui.shape(0xFFFFFDF9,17);
-        searchFrame.setStroke(ui.dp(2),0xFFCE9072);
-        searchBar.setBackground(searchFrame);
-        searchBar.setElevation(ui.dp(2));
-        NavigationGlyph magnifier=new NavigationGlyph(this,"search",GREEN);
-        searchBar.addView(magnifier,new LinearLayout.LayoutParams(ui.dp(29),ui.dp(29)));
-        EditText search=ui.input("Поиск по коллекциям",false);
-        search.setTextSize(17);
-        search.setSingleLine(true);
-        search.setPadding(ui.dp(12),ui.dp(9),ui.dp(5),ui.dp(9));
-        search.setBackgroundColor(Color.TRANSPARENT);
-        search.setContentDescription("Найти коллекцию по названию");
-        searchBar.addView(search,new LinearLayout.LayoutParams(0,-2,1));
-        TextView clear=ui.txt("×",24,MUTED,false);
-        clear.setGravity(Gravity.CENTER);
-        clear.setVisibility(View.GONE);
-        clear.setContentDescription("Очистить поиск коллекций");
-        searchBar.addView(clear,new LinearLayout.LayoutParams(ui.dp(41),ui.dp(44)));
-        clear.setOnClickListener(v->search.setText(""));
-        ui.add(content,searchBar,2);
-        LinearLayout results=ui.column();ui.add(content,results,12);
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
         CollectionProgressSnapshot snapshot=collections.isEmpty()?null:store.collectionProgress();
-        renderUnifiedCollectionRows(results,"",collections,snapshot);
-        search.addTextChangedListener(new TextWatcher(){
-            public void beforeTextChanged(CharSequence s,int start,int count,int after){}
-            public void onTextChanged(CharSequence s,int start,int before,int count){
-                clear.setVisibility(s.length()==0?View.GONE:View.VISIBLE);
-                results.removeAllViews();renderUnifiedCollectionRows(results,s.toString(),collections,snapshot);
-            }
-            public void afterTextChanged(Editable s){}
+        collectionViews.list(content,collections,snapshot,activeCollection.id(),id->{
+            openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();
         });
     }
     /** Keep settings in the same warm-card style as the existing collection screens. */
@@ -5065,128 +4966,55 @@ public final class MainActivity extends Activity {
         });
     }
     static String countedRussian(int count,String one,String few,String many){
-        int last=count%10, lastTwo=count%100;
-        String noun=lastTwo>=11&&lastTwo<=14?many:last==1?one:last>=2&&last<=4?few:many;
-        return count+" "+noun;
-    }
-    private void renderUnifiedCollectionRows(LinearLayout into,String search,
-            List<LocalStore.UnifiedCollection> collections,CollectionProgressSnapshot snapshot){
-        boolean found=false;
-        for(LocalStore.UnifiedCollection u:collections){
-            if(!u.title.toLowerCase(Locale.ROOT).contains(search.trim().toLowerCase(Locale.ROOT)))continue;
-            found=true;
-            LinearLayout row=ui.row();row.setPadding(ui.dp(13),ui.dp(14),ui.dp(13),ui.dp(14));
-            row.setBackground(artwork.homeSurface());
-            ImageView thumb=artwork.landscapeThumbnail(u.id);
-            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(ui.dp(59),ui.dp(61));
-            imageP.rightMargin=ui.dp(13);row.addView(thumb,imageP);
-            LinearLayout details=ui.column();ui.add(details,ui.displayText(u.title,17),0);
-            String passages=countedRussian(u.entries,"отрывок","отрывка","отрывков");
-            String verses=countedRussian(snapshot.uniqueVerseCount(u.groupId),"стих","стиха","стихов");
-            ui.add(details,ui.txt(passages+" · "+verses,13,MUTED,false),5);
-            if(u.id==activeUnifiedId)ui.add(details,ui.txt("●  Выбрана на главной",12,GREEN,true),4);
-            row.addView(details,new LinearLayout.LayoutParams(0,-2,1));
-            TextView arrow=ui.txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
-            row.addView(arrow,new LinearLayout.LayoutParams(ui.dp(24),ui.dp(48)));
-            row.setClickable(true);row.setFocusable(true);
-            row.setContentDescription("Открыть коллекцию "+u.title);
-            row.setOnClickListener(v->{openUnifiedId=u.id;screen=Screen.COLLECTION_DETAIL;render();});
-            ui.add(into,row,9);
-        }
-        if(!found)ui.helper(into,search.trim().isEmpty()?"Коллекций пока нет":"Ничего не найдено");
-    }
-    /** The one explicit location for collection management, inside its detail screen. */
-    private void unifiedSettingRow(LinearLayout settings,String label,String glyph,boolean destructive,Runnable command){
-        LinearLayout item=ui.row();item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(ui.dp(8),ui.dp(7),ui.dp(5),ui.dp(7));
-        MenuGlyph symbol=new MenuGlyph(this,glyph,destructive?RED:GREEN);
-        LinearLayout.LayoutParams iconP=new LinearLayout.LayoutParams(ui.dp(28),ui.dp(28));
-        iconP.rightMargin=ui.dp(13);item.addView(symbol,iconP);
-        TextView name=ui.txt(label,16,destructive?RED:WHITE,true);
-        item.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-        item.setMinimumHeight(ui.dp(51));
-        item.setClickable(true);item.setFocusable(true);
-        item.setContentDescription(label);item.setOnClickListener(v->command.run());
-        if(settings.getChildCount()>1){
-            View divider=new View(this);divider.setBackgroundColor(0xFFECD8CD);
-            settings.addView(divider,new LinearLayout.LayoutParams(-1,ui.dp(1)));
-        }
-        settings.addView(item,new LinearLayout.LayoutParams(-1,-2));
+        return CollectionViews.countedRussian(count,one,few,many);
     }
     private void showUnifiedCollectionSettings(LocalStore.UnifiedCollection u){
-        LinearLayout settings=ui.column();settings.setBackground(artwork.homeSurface());
-        settings.setPadding(ui.dp(14),ui.dp(12),ui.dp(14),ui.dp(11));
-        ui.add(settings,ui.txt("НАСТРОЙКИ КОЛЛЕКЦИИ",12,MUTED,true),0);
-        unifiedSettingRow(settings,"Переименовать","pencil",false,()->renameUnified(u));
-        unifiedSettingRow(settings,"Настроить порядок стихов","shuffle",false,()->{
+        collectionViews.settings(content,()->renameUnified(u),()->{
             if(store.entries(u.groupId).size()<2){
                 toast("Для изменения порядка нужны хотя бы два отрывка");return;
             }
             selectedGroup=u.groupId;openUnifiedId=u.id;
             screen=Screen.REORDER_STUDY;render();
-        });
-        unifiedSettingRow(settings,"Очистить коллекцию","eraser",true,()->clearUnified(u));
-        unifiedSettingRow(settings,"Удалить коллекцию","trash",true,()->deleteUnified(u));
-        ui.add(content,settings,14);
+        },()->clearUnified(u),()->deleteUnified(u));
     }
     private void clearUnified(LocalStore.UnifiedCollection u){
         if(u.entries==0&&u.cards==0){toast("Коллекция уже пуста");return;}
-        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Очистить коллекцию?")
-            .setMessage("Все стихи, отрывки и карточки будут убраны из этой коллекции. " +
-                "Саму коллекцию и прежние результаты заучивания сохраним. " +
-                "Отменить очистку нельзя.")
-            .setPositiveButton("Очистить",(d,w)->{
-                store.clearUnifiedCollection(u.id);
-                knowledgeCheck.clearCollection(u.id,true);
-                if(collectionQueueGroup==u.groupId)clearCollectionQueue();
-                render();toast("Коллекция очищена");
-            }).setNegativeButton("Отмена",null).create());
-    }
-    private void renameUnified(LocalStore.UnifiedCollection u){
-        EditText name=ui.input("Название коллекции",false);name.setText(u.title);
-        LinearLayout box=ui.column();box.setPadding(ui.dp(18),ui.dp(10),ui.dp(18),ui.dp(8));ui.add(box,name,0);
-        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Переименовать коллекцию").setView(box)
-            .setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
-        ui.styledDialog(dialog);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            if(value(name).isEmpty()){name.setError("Укажи название");name.requestFocus();return;}
-            store.renameUnifiedCollection(u.id,value(name));dialog.dismiss();render();
+        collectionDialogs.confirmClear(()->{
+            store.clearUnifiedCollection(u.id);
+            knowledgeCheck.clearCollection(u.id,true);
+            if(collectionQueueGroup==u.groupId)clearCollectionQueue();
+            render();toast("Коллекция очищена");
         });
     }
+    private void renameUnified(LocalStore.UnifiedCollection u){
+        collectionDialogs.rename(u.title,name->store.renameUnifiedCollection(u.id,name),this::render);
+    }
     private void deleteUnified(LocalStore.UnifiedCollection u){
-        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Удалить коллекцию из списка?")
-            .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
-            .setPositiveButton("Удалить",(d,w)->{
-                Screen origin=screen;
-                runCollectionMutation(()->collectionStore.deleteUnifiedCollection(u.id),success->{
-                    if(!success)return;
-                    if(collectionQueueGroup==u.groupId)clearCollectionQueue();
-                    knowledgeCheck.clearCollection(u.id,false);
-                    ensureActiveUnified();
-                    if(screen==origin&&(origin!=Screen.COLLECTION_DETAIL||openUnifiedId==u.id)){
-                        screen=Screen.COLLECTIONS;render();
-                    }
-                },()->{
-                    // Rotation can retire the owner before its deletion callback reaches the looper.
-                    // Compare persisted IDs so we preserve a newer selection made by another screen.
-                    SharedPreferences queue=getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);
-                    if(queue.getLong("group",-1)==u.groupId)queue.edit().clear().apply();
-                    SharedPreferences library=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE);
-                    if(library.getLong("active",-1)==u.id)library.edit().remove("active").apply();
-                    knowledgeCheck.clearCollection(u.id,false);
-                });
-            }).setNegativeButton("Отмена",null).create());
+        collectionDialogs.confirmDelete(()->{
+            Screen origin=screen;
+            runCollectionMutation(()->collectionStore.deleteUnifiedCollection(u.id),success->{
+                if(!success)return;
+                if(collectionQueueGroup==u.groupId)clearCollectionQueue();
+                knowledgeCheck.clearCollection(u.id,false);
+                ensureActiveUnified();
+                if(screen==origin&&(origin!=Screen.COLLECTION_DETAIL||openUnifiedId==u.id)){
+                    screen=Screen.COLLECTIONS;render();
+                }
+            },()->{
+                // Rotation can retire the owner before its deletion callback reaches the looper.
+                // Compare persisted IDs so we preserve a newer selection made by another screen.
+                SharedPreferences queue=getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);
+                if(queue.getLong("group",-1)==u.groupId)queue.edit().clear().apply();
+                activeCollection.clearSavedIfSelected(u.id);
+                knowledgeCheck.clearCollection(u.id,false);
+            });
+        });
     }
     private void renderUnifiedCollectionDetail(){
         LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
         if(u==null){screen=Screen.COLLECTIONS;render();return;}
         selectedGroup=u.groupId;selectedDeck=u.deckId;
-        TextView heading=ui.displayText(u.title,25);
-        heading.setGravity(Gravity.CENTER);heading.setMaxLines(2);
-        ui.add(content,heading,5);
+        collectionViews.heading(content,u.title);
         showUnifiedCollectionSettings(u);
         final LinearLayout target=content;
         final long generation=collectionGeneration;
@@ -5216,17 +5044,11 @@ public final class MainActivity extends Activity {
     }
     private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionProgressSnapshot snapshot,
             SortedMap<Integer,SortedMap<Integer,Long>> books,List<LocalStore.Entry> entries,long generation,int restoreScroll){
-        ui.helper(content,"Освоено: "+studyProgressFor(u.groupId,snapshot));
-        try{
-            JSONArray history=new JSONArray(getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE)
-                .getString("run_history_"+u.id,"[]"));
-            if(history.length()>0){JSONObject last=history.getJSONObject(0);
-                ui.helper(content,"Последняя проверка памяти: "+last.optInt("correct")+
-                    " из "+last.optInt("total")+" без ошибок");}
-        }catch(JSONException ignored){}
+        collectionViews.progress(content,u.groupId,snapshot,getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE)
+            .getString("run_history_"+u.id,"[]"));
         for(Map.Entry<Integer,SortedMap<Integer,Long>> book:books.entrySet()){
             String name=Bible.NAMES[book.getKey()-1];
-            collectionBookRow(name,countedRussian(book.getValue().size(),"глава","главы","глав"),()->{
+            collectionViews.bookRow(content,name,countedRussian(book.getValue().size(),"глава","главы","глав"),()->{
                 openedBookName=name;
                 openedCollectionBook=book.getValue();
                 openedBookProgress=snapshot;
@@ -5253,25 +5075,11 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void collectionBookRow(String title,String description,Runnable open){
-        LinearLayout frame=ui.card(content);
-        frame.setBackground(artwork.homeSurface());
-        LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout labels=ui.column();
-        ui.add(labels,ui.displayText(title,17),0);
-        ui.add(labels,ui.txt(description,13,MUTED,false),6);
-        line.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-        line.addView(ui.txt("›",22,GREEN,false),new LinearLayout.LayoutParams(ui.dp(24),-2));
-        ui.add(frame,line,0);
-        frame.setFocusable(true);
-        frame.setOnClickListener(v->open.run());
-    }
-
     private void renderCollectionBook(){
         title(openedBookName,null);
         for(Map.Entry<Integer,Long> chapter:openedCollectionBook.entrySet()){
             long id=chapter.getValue();
-            collectionBookRow("Глава "+chapter.getKey(),countedRussian(openedBookProgress.verseCount(id),
+            collectionViews.bookRow(content,"Глава "+chapter.getKey(),countedRussian(openedBookProgress.verseCount(id),
                 "стих","стиха","стихов"),()->{
                 openedCollectionChapter=chapter.getKey();
                 savedScrollY.remove(Screen.COLLECTION_CHAPTER);
@@ -5290,40 +5098,20 @@ public final class MainActivity extends Activity {
             studyInsertionTrail.add(id);
             openBiblePicker(BibleTarget.STUDY_GROUP,selectedGroup,Screen.COLLECTION_DETAIL);
         });
-        List<Bible.Verse> lines=openedBookProgress.verses(id);
-        for(int i=0;i<lines.size();i++){
-            Bible.Verse verse=lines.get(i);
-            LinearLayout item=ui.card(content);
-            String status=openedBookProgress.verseConsolidated(id,i)?"закреплён":
-                openedBookProgress.mastered(id,i)?"предварительно освоен":"не изучен";
-            ui.add(item,ui.txt(verse.ref+" · "+status,14,GREEN,true),0);
-            ui.add(item,ui.prose(verse.text,19),8);
-        }
+        collectionViews.chapterVerses(content,openedBookProgress,id);
     }
 
-    /** Fixed bottom actions, independent of the scrolling collection list. */
     private void addUnifiedCollectionFooter(){
-        LinearLayout footer=ui.column();
-        footer.setPadding(ui.dp(19),ui.dp(9),ui.dp(19),ui.dp(10));
-        footer.setBackgroundColor(BG);
         if(screen==Screen.COLLECTIONS||screen==Screen.CARDS){
-            TextView addCollection=ui.button("＋  Добавить коллекцию",true,()->newUnifiedCollection(null));
-            footer.addView(addCollection,new LinearLayout.LayoutParams(-1,ui.dp(52)));
+            collectionViews.listFooter(root,()->newUnifiedCollection(null));
         }else if(screen==Screen.COLLECTION_DETAIL){
-            final LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
+            LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
             if(u==null)return;
-            TextView addBible=ui.button("＋  Добавить из Библии",true,()->{
+            collectionViews.detailFooter(root,()->{
                 clearInsertionContext();
                 openBiblePicker(BibleTarget.STUDY_GROUP,u.groupId,Screen.COLLECTION_DETAIL);
-            });
-            footer.addView(addBible,new LinearLayout.LayoutParams(-1,ui.dp(51)));
-            TextView own=ui.button("＋  Добавить свой текст",false,()->{
-                customTargetGroupId=u.groupId;screen=Screen.CUSTOM;render();
-            });
-            LinearLayout.LayoutParams ownP=new LinearLayout.LayoutParams(-1,ui.dp(49));
-            ownP.topMargin=ui.dp(8);footer.addView(own,ownP);
-        }else return;
-        root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+            },()->{customTargetGroupId=u.groupId;screen=Screen.CUSTOM;render();});
+        }
     }
 
     private void startActiveRun(){
