@@ -91,7 +91,7 @@ public final class R0PickerCheck extends Instrumentation {
         }catch(ReflectiveOperationException error){throw new AssertionError(error);}
     }
 
-    private View answerControl(String description){
+    private View described(String description){
         return find((View)field("root"),view->description.contentEquals(
             view.getContentDescription()==null?"":view.getContentDescription()));
     }
@@ -111,9 +111,9 @@ public final class R0PickerCheck extends Instrumentation {
             }catch(ReflectiveOperationException error){throw new AssertionError(error);}
             invoke("startCardSession");
             first[0]=((FlashcardSession)field("flashcards")).currentId();
-            View eye=answerControl("Показать ответ");
+            View eye=described("Показать ответ");
             require(eye!=null&&eye.performClick(),"card reveals answer");
-            require(answerControl("Скрыть ответ")!=null,"revealed control");
+            require(described("Скрыть ответ")!=null,"revealed control");
         });
         runOnMainSync(()->{
             View swipe=((ViewGroup)field("root")).getChildAt(1);
@@ -127,7 +127,7 @@ public final class R0PickerCheck extends Instrumentation {
             }
         });
         await(()->((FlashcardSession)field("flashcards")).currentId()!=first[0]
-            &&answerControl("Показать ответ")!=null,"swipe advances and hides answer");
+            &&described("Показать ответ")!=null,"swipe advances and hides answer");
         runOnMainSync(()->{
             long second=((FlashcardSession)field("flashcards")).currentId();
             activity.onBackPressed();
@@ -135,6 +135,60 @@ public final class R0PickerCheck extends Instrumentation {
             require(((FlashcardSession)field("flashcards")).currentId()==second,"card resumes at saved position");
             activity.onBackPressed();
             ((LocalStore)field("store")).deleteCardDeck(deck[0]);
+        });
+    }
+
+    @SuppressWarnings({"rawtypes","unchecked"})
+    private void openPicker(long group){
+        try{
+            Class target=Class.forName("org.biblememory.app.MainActivity$BibleTarget");
+            Class screen=Class.forName("org.biblememory.app.MainActivity$Screen");
+            java.lang.reflect.Method open=MainActivity.class.getDeclaredMethod("openBiblePicker",target,long.class,screen);
+            open.setAccessible(true);
+            open.invoke(activity,Enum.valueOf(target,"STUDY_GROUP"),group,Enum.valueOf(screen,"HOME"));
+        }catch(ReflectiveOperationException error){throw new AssertionError(error);}
+    }
+
+    private void passagePicker()throws InterruptedException{
+        long[] collection=new long[1], group=new long[1];
+        runOnMainSync(()->{
+            LocalStore store=(LocalStore)field("store");
+            collection[0]=store.createUnifiedCollection("Библейский отрывок R8");
+            group[0]=store.unifiedCollection(collection[0]).groupId;
+            openPicker(group[0]);
+        });
+        select("Бытие",true);
+        select("1",false);
+        select("27",false);
+        await(()->{
+            View action=described("Добавить Бытие 1:27");
+            ScrollView scroller=(ScrollView)field("currentScroller");
+            if(action==null||scroller.getScrollY()<=0)return false;
+            View card=(View)action.getParent().getParent();
+            return card.getTop()<scroller.getScrollY()+scroller.getHeight()
+                &&card.getBottom()>scroller.getScrollY();
+        },"Genesis 1:27 and add action visible");
+        runOnMainSync(()->{
+            require(described("Добавить Бытие 1:27").performClick(),"add standalone verse");
+            LocalStore store=(LocalStore)field("store");
+            require("Бытие 1:27".equals(store.entries(group[0]).get(0).reference),"standalone insertion");
+            openPicker(group[0]);
+        });
+        select("Бытие",true);
+        runOnMainSync(()->require(text("2").performLongClick(),"select chapter"));
+        select("Добавить главу 2",false);
+        String chapter=Bible.reference(1,2,1,2,((Bible)field("bible")).chapter(1,2).size());
+        await(()->{
+            LocalStore store=(LocalStore)field("store");
+            for(LocalStore.Entry entry:store.entries(group[0])){
+                if(chapter.equals(entry.reference))return true;
+            }
+            return false;
+        },"bulk chapter committed");
+        runOnMainSync(()->{
+            activity.onBackPressed();
+            activity.onBackPressed();
+            ((LocalStore)field("store")).deleteUnifiedCollection(collection[0]);
         });
     }
 
@@ -190,9 +244,10 @@ public final class R0PickerCheck extends Instrumentation {
                 activity.onBackPressed();
                 require(text("Бытие")!=null,"catalog restored");
             });
+            passagePicker();
             flashcards();
             runOnMainSync(activity::finish);
-            result.putString("stream","PASS: input, no match, clear, catalog scroll, Psalm 118:176, back stack, flashcard reveal, swipe and resume");
+            result.putString("stream","PASS: input, no match, clear, catalog scroll, Psalm 118:176, back stack, picker verse jump and bulk chapter, flashcard reveal, swipe and resume");
             finish(Activity.RESULT_OK,result);
         }catch(Throwable error){
             result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(error));

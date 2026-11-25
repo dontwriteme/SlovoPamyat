@@ -26,6 +26,11 @@ public class CollectionLoadingTest {
   controller=Robolectric.buildActivity(MainActivity.class).create().start().resume().visible();activity=controller.get();store=(LocalStore)field("store");
   ActivityTestWorkers.awaitStartup(activity);
  }
+ private View pickerChapterFooter()throws Exception{
+  java.lang.reflect.Field footer=PassagePicker.class.getDeclaredField("pickerChapterFooter");
+  footer.setAccessible(true);
+  return (View)footer.get(field("passagePicker"));
+ }
  @After public void close()throws Exception{if(controller!=null)ActivityTestWorkers.destroy(controller);}
  @Test public void destroyClosesWorkerDatabaseAfterPendingWorkAndIgnoresLateRefresh()throws Exception{
   ExecutorService worker=ActivityTestWorkers.executor(activity,"collectionExecutor");
@@ -170,12 +175,12 @@ public class CollectionLoadingTest {
   assertSame(scroller,field("currentScroller"));
   activity.onBackPressed();
   assertEquals("PICKER_CHAPTERS",field("screen").toString());
-  assertEquals(View.GONE,((View)field("pickerChapterFooter")).getVisibility());
+  assertEquals(View.GONE,((View)pickerChapterFooter()).getVisibility());
   current("1",false).performLongClick();
   current("3",false).performClick();
   current("Добавить главы (2)",false).performClick();
   finishMutation();
-  assertEquals(View.GONE,((View)field("pickerChapterFooter")).getVisibility());
+  assertEquals(View.GONE,((View)pickerChapterFooter()).getVisibility());
 
   activity.onBackPressed();activity.onBackPressed();finishLoad();
   View book=current("Бытие",false);
