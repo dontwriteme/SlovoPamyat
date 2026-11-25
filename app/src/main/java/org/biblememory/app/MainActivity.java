@@ -6676,7 +6676,8 @@ public final class MainActivity extends Activity {
             EditText field=new EditText(this);
             field.setTextColor(BUILD_INK);field.setHintTextColor(MUTED);field.setTextSize(18);
             field.setSingleLine(true);forbidKeyboardHints(field,false);
-            field.setTypeface(Typeface.create("serif",Typeface.NORMAL));
+            field.setTypeface(Typeface.create("serif",Typeface.BOLD));
+            field.setLetterSpacing(0.005f);
             field.setPadding(dp(7),dp(6),dp(7),dp(6));
             field.setGravity(Gravity.CENTER);
             field.setBackgroundTintList(null);
@@ -6746,8 +6747,8 @@ public final class MainActivity extends Activity {
     }
 
     private TextView writingGapWord(String token){
-        TextView word=txt(token,18,BUILD_INK,false);
-        word.setTypeface(Typeface.create("serif",Typeface.NORMAL));
+        TextView word=displayText(token,18);
+        word.setTextColor(BUILD_INK);
         word.setMinHeight(dp(43));
         word.setGravity(Gravity.CENTER);
         return word;
