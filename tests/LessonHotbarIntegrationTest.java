@@ -358,7 +358,7 @@ public class LessonHotbarIntegrationTest {
         EditText answer=root.findViewWithTag("writing-full-input");
         assertNotNull(answer);
         assertSame(answer,edit(root));
-        assertNotNull(text(root,LearningHelp.WRITE_FULL));
+        assertNull(text(root,LearningHelp.WRITE_FULL));
         assertEquals(0xFF553722,answer.getCurrentTextColor());
         assertEquals(6,answer.getMinLines());
         assertEquals(12,answer.getMaxLines());
