@@ -6559,8 +6559,8 @@ public final class MainActivity extends Activity {
         boolean full=variant==LessonCurriculumLogic.Variant.FULL;
 
         if(!practiceWeakFragment&&!full)renderInlineGapInputs(variant);
-        else{
-            TextView instruction=prose(practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:LearningHelp.WRITE_FULL,16);
+        else if(practiceWeakFragment){
+            TextView instruction=prose(LearningHelp.WRITE_FRAGMENT,16);
             instruction.setTextColor(BUILD_INK);
             instruction.setGravity(Gravity.CENTER);
             add(content,instruction,14);
@@ -6579,7 +6579,7 @@ public final class MainActivity extends Activity {
                 }
                 @Override public void afterTextChanged(Editable x){}
             });
-            add(content,answer,18);
+            add(content,answer,practiceWeakFragment?18:10);
         }
         // Verification is always explicitly triggered by the existing footer button.
     }
