@@ -517,6 +517,38 @@ public class LessonHotbarIntegrationTest {
         assertNotNull(text((View)get("root"),"Следующий стих"));
     }
 
+    @Test public void sceneryKeepsFullWindowBoundsThroughoutKeyboardAnimation(){
+        android.graphics.drawable.ColorDrawable artwork=
+            new android.graphics.drawable.ColorDrawable(0xFFFFEBD5);
+        StableLessonBackground background=new StableLessonBackground(artwork,760);
+        for(int visibleHeight:new int[]{760,650,530,420,530,650,760}){
+            background.setBounds(0,0,360,visibleHeight);
+            assertEquals(760,artwork.getBounds().height());
+            assertEquals(360,artwork.getBounds().width());
+            assertEquals(visibleHeight,background.getBounds().height());
+        }
+        // A measured content height can correct underestimated platform metrics.
+        background.setBounds(0,0,360,780);
+        background.setBounds(0,0,360,400);
+        assertEquals(780,artwork.getBounds().height());
+    }
+
+    @Test public void fullWritingUsesStableSceneryRatherThanResizingArtwork()throws Exception{
+        openWritingFixture();
+        View root=(View)get("root");
+        assertTrue(root.getBackground() instanceof StableLessonBackground);
+        android.graphics.drawable.Drawable background=root.getBackground();
+        EditText answer=edit(root);
+        answer.setText("Слово");
+        for(int height:new int[]{760,490,760}){
+            root.measure(View.MeasureSpec.makeMeasureSpec(360,View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
+            root.layout(0,0,360,height);
+            assertSame(background,root.getBackground());
+            assertEquals("Слово",answer.getText().toString());
+        }
+    }
+
     @Test public void legacyKeyboardDetectionIgnoresNavigationInsets(){
         assertFalse(KeyboardAwareFooter.legacyKeyboardVisible(48,48,100));
         assertFalse(KeyboardAwareFooter.legacyKeyboardVisible(0,48,100));
