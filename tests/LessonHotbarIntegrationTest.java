@@ -155,6 +155,46 @@ public class LessonHotbarIntegrationTest {
         assertTrue(((TextView)get("lessonBuildAction")).isEnabled());
     }
 
+    private List<android.graphics.Rect> verseBounds(ViewGroup flow){
+        List<android.graphics.Rect> bounds=new ArrayList<>();
+        for(int i=0;i<flow.getChildCount();i++){
+            View child=flow.getChildAt(i);
+            bounds.add(new android.graphics.Rect(child.getLeft(),child.getTop(),child.getRight(),child.getBottom()));
+        }
+        return bounds;
+    }
+
+    private void assertVerseRows(ViewGroup flow){
+        int previousBaseline=-1,previousRight=0;
+        for(int i=0;i<flow.getChildCount();i++){
+            View child=flow.getChildAt(i);
+            int baseline=child.getTop()+child.getBaseline();
+            if(baseline!=previousBaseline){
+                assertTrue(baseline>previousBaseline);
+                assertEquals(flow.getPaddingLeft(),child.getLeft());
+            }else assertTrue(child.getLeft()>=previousRight);
+            assertTrue(child.getRight()<=flow.getWidth()-flow.getPaddingRight());
+            previousBaseline=baseline;previousRight=child.getRight();
+        }
+    }
+
+    @Test public void assemblingWordsDoesNotReflowVerseLines()throws Exception{
+        text((View)get("root"),"Продолжить").performClick();
+        View root=(View)get("root");
+        ViewGroup answer=root.findViewWithTag("assembly-answer");
+        assertTrue(answer instanceof VerseFlowLayout);
+        layoutIntro(root,320);
+        List<android.graphics.Rect> before=verseBounds(answer);
+        assertVerseRows(answer);
+        for(String word:new String[]{"Слово","истины","живо"}){
+            assemblyTiles().stream().filter(t->word.contentEquals(t.getText())).findFirst().get().performClick();
+            ((AssemblyWordMotion)get("assemblyMotion")).settleAll();
+            layoutIntro(root,320);
+            assertEquals(before,verseBounds(answer));
+            assertVerseRows(answer);
+        }
+    }
+
     @Test @Config(qualifiers="w320dp-h560dp")
     public void assemblyKeepsPunctuationInAnswerAndWrapsLongLinkedText()throws Exception{
         long group=store.entry(id).groupId;
@@ -170,8 +210,23 @@ public class LessonHotbarIntegrationTest {
         for(TextView tile:assemblyTiles())assertTrue(tile.getText().toString().matches("[\\p{L}\\p{M}\\p{N} ]+"));
         for(String word:new String[]{"Слово","живо"})
             assemblyTiles().stream().filter(t->word.contentEquals(t.getText())).findFirst().get().performClick();
-        assertEquals("«Слово»,",((TextView)answer.getChildAt(0)).getText().toString());
-        assertEquals("— живо.",((TextView)answer.getChildAt(1)).getText().toString());
+        ((AssemblyWordMotion)get("assemblyMotion")).settleAll();
+        assertTrue(answer instanceof VerseFlowLayout);
+        StringBuilder source=new StringBuilder();
+        for(int i=0;i<answer.getChildCount();i++)
+            source.append(((TextView)answer.getChildAt(i)).getText());
+        assertEquals("«Слово»,— живо.",source.toString());
+        List<?> slots=(List<?>)get("lessonBuildSlots");
+        TextView first=(TextView)slots.get(0);
+        assertEquals("Слово",first.getText().toString());
+        assertEquals("живо",((TextView)slots.get(1)).getText().toString());
+        layoutIntro((View)get("root"),320);
+        assertVerseRows(answer);
+        View opening=answer.getChildAt(0),closing=answer.getChildAt(2);
+        assertEquals(opening.getRight(),first.getLeft());
+        assertEquals(first.getRight(),closing.getLeft());
+        assertEquals(opening.getTop()+opening.getBaseline(),first.getTop()+first.getBaseline());
+        assertEquals(closing.getTop()+closing.getBaseline(),first.getTop()+first.getBaseline());
 
         call("openGroup",new Class<?>[]{GroupLearningLogic.Candidate.class},
             GroupLearningLogic.candidate("CHAIN",0,2,"fixture"));
@@ -355,12 +410,14 @@ public class LessonHotbarIntegrationTest {
             assertEquals(assemblyWord.getTextSize(),word.getTextSize(),0.01f);
             assertEquals(assemblyWord.getLetterSpacing(),word.getLetterSpacing(),0.0001f);
         }
+        assertTrue(inputs instanceof VerseFlowLayout);
+        layoutIntro(root,320);
+        assertVerseRows(inputs);
+        List<android.graphics.Rect> before=verseBounds(inputs);
         first.setText("оченьдлинноесловооченьдлинноесловооченьдлинноеслово");
-        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
-        root.layout(0,0,320,560);
-        for(int i=0;i<inputs.getChildCount();i++)
-            assertTrue(inputs.getChildAt(i).getRight()<=inputs.getWidth());
+        layoutIntro(root,320);
+        assertEquals(before,verseBounds(inputs));
+        assertVerseRows(inputs);
         first.setText("черновик");
         String savedDraft=(String)get("draft");
         invoke("render");
