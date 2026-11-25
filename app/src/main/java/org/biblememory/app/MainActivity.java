@@ -6622,9 +6622,6 @@ public final class MainActivity extends Activity {
         panel.setTag("writing-gap-panel");
         panel.setPadding(dp(14),dp(16),dp(14),dp(16));
         panel.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
-        TextView instruction=txt(LearningHelp.WRITE_GAPS,14,BUILD_INK,false);
-        instruction.setGravity(Gravity.CENTER);
-        add(panel,instruction,0);
         WrapLayout inline=new WrapLayout(this,dp(6),true);
         inline.setTag("writing-gap-inputs");
         inline.constrainToRow=true;
@@ -6717,7 +6714,7 @@ public final class MainActivity extends Activity {
                 @Override public void afterTextChanged(Editable x){}
             });
         }
-        add(panel,inline,12);
+        add(panel,inline,0);
         add(content,panel,10);
     }
 
