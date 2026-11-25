@@ -217,8 +217,8 @@ public final class R456Profile extends Instrumentation {
         bitmapAndMemory("thumb_repeat");
         if(thumbsOnly)return;
 
-        measure("tab_home",()->call("goToMainTab",new Class<?>[]{int.class},0),()->"HOME".equals(field("screen").toString())&&!(Boolean)field("tabSwitchInProgress"));
-        measure("tab_bible",()->call("goToMainTab",new Class<?>[]{int.class},1),()->"BOOKS".equals(field("screen").toString())&&!(Boolean)field("tabSwitchInProgress"));
+        measure("tab_home",()->call("goToMainTab",new Class<?>[]{int.class},0),()->"HOME".equals(field("screen").toString())&&!((TabTransition)field("tabTransition")).inProgress());
+        measure("tab_bible",()->call("goToMainTab",new Class<?>[]{int.class},1),()->"BOOKS".equals(field("screen").toString())&&!((TabTransition)field("tabTransition")).inProgress());
         measure("psalm118",()->{set("selectedBook",19);set("selectedChapter",118);screen("CHAPTER");},()->true);
         for(int i=0;i<ids.length;i++){
             long id=ids[i];

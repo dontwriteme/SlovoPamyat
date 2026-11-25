@@ -53,7 +53,7 @@ public class BibleIconCheck extends HomeIconCheck {
     void readerNavigation()throws Exception {
         main(()->{try {
             ((Bible)field(activity,"bible")).load(activity);
-            Class<?> screen=Class.forName("org.biblememory.app.MainActivity$Screen");
+            Class<?> screen=Class.forName("org.biblememory.app.Screen");
             Object chapters=null;for(Object value:screen.getEnumConstants())if("CHAPTERS".equals(value.toString()))chapters=value;
             Field mode=MainActivity.class.getDeclaredField("screen");mode.setAccessible(true);mode.set(activity,chapters);
             Field book=MainActivity.class.getDeclaredField("selectedBook");book.setAccessible(true);book.set(activity,19);

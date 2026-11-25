@@ -100,7 +100,7 @@ public class BookNavigationIconTest {
             MainActivity activity=controller.get();
             ActivityTestWorkers.awaitStartup(activity);
             // Warm the two destination pages synchronously, just as the existing warm-up does.
-            Class<?> screens=Class.forName("org.biblememory.app.MainActivity$Screen");
+            Class<?> screens=Class.forName("org.biblememory.app.Screen");
             Method prepare=MainActivity.class.getDeclaredMethod("prepareTab",screens);
             prepare.setAccessible(true);
             for(Object value:screens.getEnumConstants())

@@ -17,7 +17,7 @@ public class CollectionLoadingTest {
  Object field(String name)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
  void set(String name,Object value)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
  Object call(String name,Class<?>[] types,Object... args)throws Exception{Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);}
- @SuppressWarnings({"unchecked","rawtypes"}) void screen(String name)throws Exception{set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$Screen"),name));call("render",new Class<?>[0]);}
+ @SuppressWarnings({"unchecked","rawtypes"}) void screen(String name)throws Exception{set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.Screen"),name));call("render",new Class<?>[0]);}
  boolean contains(View v,String text){if(v instanceof TextView&&((TextView)v).getText().toString().contains(text))return true;
   if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)if(contains(((ViewGroup)v).getChildAt(i),text))return true;return false;}
  void finishLoad()throws Exception{Future<?> f=(Future<?>)field("collectionTask");if(f!=null)f.get(30,TimeUnit.SECONDS);Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();}

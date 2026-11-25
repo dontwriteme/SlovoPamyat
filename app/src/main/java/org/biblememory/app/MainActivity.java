@@ -32,6 +32,10 @@ import static org.biblememory.app.ScreenUi.*;
 /** Bright, entirely native Android UI with zero runtime dependencies. */
 public final class MainActivity extends Activity {
     private final ScreenUi ui = new ScreenUi(this);
+    private final TabCache tabCache=new TabCache();
+    private final BottomNavigationView bottomNavigation=new BottomNavigationView(this,ui);
+    private final TabTransition tabTransition=new TabTransition(ui);
+    private final NavigationGesture navigationGesture=new NavigationGesture(ui);
     private final LessonScreenView lessonScreen=new LessonScreenView(this,ui);
     private final LessonCompletionView lessonCompletion=new LessonCompletionView(this,ui);
     private final LessonProgressView lessonProgress=new LessonProgressView(this,ui);
@@ -44,7 +48,6 @@ public final class MainActivity extends Activity {
     private final CollectionDialogs collectionDialogs=new CollectionDialogs(this,ui);
     // The warm landscape-based interface is shared by every screen, not just the home hero.
     private static final int EXPORT=10,IMPORT=11;
-    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY}
     private Screen screen=Screen.HOME;
     private static final String UNIFIED_PREFS=ActiveCollection.PREFS;
     private final ActiveCollection activeCollection=new ActiveCollection(this);
@@ -89,7 +92,7 @@ public final class MainActivity extends Activity {
     private BibleSearchSession bibleSearch;
     private final BibleSearchView bibleSearchView = new BibleSearchView(ui,this::openSearchHit);
 
-    private final EnumMap<Screen,Integer> savedScrollY=new EnumMap<>(Screen.class);
+    private final NavigationScroll navigationScroll=new NavigationScroll();
     private final List<Long> collectionQueue=new ArrayList<>();
     private int collectionQueueCursor=-1;
     private long collectionQueueGroup=-1;
@@ -101,80 +104,13 @@ public final class MainActivity extends Activity {
     private final List<Long> cardInsertionTrail=new ArrayList<>();
 
 
-    private static final class ReadyTab {
-        final LinearLayout page;
-        final LinearLayout body;
-        final ScrollView scroller;
-        final int homeVerseIndex;
-
-        ReadyTab(
-                LinearLayout page,
-                LinearLayout body,
-                ScrollView scroller,
-                int homeVerseIndex) {
-
-            this.page = page;
-            this.body = body;
-            this.scroller = scroller;
-            this.homeVerseIndex = homeVerseIndex;
-        }
-    }
-
-    private final EnumMap<Screen, ReadyTab> readyTabs =
-            new EnumMap<>(Screen.class);
-
-    private final Handler tabWarmHandler =
-            new Handler(Looper.getMainLooper());
-
-    private int tabWarmGeneration = 0;
-    private View tabSwitchOldNav;
-
-    private boolean isMainTab(Screen s) {
-        return s == Screen.HOME
-                || s == Screen.BOOKS
-                || s == Screen.COLLECTIONS
-                || s == Screen.SETTINGS;
-    }
-
-    private void prepareOtherTabs() {
+    private void prepareOtherTabs(){
         if(isBibleSearchScreen()&&bibleSearch.active())return;
-        final int generation = ++tabWarmGeneration;
-
-        if (!isMainTab(screen) || !bible.isReady()) return;
-
-        final Screen active = screen;
-
-        final Screen[] order = {
-                Screen.HOME,
-                Screen.BOOKS,
-                Screen.COLLECTIONS,
-                Screen.SETTINGS
-        };
-
-        int delay = 75;
-
-        for (Screen destination : order) {
-            if (destination == active
-                    || readyTabs.containsKey(destination)) {
-                continue;
-            }
-
-            tabWarmHandler.postDelayed(() -> {
-                if (generation != tabWarmGeneration
-                        || !isMainTab(screen)
-                        || tabSwitchInProgress) {
-                    return;
-                }
-
-                prepareTab(destination);
-            }, delay);
-
-            delay += 85;
-        }
+        tabCache.warm(screen,bible.isReady(),()->screen,tabTransition::inProgress,this::prepareTab);
     }
 
     private void prepareTab(Screen destination) {
-        if (readyTabs.containsKey(destination)) return;
+        if (tabCache.containsKey(destination)) return;
 
         Screen previousScreen = screen;
         Screen previousRendered = lastRenderedScreen;
@@ -183,7 +119,7 @@ public final class MainActivity extends Activity {
         LinearLayout previousBody = content;
         ScrollView previousScroller = currentScroller;
 
-        int previousNav = lastNavIndex;
+        int previousNav = bottomNavigation.lastIndex();
 
         try {
             screen = destination;
@@ -242,9 +178,9 @@ public final class MainActivity extends Activity {
 
             addNav(root);
 
-            readyTabs.put(
+            tabCache.put(
                     destination,
-                    new ReadyTab(
+                    new TabCache.ReadyTab(
                             root, content, currentScroller, home.index()
                     )
             );
@@ -257,59 +193,10 @@ public final class MainActivity extends Activity {
             content = previousBody;
             currentScroller = previousScroller;
 
-            lastNavIndex = previousNav;
+            bottomNavigation.setLastIndex(previousNav);
         }
     }
 
-    private void animatePreparedTabIndicator(
-            LinearLayout page,
-            int from,
-            int to) {
-
-        View indicator =
-                page.findViewWithTag("sv-nav-indicator");
-
-        if (indicator == null
-                || !(indicator.getParent() instanceof FrameLayout)) {
-            return;
-        }
-
-        FrameLayout bar = (FrameLayout) indicator.getParent();
-
-        bar.post(() -> {
-            if (indicator.getParent() != bar) return;
-
-            int slot = (bar.getWidth() - ui.dp(14)) / 4;
-            if (slot <= 0) return;
-
-            FrameLayout.LayoutParams params =
-                    (FrameLayout.LayoutParams)
-                            indicator.getLayoutParams();
-
-            params.width = slot;
-            params.height = ui.dp(57);
-            params.leftMargin = ui.dp(7);
-            params.topMargin = ui.dp(7);
-
-            indicator.setLayoutParams(params);
-            indicator.animate().cancel();
-
-            indicator.setTranslationX(slot * from);
-
-            indicator.animate()
-                    .translationX(slot * to)
-                    .setDuration(225L)
-                    .setInterpolator(
-                            new DecelerateInterpolator(1.4f)
-                    )
-                    .start();
-        });
-    }
-
-
-    private ValueAnimator tabSwitchAnimator;
-    private LinearLayout tabSwitchLeaving,tabSwitchEntering;
-    private boolean tabSwitchInProgress=false;
     private final String COLLECTION_PREFS="collection_study_queue";
     private boolean resetInProgress=false;
     private boolean backupInProgress=false;
@@ -319,9 +206,6 @@ public final class MainActivity extends Activity {
     private String cardStudyMaterial="";
     private String dataGeneration="";
     private AlertDialog backupDialog;
-    private float swipeStartX,swipeStartY;
-    private boolean swipeIntercepted=false;
-    private int lastNavIndex=0;
     private long selectedDeck=-1;
     private FlashcardSession flashcards;
     private enum BibleTarget { STUDY_GROUP, FLASHCARD_DECK }
@@ -519,9 +403,12 @@ public final class MainActivity extends Activity {
         super.onResume();
         resumed=true;
         if(!ownsData||backupInProgress)return;
-        settleBibleIcons();
-        settleHomeIcons();
-        settleCollectionsIcons();
+        bottomNavigation.settleBibleIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);
+        bottomNavigation.settleHomeIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleHomeIcon(tab.page);
+        bottomNavigation.settleCollectionsIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleCollectionsIcon(tab.page);
         if(store!=null && root!=null){home.refresh(true);home.schedule();}
     }
     @Override protected void onPause() {
@@ -529,9 +416,12 @@ public final class MainActivity extends Activity {
         resumed=false;
         if(!ownsData||backupInProgress){super.onPause();return;}
         modeInfo.dismiss(false);
-        settleBibleIcons();
-        settleHomeIcons();
-        settleCollectionsIcons();
+        bottomNavigation.settleBibleIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);
+        bottomNavigation.settleHomeIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleHomeIcon(tab.page);
+        bottomNavigation.settleCollectionsIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleCollectionsIcon(tab.page);
         readingView.releaseReveal();
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
@@ -652,18 +542,15 @@ public final class MainActivity extends Activity {
         if(collectionTask!=null){collectionTask.cancel(false);collectionTask=null;}
         modeInfo.dismiss(false);
         getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN?0xFFF8E5D9:CARD);
-        CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
-        if(previousCollections!=null && previousCollections.isSelected())
-            collectionsIconCycle=previousCollections.settledCycle();
+        bottomNavigation.captureCollectionsIcon(root);
         if(isBibleSearchScreen())bibleSearch.resume();
         else bibleSearch.suspend();
-        finishTabTransition();
-        tabWarmGeneration++;
-        readyTabs.clear();
+        tabTransition.finish();
+        tabCache.invalidate();
         rememberHomeScroll();
         if(currentScroller!=null && lastRenderedScreen!=null && lastRenderedScreen!=Screen.HOME
             && !(lastRenderedScreen==Screen.COLLECTION_DETAIL&&collectionWasLoading)){
-            savedScrollY.put(lastRenderedScreen,currentScroller.getScrollY());
+            navigationScroll.put(lastRenderedScreen,currentScroller.getScrollY());
         }
         home.cancelAnimation();
         if(screen==Screen.TRAIN){lastRenderedScreen=screen;renderFullscreenLesson();return;}
@@ -738,10 +625,10 @@ public final class MainActivity extends Activity {
         setContentView(root);
         lastRenderedScreen = screen;
 
-        if (isMainTab(screen)) {
-            readyTabs.put(
+        if (screen.isMainTab()) {
+            tabCache.put(
                     screen,
-                    new ReadyTab(
+                    new TabCache.ReadyTab(
                             root,
                             content,
                             currentScroller,
@@ -757,11 +644,11 @@ public final class MainActivity extends Activity {
             int y=pickerRestoredScroll;pickerRestoredScroll=-1;
             BibleReader.afterLayout(content,()->{if(currentScroller==scroll)scroll.scrollTo(0,y);});
         }
-        if(!restoredPickerScroll && !focusedReaderChapter && screen!=Screen.HOME && savedScrollY.containsKey(screen) &&
+        if(!restoredPickerScroll && !focusedReaderChapter && screen!=Screen.HOME && navigationScroll.containsKey(screen) &&
             !(screen==Screen.BOOKS&&bibleSearch.active()) &&
             !(screen==Screen.PICKER_BOOKS&&bibleSearch.active()) &&
             screen!=Screen.PICKER_TEXT){
-            int y=savedScrollY.get(screen);
+            int y=navigationScroll.get(screen);
             Runnable restore=()->{if(currentScroller==scroll)scroll.scrollTo(0,y);};
             if(isPickerScreen(screen))BibleReader.afterLayout(content,restore);
             else scroll.post(restore);
@@ -848,171 +735,27 @@ public final class MainActivity extends Activity {
             canvas.restore();
         }
     }
-    private int collectionsIconCycle=1;
-    /** A raised four-destination navigation pill. */
     private void addNav(LinearLayout parent){
-        final Screen[] destinations={Screen.HOME,Screen.BOOKS,Screen.COLLECTIONS,Screen.SETTINGS};
-        final String[] names={"Главная","Библия","Коллекции","Настройки"};
-        final int current=mainTabIndex();
-        LinearLayout outer=ui.column();outer.setPadding(ui.dp(16),ui.dp(4),ui.dp(16),ui.dp(12));
-        FrameLayout floating=new FrameLayout(this);
-        floating.setBackground(ui.outlined(CARD,36,BORDER));
-        floating.setClipToOutline(false);
-        final View indicator=new View(this);
-        indicator.setTag("sv-nav-indicator");
-        indicator.setBackground(ui.shape(0xFFF7DED0,29));
-        floating.addView(indicator,new FrameLayout.LayoutParams(ui.dp(80),ui.dp(57),Gravity.TOP|Gravity.LEFT));
-        LinearLayout row=ui.row();row.setPadding(ui.dp(7),ui.dp(7),ui.dp(7),ui.dp(7));
-        for(int i=0;i<destinations.length;i++){
-            final int index=i;
-            int ink=i==current?0xFFB7553D:MUTED;
-            LinearLayout tab=ui.column();tab.setGravity(Gravity.CENTER);
-            tab.setPadding(ui.dp(5),ui.dp(3),ui.dp(5),ui.dp(3));
-            View symbol=i==0 ? new HomeNavigationIcon(this,ink,current==0)
-                    : i==1 ? new BookNavigationIcon(this,ink,current==1)
-                    : i==2 ? new CollectionsNavigationIcon(this,ink,current==2,collectionsIconCycle)
-                    : new NavigationGlyph(this,"settings",ink);
-            LinearLayout.LayoutParams glyph=new LinearLayout.LayoutParams(ui.dp(27),ui.dp(27));
-            glyph.gravity=Gravity.CENTER_HORIZONTAL;tab.addView(symbol,glyph);
-            TextView name=ui.txt(names[i],12,ink,i==current);
-            name.setGravity(Gravity.CENTER);ui.add(tab,name,1);
-            tab.setClickable(true);tab.setFocusable(true);
-            tab.setContentDescription("Открыть раздел "+names[i]);
-            tab.setOnClickListener(v->{
-                if(index==0 && screen==Screen.HOME){
-                    animateHomeIcon(root,true,true);return;
-                }
-                if(index==1 && mainTabIndex()==1){
-                    // Keep the normal section-root navigation before replaying the sheet.
-                    goToMainTab(index);
-                    animateBibleIcon(root,true,true,null);return;
-                }
-                if(index==2 && mainTabIndex()==2){
-                    goToMainTab(index);
-                    animateCollectionsIcon(root,true,true);return;
-                }
-                goToMainTab(index);
-            });
-            row.addView(tab,new LinearLayout.LayoutParams(0,ui.dp(57),1));
-        }
-        floating.addView(row,new FrameLayout.LayoutParams(-1,ui.dp(71)));
-        outer.addView(floating,new LinearLayout.LayoutParams(-1,ui.dp(71)));
-        parent.addView(outer,new LinearLayout.LayoutParams(-1,-2));
-        final int from=lastNavIndex;
-        floating.post(()->{
-            int slot=(floating.getWidth()-ui.dp(14))/destinations.length;
-            if(slot<=0)return;
-            FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)indicator.getLayoutParams();
-            p.width=slot;p.height=ui.dp(57);p.leftMargin=ui.dp(7);p.topMargin=ui.dp(7);
-            indicator.setLayoutParams(p);
-            indicator.setTranslationX(slot*from);
-            if(from!=current && ValueAnimator.areAnimatorsEnabled()){
-                indicator.animate().translationX(slot*current).setDuration(240)
-                    .setInterpolator(new DecelerateInterpolator()).start();
-            }else indicator.setTranslationX(slot*current);
+        bottomNavigation.render(parent,mainTabIndex(),index->{
+            if(index==0&&screen==Screen.HOME){bottomNavigation.animateHomeIcon(root,true,true);return;}
+            if(index==1&&mainTabIndex()==1){
+                goToMainTab(index);bottomNavigation.animateBibleIcon(root,true,true,null);return;
+            }
+            if(index==2&&mainTabIndex()==2){
+                goToMainTab(index);bottomNavigation.animateCollectionsIcon(root,true,true);return;
+            }
+            goToMainTab(index);
         });
-        lastNavIndex=current;
     }
-    private void animateCollectionsIcon(View page,boolean selected,boolean previous){
-        if(page==null)return;
-        CollectionsNavigationIcon icon=page.findViewWithTag(CollectionsNavigationIcon.TAG);
-        if(icon!=null)icon.transition(selected,previous);
-    }
-    private void settleCollectionsIcons(){
-        if(root!=null)settleCollectionsIcon(root);
-        for(ReadyTab tab:readyTabs.values())settleCollectionsIcon(tab.page);
-    }
-    private void settleCollectionsIcon(View page){
-        CollectionsNavigationIcon icon=page.findViewWithTag(CollectionsNavigationIcon.TAG);
-        if(icon!=null)icon.settle();
-    }
-    private void animateHomeIcon(View page, boolean selected, boolean previous) {
-        if(page==null)return;
-        HomeNavigationIcon icon=page.findViewWithTag(HomeNavigationIcon.TAG);
-        if(icon!=null)icon.transition(selected,previous);
-    }
-    private void settleHomeIcons() {
-        if(root!=null)settleHomeIcon(root);
-        for(ReadyTab tab:readyTabs.values())settleHomeIcon(tab.page);
-    }
-    private void settleHomeIcon(View page) {
-        HomeNavigationIcon icon=page.findViewWithTag(HomeNavigationIcon.TAG);
-        if(icon!=null)icon.settle();
-    }
-    private void animateBibleIcon(View page, boolean selected, boolean previous, float[] state) {
-        if(page==null)return;
-        BookNavigationIcon icon=page.findViewWithTag(BookNavigationIcon.TAG);
-        if(icon!=null)icon.transition(selected,previous,state);
-    }
-    private void settleBibleIcons() {
-        if(root!=null)settleBibleIcon(root);
-        for(ReadyTab tab:readyTabs.values())settleBibleIcon(tab.page);
-    }
-    private void settleBibleIcon(View page) {
-        BookNavigationIcon icon=page.findViewWithTag(BookNavigationIcon.TAG);
-        if(icon!=null)icon.settle();
-    }
+
     private int mainTabIndex(){
-        switch(screen){
-            case BOOKS:case CHAPTERS:case VERSES:case CHAPTER:return 1;
-            case COLLECTIONS:case COLLECTION_DETAIL:case COLLECTION_BOOK:case COLLECTION_CHAPTER:
-            case ENTRIES:case REORDER_STUDY:
-            case CARDS:case CARD_DECK:case CARD_PICK:case CARD_SESSION:case REORDER_CARDS:return 2;
-            case SETTINGS:return 3;
-            case BIBLE_PICKER:case PICKER_BOOKS:case PICKER_CHAPTERS:
-            case PICKER_VERSES:case PICKER_TEXT:
-                return pickerTarget==BibleTarget.STUDY_GROUP &&
-                    store.unifiedForGroup(pickerTargetId)==null?0:2;
-            default:return 0;
-        }
+        return screen.mainTabIndex(isPickerScreen(screen)&&pickerTarget==BibleTarget.STUDY_GROUP
+            &&store.unifiedForGroup(pickerTargetId)==null);
     }
-    /** Drop a previous transition before rebuilding a page or processing system Back. */
-
-    private void finishTabTransition() {
-        ValueAnimator active = tabSwitchAnimator;
-        tabSwitchAnimator = null;
-
-        if (active != null) {
-            active.cancel();
-        }
-
-        if (tabSwitchLeaving != null) {
-            tabSwitchLeaving.setTranslationX(0f);
-
-            if (tabSwitchLeaving.getParent() instanceof ViewGroup) {
-                ((ViewGroup) tabSwitchLeaving.getParent())
-                        .removeView(tabSwitchLeaving);
-            }
-
-            // Возвращаем нижнюю панель на сохранённый экран.
-            if (tabSwitchOldNav != null
-                    && tabSwitchOldNav.getParent() == null) {
-                tabSwitchLeaving.addView(tabSwitchOldNav);
-            }
-        }
-
-        tabSwitchOldNav = null;
-
-        if (tabSwitchEntering != null) {
-            for (int i = 0;
-                 i < tabSwitchEntering.getChildCount() - 1;
-                 i++) {
-
-                tabSwitchEntering.getChildAt(i)
-                        .setTranslationX(0f);
-            }
-        }
-
-        tabSwitchLeaving = null;
-        tabSwitchEntering = null;
-        tabSwitchInProgress = false;
-    }
-
-
     /** One continuous two-page slide; the bottom bar is never moved or blanked. */
 
     private void goToMainTab(int index) {
-        if (index < 0 || index > 3 || tabSwitchInProgress || resetInProgress || backupInProgress) {
+        if (index < 0 || index >= Screen.TAB_COUNT || tabTransition.inProgress() || resetInProgress || backupInProgress) {
             return;
         }
 
@@ -1021,11 +764,7 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        final Screen destination =
-                index == 0 ? Screen.HOME :
-                        index == 1 ? Screen.BOOKS :
-                        index == 2 ? Screen.COLLECTIONS :
-                                Screen.SETTINGS;
+        final Screen destination=Screen.tab(index);
 
         if (screen == destination) return;
         modeInfo.dismiss(false);
@@ -1035,13 +774,13 @@ public final class MainActivity extends Activity {
             selectedBook=readerBookBeforePicker;selectedChapter=readerChapterBeforePicker;
         }
         // Tapping an already selected section from its details simply opens the root list.
-        if(mainTabIndex()==index && !isMainTab(screen)){
+        if(mainTabIndex()==index && !screen.isMainTab()){
             screen=destination;render();return;
         }
 
         final int oldIndex = mainTabIndex();
         // Reset only this decorative icon before detaching the cached outgoing page.
-        if(oldIndex==2 && index!=2)animateCollectionsIcon(root,false,true);
+        if(oldIndex==2 && index!=2)bottomNavigation.animateCollectionsIcon(root,false,true);
         final int direction = index > oldIndex ? 1 : -1;
 
         final Screen previousScreen = screen;
@@ -1086,22 +825,13 @@ public final class MainActivity extends Activity {
         } else if (lastRenderedScreen != null
                 && currentScroller != null) {
 
-            savedScrollY.put(
+            navigationScroll.put(
                     lastRenderedScreen,
                     currentScroller.getScrollY()
             );
         }
 
-        ReadyTab cached = readyTabs.get(destination);
-
-        // Домашний стих мог обновиться автоматически.
-        if (destination == Screen.HOME
-                && cached != null
-                && cached.homeVerseIndex != home.index()) {
-
-            readyTabs.remove(destination);
-            cached = null;
-        }
+        TabCache.ReadyTab cached = tabCache.validPage(destination,home.index());
 
         screen = destination;
         bibleSearch.resume();
@@ -1117,17 +847,17 @@ public final class MainActivity extends Activity {
             setContentView(root);
 
             lastRenderedScreen = screen;
-            lastNavIndex = index;
+            bottomNavigation.setLastIndex(index);
 
             if (destination == Screen.HOME) {
                 final ScrollView active = currentScroller;
 
                 home.restoreScroll(active,()->currentScroller==active,false);
 
-            } else if (currentScroller!=null && savedScrollY.containsKey(destination)) {
+            } else if (currentScroller!=null && navigationScroll.containsKey(destination)) {
 
                 final ScrollView active = currentScroller;
-                final int y = savedScrollY.get(destination);
+                final int y = navigationScroll.get(destination);
 
                 active.post(() -> {
                     if (currentScroller == active) {
@@ -1136,7 +866,7 @@ public final class MainActivity extends Activity {
                 });
             }
 
-            animatePreparedTabIndicator(
+            bottomNavigation.animatePreparedTabIndicator(
                     root,
                     oldIndex,
                     index
@@ -1147,10 +877,10 @@ public final class MainActivity extends Activity {
             // Резервный путь, если экран ещё не подготовлен.
             render();
 
-            if (isMainTab(previousScreen) && leaving != null) {
-                readyTabs.put(
+            if (previousScreen.isMainTab() && leaving != null) {
+                tabCache.put(
                         previousScreen,
-                        new ReadyTab(
+                        new TabCache.ReadyTab(
                                 leaving,
                                 leavingBody,
                                 leavingScroller,
@@ -1162,10 +892,10 @@ public final class MainActivity extends Activity {
 
         // The destination can be a cached page: animate its icon without rebuilding it.
         if(oldIndex!=index && (oldIndex==2 || index==2))
-            animateCollectionsIcon(root,index==2,oldIndex==2);
-        if(oldIndex!=index)animateBibleIcon(root,index==1,oldIndex==1,bibleIconState);
+            bottomNavigation.animateCollectionsIcon(root,index==2,oldIndex==2);
+        if(oldIndex!=index)bottomNavigation.animateBibleIcon(root,index==1,oldIndex==1,bibleIconState);
         if(oldIndex!=index && (oldIndex==0 || index==0))
-            animateHomeIcon(root,index==0,oldIndex==0);
+            bottomNavigation.animateHomeIcon(root,index==0,oldIndex==0);
         final LinearLayout entering = root;
 
         if (leaving == null
@@ -1182,118 +912,16 @@ public final class MainActivity extends Activity {
 
         if (window == null) return;
 
-        // Нижняя панель не уезжает вместе с экраном.
-        if (leavingHasNav && leaving.getChildCount() > 0) {
-
-            tabSwitchOldNav =
-                    leaving.getChildAt(leaving.getChildCount() - 1);
-
-            leaving.removeViewAt(
-                    leaving.getChildCount() - 1
-            );
-        }
-
-        FrameLayout.LayoutParams overlay =
-                new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        Math.max(ui.dp(1), height - navHeight),
-                        Gravity.TOP
-                );
-
-        window.addView(leaving, overlay);
-
-        tabSwitchLeaving = leaving;
-        tabSwitchEntering = entering;
-        tabSwitchInProgress = true;
-
-        // Новый экран уже расположен рядом с текущим.
-        for (int i = 0;
-             i < entering.getChildCount() - 1;
-             i++) {
-
-            entering.getChildAt(i)
-                    .setTranslationX(direction * width);
-        }
-
-        ValueAnimator animator =
-                ValueAnimator.ofFloat(0f, 1f);
-
-        tabSwitchAnimator = animator;
-
-        animator.setDuration(225L);
-        animator.setInterpolator(
-                new DecelerateInterpolator(1.4f)
-        );
-
-        animator.addUpdateListener(a -> {
-            if (tabSwitchAnimator != animator) return;
-
-            float fraction = (Float) a.getAnimatedValue();
-
-            leaving.setTranslationX(
-                    -direction * width * fraction
-            );
-
-            for (int i = 0;
-                 i < entering.getChildCount() - 1;
-                 i++) {
-
-                entering.getChildAt(i).setTranslationX(
-                        direction * width * (1f - fraction)
-                );
-            }
-        });
-
-        animator.addListener(
-                new android.animation.AnimatorListenerAdapter() {
-
-                    @Override
-                    public void onAnimationEnd(
-                            android.animation.Animator animation) {
-
-                        if (tabSwitchAnimator != animator) return;
-
-                        tabSwitchAnimator = null;
-
-                        finishTabTransition();
-                        prepareOtherTabs();
-                    }
-                }
-        );
-
-        animator.start();
+        tabTransition.start(window,leaving,entering,leavingHasNav,width,height,navHeight,direction,this::prepareOtherTabs);
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event){
         modeInfo.onActivityTouch(event);
-        // Fullscreen training and card carousels retain their own swipe gestures.
-        if(screen==Screen.TRAIN||screen==Screen.CARD_SESSION||tabSwitchInProgress)
-            return super.dispatchTouchEvent(event);
-        int action=event.getActionMasked();
-        if(action==MotionEvent.ACTION_DOWN){
-            swipeStartX=event.getX();swipeStartY=event.getY();swipeIntercepted=false;
-        }
-        if(action==MotionEvent.ACTION_MOVE&&!swipeIntercepted){
-            float dx=event.getX()-swipeStartX,dy=event.getY()-swipeStartY;
-            if(Math.abs(dx)>ui.dp(90)&&Math.abs(dx)>Math.abs(dy)*1.6f){
-                swipeIntercepted=true;
-                MotionEvent cancel=MotionEvent.obtain(event);
-                cancel.setAction(MotionEvent.ACTION_CANCEL);
-                super.dispatchTouchEvent(cancel);cancel.recycle();return true;
-            }
-        }
-        if(swipeIntercepted){
-            if(action==MotionEvent.ACTION_UP){
-                float dx=event.getX()-swipeStartX;
-                if(Math.abs(dx)>ui.dp(60))goToMainTab(mainTabIndex()+(dx<0?1:-1));
-                swipeIntercepted=false;return true;
-            }
-            if(action==MotionEvent.ACTION_CANCEL){swipeIntercepted=false;return true;}
+        if(screen!=Screen.TRAIN&&screen!=Screen.CARD_SESSION&&!tabTransition.inProgress()
+            &&navigationGesture.handle(event,delta->goToMainTab(mainTabIndex()+delta),e->super.dispatchTouchEvent(e)))
             return true;
-        }
         return super.dispatchTouchEvent(event);
     }
-
 
     /** Archived entries still exist: a saved queue is valid only while its entire
      * ordered membership matches the currently selected collection. */
@@ -1758,9 +1386,9 @@ public final class MainActivity extends Activity {
         passagePicker.chooseEnd(false);
         pickerVerseNumber=1;pickerRestoredScroll=-1;
         clearPassageSelection();focusVerse=-1;
-        savedScrollY.remove(Screen.PICKER_BOOKS);
-        savedScrollY.remove(Screen.PICKER_CHAPTERS);
-        savedScrollY.remove(Screen.PICKER_VERSES);
+        navigationScroll.remove(Screen.PICKER_BOOKS);
+        navigationScroll.remove(Screen.PICKER_CHAPTERS);
+        navigationScroll.remove(Screen.PICKER_VERSES);
         bibleSearch.reset();
         screen=Screen.PICKER_BOOKS;render();
     }
@@ -1777,7 +1405,7 @@ public final class MainActivity extends Activity {
         int previous=end?passagePicker.selection().endChapter:passagePicker.selection().startChapter;
         selectedChapter=previous>0?previous:passagePicker.selection().startChapter>0?
             passagePicker.selection().startChapter:pickerQuickChapter;
-        savedScrollY.remove(Screen.PICKER_CHAPTERS);savedScrollY.remove(Screen.PICKER_VERSES);
+        navigationScroll.remove(Screen.PICKER_CHAPTERS);navigationScroll.remove(Screen.PICKER_VERSES);
         pickerRestoredScroll=-1;
         screen=selectedBook>0?Screen.PICKER_CHAPTERS:Screen.PICKER_BOOKS;render();
     }
@@ -1818,10 +1446,10 @@ public final class MainActivity extends Activity {
         title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,null);
         LinearLayout navigation=ui.row();
         navigation.addView(ui.button("Главы · "+selectedChapter,false,()->{
-            savedScrollY.remove(Screen.PICKER_CHAPTERS);screen=Screen.PICKER_CHAPTERS;render();
+            navigationScroll.remove(Screen.PICKER_CHAPTERS);screen=Screen.PICKER_CHAPTERS;render();
         }),new LinearLayout.LayoutParams(0,-2,1));
         navigation.addView(ui.button("Стихи",false,()->{
-            savedScrollY.remove(Screen.PICKER_VERSES);screen=Screen.PICKER_VERSES;render();
+            navigationScroll.remove(Screen.PICKER_VERSES);screen=Screen.PICKER_VERSES;render();
         }),new LinearLayout.LayoutParams(0,-2,1));
         ui.add(content,navigation,4);
         ui.action(content,"Задать диапазон",false,this::openPickerRange);
@@ -2163,19 +1791,19 @@ public final class MainActivity extends Activity {
             boolean rangeActive=passagePicker.selection().active;
             passagePicker.selection().openBook(book);passagePicker.selection().active=rangeActive;
             passagePicker.resetChapters();
-            savedScrollY.remove(Screen.PICKER_CHAPTERS);
-            savedScrollY.remove(Screen.PICKER_VERSES);
+            navigationScroll.remove(Screen.PICKER_CHAPTERS);
+            navigationScroll.remove(Screen.PICKER_VERSES);
             pickerRestoredScroll=-1;
             screen=Screen.PICKER_CHAPTERS;
         }else {selectingPassage=false;clearPassageSelection();bibleReader.resetVerse();
-            savedScrollY.remove(Screen.VERSES);screen=Screen.CHAPTERS;}
+            navigationScroll.remove(Screen.VERSES);screen=Screen.CHAPTERS;}
         render();
     }
 
     private void openReaderVerseGrid(int chapter) {
         selectedChapter=chapter;bibleReader.resetVerse();
         bibleReader.rememberChapter(selectedBook,chapter);
-        savedScrollY.remove(Screen.VERSES);
+        navigationScroll.remove(Screen.VERSES);
         screen=Screen.VERSES;render();
     }
     private void renderChapters() {
@@ -2193,7 +1821,7 @@ public final class MainActivity extends Activity {
             if(picker&&!passagePicker.selection().active&&selectedChapter!=c)pickerVerseNumber=1;
             selectedChapter=c;
             if(!picker){openReaderVerseGrid(c);return;}
-            savedScrollY.remove(Screen.PICKER_VERSES);
+            navigationScroll.remove(Screen.PICKER_VERSES);
             pickerRestoredScroll=-1;
             screen=Screen.PICKER_VERSES;render();
         },bulk?(c,button)->{
@@ -3748,7 +3376,7 @@ public final class MainActivity extends Activity {
                     lesson.savedAssemblyFingerprint="";assemblyLayout.clear();
                     lesson.lessonWriting.draft="";lesson.checked=false;lesson.passed=false;lesson.answerReview=null;
                     lesson.lessonWriting.hadFeedback=false;lesson.lessonPracticeAgain=false;
-                    readyTabs.clear();savedScrollY.clear();
+                    tabCache.invalidate();navigationScroll.clear();
                     resetInProgress=false;
                     screen=Screen.SETTINGS;render();
                     toast("Прогресс изучения сброшен");
@@ -3821,7 +3449,7 @@ public final class MainActivity extends Activity {
         showUnifiedCollectionSettings(u);
         final LinearLayout target=content;
         final long generation=collectionGeneration;
-        final int restoreScroll=savedScrollY.getOrDefault(Screen.COLLECTION_DETAIL,0);
+        final int restoreScroll=navigationScroll.getOrDefault(Screen.COLLECTION_DETAIL,0);
         collectionDetailLoading=true;
         collectionTask=collectionExecutor.submit(()->{
             try{
@@ -3855,7 +3483,7 @@ public final class MainActivity extends Activity {
                 openedBookName=name;
                 openedCollectionBook=book.getValue();
                 openedBookProgress=snapshot;
-                savedScrollY.remove(Screen.COLLECTION_BOOK);
+                navigationScroll.remove(Screen.COLLECTION_BOOK);
                 screen=Screen.COLLECTION_BOOK;render();
             });
         }
@@ -3885,7 +3513,7 @@ public final class MainActivity extends Activity {
             collectionViews.bookRow(content,"Глава "+chapter.getKey(),countedRussian(openedBookProgress.verseCount(id),
                 "стих","стиха","стихов"),()->{
                 openedCollectionChapter=chapter.getKey();
-                savedScrollY.remove(Screen.COLLECTION_CHAPTER);
+                navigationScroll.remove(Screen.COLLECTION_CHAPTER);
                 screen=Screen.COLLECTION_CHAPTER;render();
             });
         }
@@ -4023,7 +3651,7 @@ public final class MainActivity extends Activity {
         if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
         home.pause();
-        tabWarmGeneration++;
+        tabCache.cancelWarmup();
         bibleSearch.cancel();
         // Earlier writes may post a queue/preference update back to the main looper.
         // The FIFO sentinel lets those callbacks finish before destruction.
@@ -4071,8 +3699,8 @@ public final class MainActivity extends Activity {
         BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
         if(backupDialog!=null)backupDialog.dismiss();
-        tabWarmGeneration++;
-        tabWarmHandler.removeCallbacksAndMessages(null);
+        tabCache.cancelWarmup();
+        tabTransition.finish();
         collectionGeneration++;
         if(collectionTask!=null)collectionTask.cancel(false);
         collectionHandler.removeCallbacksAndMessages(null);
@@ -4083,9 +3711,13 @@ public final class MainActivity extends Activity {
         });
         collectionExecutor.shutdown();
         modeInfo.dismiss(false);
-        settleBibleIcons();
-        settleHomeIcons();
-        settleCollectionsIcons();
+        bottomNavigation.settleBibleIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);
+        bottomNavigation.settleHomeIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleHomeIcon(tab.page);
+        bottomNavigation.settleCollectionsIcon(root);
+        for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleCollectionsIcon(tab.page);
+        tabCache.close();
         bibleSearch.close();
         home.pause();super.onDestroy();if(store!=null)store.close();
     }

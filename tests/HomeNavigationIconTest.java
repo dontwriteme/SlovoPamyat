@@ -103,7 +103,7 @@ public class HomeNavigationIconTest {
         try {
             MainActivity activity=controller.get();
             ActivityTestWorkers.awaitStartup(activity);
-            Class<?> screens=Class.forName("org.biblememory.app.MainActivity$Screen");
+            Class<?> screens=Class.forName("org.biblememory.app.Screen");
             Method prepare=MainActivity.class.getDeclaredMethod("prepareTab",screens);prepare.setAccessible(true);
             for(Object value:screens.getEnumConstants())
                 if(value.toString().equals("BOOKS")||value.toString().equals("COLLECTIONS"))prepare.invoke(activity,value);

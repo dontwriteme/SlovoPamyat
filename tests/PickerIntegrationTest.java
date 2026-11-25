@@ -28,9 +28,14 @@ public class PickerIntegrationTest {
     Object call(String name,Class<?>[] types,Object... args)throws Exception {
         Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);
     }
+    private Object navigationField(String owner,String name)throws Exception{
+        Object value=field(owner);
+        Field member=value.getClass().getDeclaredField(name);member.setAccessible(true);
+        return member.get(value);
+    }
     Object invoke(String name)throws Exception{return call(name,new Class<?>[0]);}
     @SuppressWarnings({"rawtypes","unchecked"}) Object option(String type,String value)throws Exception {
-        return Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$"+type),value);
+        return Enum.valueOf((Class)("Screen".equals(type)?Screen.class:Class.forName("org.biblememory.app.MainActivity$"+type)),value);
     }
     void chapter(int c)throws Exception {set("selectedChapter",c);set("screen",option("Screen","PICKER_TEXT"));invoke("render");}
     PassageSelection selection()throws Exception{return ((PassagePicker)field("passagePicker")).selection();}
@@ -420,7 +425,7 @@ public class PickerIntegrationTest {
         searchThroughInput(executor,"бог");
         assertNull(field("currentScroller"));
         Object books=option("Screen","BOOKS");
-        Map<?,?> tabs=(Map<?,?>)field("readyTabs");
+        Map<?,?> tabs=(Map<?,?>)navigationField("tabCache","readyTabs");
         Object tab=tabs.get(books);
         Field scroller=tab.getClass().getDeclaredField("scroller");
         scroller.setAccessible(true);
@@ -430,7 +435,7 @@ public class PickerIntegrationTest {
         searchInput().setText("");
         layoutReader();
         Shadows.shadowOf(Looper.getMainLooper()).idle();
-        assertEquals(Integer.valueOf(123),((Map<?,?>)field("savedScrollY")).get(books));
+        assertEquals(Integer.valueOf(123),((Map<?,?>)navigationField("navigationScroll","positions")).get(books));
         assertEquals(123,((ScrollView)field("currentScroller")).getScrollY());
         assertNotNull(text("Бытие"));
     }
@@ -510,7 +515,7 @@ public class PickerIntegrationTest {
     @Test public void readerFocusOverridesPreviouslySavedChapterScroll()throws Exception {
         controller.visible();
         reader("CHAPTER",40,5);
-        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)field("savedScrollY");
+        @SuppressWarnings("unchecked") Map<Object,Integer> saved=(Map<Object,Integer>)navigationField("navigationScroll","positions");
         saved.put(option("Screen","CHAPTER"),0);
         reader("VERSES",40,5);text("40").performClick();layoutReader();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));

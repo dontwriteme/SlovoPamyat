@@ -142,7 +142,7 @@ public final class R0PickerCheck extends Instrumentation {
     private void openPicker(long group){
         try{
             Class target=Class.forName("org.biblememory.app.MainActivity$BibleTarget");
-            Class screen=Class.forName("org.biblememory.app.MainActivity$Screen");
+            Class screen=Class.forName("org.biblememory.app.Screen");
             java.lang.reflect.Method open=MainActivity.class.getDeclaredMethod("openBiblePicker",target,long.class,screen);
             open.setAccessible(true);
             open.invoke(activity,Enum.valueOf(target,"STUDY_GROUP"),group,Enum.valueOf(screen,"HOME"));
@@ -193,7 +193,7 @@ public final class R0PickerCheck extends Instrumentation {
     }
 
     private void tapDescription(String description)throws InterruptedException{
-        await(()->!((Boolean)field("tabSwitchInProgress")),"navigation settles");
+        await(()->!((TabTransition)field("tabTransition")).inProgress(),"navigation settles");
         runOnMainSync(()->{
             View button=described(description);
             require(button!=null&&button.performClick(),description);

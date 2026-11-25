@@ -289,7 +289,7 @@ public class LessonHotbarIntegrationTest {
         KnowledgeCheckSession run=(KnowledgeCheckSession)get("knowledgeCheck");
         run.prepare(42,List.of(new KnowledgeCheckSession.Question(id,0,"Бытие 1:1","Слово истины живо")));
         run.restart();
-        set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$Screen"),"RUN"));
+        set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.Screen"),"RUN"));
         invoke("render");
         assertSeamlessFooter();
         run.edit("Ошибка");
