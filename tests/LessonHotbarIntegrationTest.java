@@ -201,6 +201,27 @@ public class LessonHotbarIntegrationTest {
         assertFalse(((TextView)get("lessonBuildAction")).isEnabled());
     }
 
+    @Test public void introEyeRemainsAdjacentToCenteredLabelAtEveryMask()throws Exception{
+        View root=(View)get("root");
+        TextView hide=root.findViewWithTag("lesson-intro-hide");
+        assertNotNull(hide);
+        float density=activity.getResources().getDisplayMetrics().density;
+        for(int width:new int[]{320,480}){
+            for(int i=0;i<5;i++){
+                layoutIntro(root,width);
+                android.graphics.drawable.Drawable eye=hide.getCompoundDrawablesRelative()[2];
+                assertNotNull(eye);
+                int textWidth=(int)Math.ceil(android.text.Layout.getDesiredWidth(hide.getText(),hide.getPaint()));
+                int iconWidth=eye.getBounds().width()+hide.getCompoundDrawablePadding();
+                int expectedPadding=Math.max(Math.round(14*density),
+                    (hide.getWidth()-textWidth-iconWidth)/2);
+                assertEquals(expectedPadding,hide.getPaddingLeft());
+                assertEquals(expectedPadding,hide.getPaddingRight());
+                hide.performClick();
+            }
+        }
+    }
+
     @Test public void everyHideLevelLeavesIntroCurrentAndPreservesPassageView()throws Exception{
         View root=(View)get("root"),passage=(View)get("activePassage"),strip=root.findViewWithTag("lesson-progress-strip");
         TextView hide=text(root,"Скрыть 25% слов");assertNotNull(hide);
