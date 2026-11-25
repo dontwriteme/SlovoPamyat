@@ -5674,10 +5674,7 @@ public final class MainActivity extends Activity {
                 lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();mask=0;
                 saveTrainingSession();render();
             });
-            mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
-            mainAction.setTextSize(22);
-            mainAction.setElevation(dp(3));
-            styleAssemblyContinue(mainAction,true);
+            styleLessonAction(mainAction,true);
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
             trainingMode=TrainingMode.ORDER;
             assemblyReference(e);
@@ -5685,25 +5682,20 @@ public final class MainActivity extends Activity {
             mainAction=button("Продолжить",true,()->{
                 if(lessonPicked>=lessonBuildRequired)advanceLessonBuild(e);
             });
-            mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
-            mainAction.setTextSize(22);
-            mainAction.setElevation(dp(3));
-            styleAssemblyContinue(mainAction,complete);
+            styleLessonAction(mainAction,complete);
             lessonBuildAction=mainAction;
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
                 renderAnswerReview(answerReview);
                 mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
+                styleLessonAction(mainAction,true);
             }else{
                 assemblyReference(e);
                 renderLessonWriting();
                 mainAction=button("Проверить",true,()->validateLessonWriting(e));
-                mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
-                mainAction.setTextSize(22);
-                mainAction.setElevation(dp(3));
                 // Keep validation available, even for an empty or incomplete answer.
-                styleAssemblyContinue(mainAction,true);
+                styleLessonAction(mainAction,true);
             }
         } else {
             renderCompletion(e);
@@ -5767,7 +5759,7 @@ public final class MainActivity extends Activity {
         LinearLayout footer=column();footer.setPadding(dp(24),dp(14),dp(24),dp(25));
         TextView continueButton=button("Продолжить",true,()->advanceAfterSuccess(e));
         animateLessonPress(continueButton);
-        continueButton.setTextSize(20);
+        styleLessonAction(continueButton,true);
         footer.addView(continueButton,new LinearLayout.LayoutParams(-1,dp(61)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         scenery.addView(root,new FrameLayout.LayoutParams(-1,-1));
@@ -6233,13 +6225,15 @@ public final class MainActivity extends Activity {
         add(content,instruction,13);
     }
 
-    private void styleAssemblyContinue(TextView action,boolean enabled){
-        GradientDrawable background=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,enabled?
-            new int[]{0xFF7D9C49,0xFF3E692D}:new int[]{0xFFC3C8A7,0xFFA1AA83});
-        background.setCornerRadius(dp(32));
-        background.setStroke(dp(1),0xFFFFF9EA);
-        action.setBackground(background);
-        action.setTextColor(Color.WHITE);
+    /** Shared matte primary action for lesson exercises and memory checks. */
+    private void styleLessonAction(TextView action,boolean enabled){
+        action.setBackground(shape(enabled?0xFF607B43:0xFFC3C8A7,13));
+        action.setTypeface(Typeface.create("serif",Typeface.NORMAL));
+        action.setTextSize(19);
+        action.setTextColor(enabled?Color.WHITE:0xFF536044);
+        action.setElevation(0f);
+        action.setTranslationZ(0f);
+        action.setStateListAnimator(null);
         action.setEnabled(enabled);
     }
 
@@ -6420,7 +6414,7 @@ public final class MainActivity extends Activity {
             }
         }
         if(lessonBuildAction!=null&&lessonBuildAction.isEnabled()!=(lessonPicked==lessonBuildRequired))
-            styleAssemblyContinue(lessonBuildAction,lessonPicked==lessonBuildRequired);
+            styleLessonAction(lessonBuildAction,lessonPicked==lessonBuildRequired);
     }
     /** Choose a balanced random mask once per exercise, never once per screen redraw. */
     private int[] lessonMissingPositions(String[] tokens,LessonCurriculumLogic.Variant kind){
@@ -7992,6 +7986,7 @@ public final class MainActivity extends Activity {
                 AcceptedTextLogic.matthew513Verse(line.reference));
             runChecked=true;saveRunSession();render();
         });
+        styleLessonAction(go,true);
         animateLessonPress(go);
         footer.addView(go,new LinearLayout.LayoutParams(-1,dp(55)));
         if(!runChecked){
