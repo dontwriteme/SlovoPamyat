@@ -192,12 +192,60 @@ public final class R0PickerCheck extends Instrumentation {
         });
     }
 
+    private void tapDescription(String description)throws InterruptedException{
+        await(()->!((Boolean)field("tabSwitchInProgress")),"navigation settles");
+        runOnMainSync(()->{
+            View button=described(description);
+            require(button!=null&&button.performClick(),description);
+        });
+    }
+
+    private void homeCollectionsSettings()throws InterruptedException{
+        long[] id=new long[1];
+        runOnMainSync(()->{
+            id[0]=((LocalStore)field("store")).createUnifiedCollection("Экран R8.6");
+            invoke("render");
+            require(text("Стих дня")!=null,"verse of the day");
+            require(text("ВЫБРАННАЯ КОЛЛЕКЦИЯ")!=null,"active collection");
+            require(described("О режиме «Карточки»")!=null,"mode help");
+        });
+        tapDescription("Открыть раздел Коллекции");
+        await(()->described("Открыть коллекцию Экран R8.6")!=null,"collection list");
+        tapDescription("Открыть коллекцию Экран R8.6");
+        await(()->text("Экран R8.6")!=null&&text("Добавь первый стих или отрывок.")!=null,
+            "collection detail loads");
+        tapDescription("Открыть раздел Настройки");
+        await(()->text("Создать резервную копию")!=null&&text("Восстановить из копии")!=null,
+            "settings actions");
+        tapDescription("Сбросить весь прогресс изучения");
+        boolean cancelled=false;
+        for(int retry=0;retry<40&&!cancelled;retry++){
+            android.view.accessibility.AccessibilityNodeInfo window=getUiAutomation().getRootInActiveWindow();
+            if(window!=null&&!window.findAccessibilityNodeInfosByText("Сбросить весь прогресс?").isEmpty()){
+                for(android.view.accessibility.AccessibilityNodeInfo node:window.findAccessibilityNodeInfosByText("Отмена")){
+                    cancelled=node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+                    if(cancelled)break;
+                }
+            }
+            if(!cancelled)SystemClock.sleep(100);
+        }
+        require(cancelled,"cancel reset confirmation");
+        runOnMainSync(()->{
+            LocalStore store=(LocalStore)field("store");
+            require(store.unifiedCollection(id[0])!=null,"fixture remains after cancel");
+            store.deleteUnifiedCollection(id[0]);
+        });
+        tapDescription("Открыть раздел Главная");
+        await(()->text("Стих дня")!=null,"return to Home");
+    }
+
     @Override public void onStart(){
         Bundle result=new Bundle();
         try{
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->((Bible)field("bible")).isReady(),"Bible ready");
+            homeCollectionsSettings();
             runOnMainSync(()->{
                 BookNavigationIcon icon=((View)field("root")).findViewWithTag(BookNavigationIcon.TAG);
                 ((View)icon.getParent()).performClick();
@@ -247,7 +295,7 @@ public final class R0PickerCheck extends Instrumentation {
             passagePicker();
             flashcards();
             runOnMainSync(activity::finish);
-            result.putString("stream","PASS: input, no match, clear, catalog scroll, Psalm 118:176, back stack, picker verse jump and bulk chapter, flashcard reveal, swipe and resume");
+            result.putString("stream","PASS: Home, collections, settings and reset cancellation, input, no match, clear, catalog scroll, Psalm 118:176, back stack, picker verse jump and bulk chapter, flashcard reveal, swipe and resume");
             finish(Activity.RESULT_OK,result);
         }catch(Throwable error){
             result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(error));

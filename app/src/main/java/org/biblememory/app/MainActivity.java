@@ -42,6 +42,7 @@ public final class MainActivity extends Activity {
     private final ScreenMenus menus = new ScreenMenus(ui);
     private final ModeInfoPopover modeInfo = new ModeInfoPopover(ui);
     private final ScreenArtwork artwork=new ScreenArtwork(this,ui);
+    private final SettingsView settingsView=new SettingsView(this,ui,artwork);
     private final CollectionViews collectionViews=new CollectionViews(this,ui,artwork);
     private final CollectionDialogs collectionDialogs=new CollectionDialogs(this,ui);
     // The warm landscape-based interface is shared by every screen, not just the home hero.
@@ -4872,56 +4873,12 @@ public final class MainActivity extends Activity {
             openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();
         });
     }
-    /** Keep settings in the same warm-card style as the existing collection screens. */
     private void renderSettings(){
-        TextView heading=ui.displayText("Настройки",28);
-        heading.setGravity(Gravity.CENTER);
-        ui.add(content,heading,18);
-
-        LinearLayout backup=ui.column();
-        backup.setPadding(ui.dp(18),ui.dp(18),ui.dp(18),ui.dp(18));
-        backup.setBackground(artwork.homeSurface());
-        backup.setElevation(ui.dp(2));
-        ui.add(backup,ui.displayText("Резервная копия",20),0);
-        TextView backupHint=ui.txt(
-            "Сохраните коллекции, собственные тексты, карточки, прогресс и "+
-            "расписание повторений в один файл. Всё работает без интернета.",14,MUTED,false);
-        backupHint.setLineSpacing(ui.dp(3),1.1f);
-        ui.add(backup,backupHint,9);
-        ui.add(backup,ui.button("Создать резервную копию",true,this::exportFile),14);
-        ui.add(backup,ui.button("Восстановить из копии",false,this::importFile),10);
-        TextView warning=ui.txt(
-            "При восстановлении текущие данные заменятся содержимым файла. "+
-            "Перед этим рекомендуется сохранить новую копию.",13,MUTED,false);
-        ui.add(backup,warning,12);
-        ui.add(content,backup,14);
-
-        LinearLayout section=ui.column();
-        section.setPadding(ui.dp(18),ui.dp(18),ui.dp(18),ui.dp(18));
-        section.setBackground(artwork.homeSurface());
-        section.setElevation(ui.dp(2));
-        TextView title=ui.displayText("Прогресс изучения",20);
-        ui.add(section,title,9);
-        TextView explanation=ui.txt(
-            "Сбросить освоение стихов, историю проверок и расписание повторений. "+
-            "Коллекции, книги, карточки и сохранённые тексты останутся.",14,MUTED,false);
-        explanation.setLineSpacing(ui.dp(3),1.1f);
-        ui.add(section,explanation,14);
-        TextView reset=ui.button("Сбросить прогресс",false,this::confirmResetProgress);
-        reset.setTextColor(0xFFAC523F);
-        reset.setContentDescription("Сбросить весь прогресс изучения");
-        ui.add(section,reset,0);
-        ui.add(content,section,16);
+        settingsView.render(content,this::exportFile,this::importFile,this::confirmResetProgress);
     }
+
     private void confirmResetProgress(){
-        if(resetInProgress)return;
-        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Сбросить весь прогресс?")
-            .setMessage("Будут безвозвратно удалены отметки об освоении стихов, "+
-                "история проверок, незавершённые уроки и расписание повторений "+
-                "во всех коллекциях.\n\nСами коллекции, книги, карточки и тексты сохранятся.")
-            .setPositiveButton("Сбросить",(dialog,which)->resetAllLearningProgress())
-            .setNegativeButton("Отмена",null).create());
+        if(!resetInProgress)settingsView.confirmReset(this::resetAllLearningProgress);
     }
     private void resetAllLearningProgress(){
         if(resetInProgress||backupInProgress)return;
@@ -5194,16 +5151,7 @@ public final class MainActivity extends Activity {
         if(!ownsData||backupInProgress||result!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
         if(request==EXPORT)runBackupTask(uri,false);
-        else if(request==IMPORT){
-            ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-                .setTitle("Восстановить резервную копию?")
-                .setMessage("Все текущие коллекции, стихи, карточки, прогресс "+
-                    "и незавершённые уроки будут заменены данными из выбранного "+
-                    "файла. Это действие нельзя отменить.\n\n"+
-                    "Рекомендуется сначала создать отдельную копию текущих данных.")
-                .setPositiveButton("Восстановить",(d,w)->runBackupTask(uri,true))
-                .setNegativeButton("Отмена",null).create());
-        }
+        else if(request==IMPORT)settingsView.confirmImport(()->runBackupTask(uri,true));
     }
     private void runBackupTask(Uri uri,boolean restore){
         if(backupInProgress||resetInProgress)return;
