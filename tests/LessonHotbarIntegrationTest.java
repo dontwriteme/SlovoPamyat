@@ -318,7 +318,7 @@ public class LessonHotbarIntegrationTest {
         ViewGroup inputs=root.findViewWithTag("writing-gap-inputs");
         assertNotNull(panel);assertNotNull(inputs);
         assertNotNull(panel.getBackground());
-        assertNotNull(text(panel,LearningHelp.WRITE_GAPS));
+        assertNull(text(panel,LearningHelp.WRITE_GAPS));
         TextView check=text(root,"Проверить");
         assertTrue(check.isEnabled());
         assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
