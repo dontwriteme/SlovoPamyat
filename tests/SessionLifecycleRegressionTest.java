@@ -187,14 +187,14 @@ public class SessionLifecycleRegressionTest {
         }
         store.markMastered(following,0,1,100,"VERSE");
         store.scheduleReview(following,"VERSE",0,1,100,false,1000L);
-        set("reviewCollectionGroup",u.groupId);
-        invoke("startReviewSession");
+        call("startReviewSession",new Class<?>[]{long.class},u.groupId);
         ((LessonWritingState)get("lessonWriting")).draft="Первый стих";
         recreate();
         assertEquals("TRAIN",get("screen").toString());
-        assertEquals(true,get("reviewMode"));
-        assertEquals(u.groupId,get("reviewCollectionGroup"));
-        assertEquals("VERSE_RUN",((LocalStore.DueItem)get("currentReview")).stage);
+        ReviewSession review=(ReviewSession)get("reviewSession");
+        assertTrue(review.active());
+        assertEquals(u.groupId,review.group());
+        assertEquals("VERSE_RUN",review.current().item().stage);
         assertEquals("Первый стих",((LessonWritingState)get("lessonWriting")).draft);
         invoke("advanceReviewSession");
         assertEquals(following,get("selectedEntry"));
@@ -278,6 +278,29 @@ public class SessionLifecycleRegressionTest {
         assertEquals("HOME",get("screen").toString());
         assertNotNull(store.entry(id));
         assertEquals(3,store.exerciseDone(id,0));
+    }
+
+    @Test public void importingABackupRetiresTheActiveReviewBundle()throws Exception{
+        LocalStore.UnifiedCollection u=collection("Повторение из копии");
+        long id=add(u,"Свой текст","Текст для повторения");
+        store.commitSuccessfulRecall(id,"VERSE",0,1,false,true,1000);
+        call("startReviewSession",new Class<?>[]{long.class},u.groupId);
+        ((LessonWritingState)get("lessonWriting")).draft="Старый черновик";
+        Bundle state=new Bundle();
+        controller.saveInstanceState(state);
+        assertEquals(u.groupId,state.getBundle("active_lesson").getLong("review_group"));
+
+        Context context=RuntimeEnvironment.getApplication();
+        android.net.Uri uri=android.net.Uri.fromFile(
+            new java.io.File(context.getCacheDir(),"r87-review.svbackup"));
+        SvetochBackup.exportTo(context,store,uri);
+        SvetochBackup.restoreFrom(context,store,uri);
+        createFrom(state);
+        assertEquals("HOME",get("screen").toString());
+        assertFalse(((ReviewSession)get("reviewSession")).active());
+        assertEquals("",((LessonWritingState)get("lessonWriting")).draft);
+        assertNotNull(store.entry(id));
+        assertFalse(store.recallCheckpoint(id,"VERSE",0,1).isEmpty());
     }
 
     @Test public void linkedLessonIsSavedBeforeAnyInteraction()throws Exception{
@@ -403,7 +426,7 @@ public class SessionLifecycleRegressionTest {
         store.markMastered(id,2,3,100,"VERSE");
         call("openTraining",new Class<?>[]{long.class},id);
         set("studyStage",StudyPlanLogic.Stage.VERSE);
-        set("groupMode",false);set("reviewMode",false);set("forcedStep",null);
+        set("groupMode",false);((ReviewSession)get("reviewSession")).clear();set("forcedStep",null);
         set("stepCursor",1);
         call("resetTrainingStep",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
         invoke("render");

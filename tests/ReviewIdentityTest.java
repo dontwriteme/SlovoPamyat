@@ -194,9 +194,17 @@ public class ReviewIdentityTest {
     }
 
     private void start(MainActivity activity,long group)throws Exception{
-        Field scope=MainActivity.class.getDeclaredField("reviewCollectionGroup");scope.setAccessible(true);
-        scope.setLong(activity,group);
-        invoke(activity,"startReviewSession");
+        Method start=MainActivity.class.getDeclaredMethod("startReviewSession",long.class);
+        start.setAccessible(true);
+        start.invoke(activity,group);
+    }
+    private ReviewSession review(MainActivity activity)throws Exception{
+        return (ReviewSession)field(activity,"reviewSession");
+    }
+    private List<?> queue(MainActivity activity)throws Exception{
+        Field queue=ReviewSession.class.getDeclaredField("queue");
+        queue.setAccessible(true);
+        return (List<?>)queue.get(review(activity));
     }
     private void invoke(MainActivity activity,String name)throws Exception{
         Method method=MainActivity.class.getDeclaredMethod(name);method.setAccessible(true);method.invoke(activity);
@@ -218,10 +226,10 @@ public class ReviewIdentityTest {
         ActivityTestWorkers.recreate(controller);
         MainActivity recreated=controller.get();
         start(recreated,second.groupId);
-        LocalStore.DueItem current=(LocalStore.DueItem)field(recreated,"currentReview");
+        LocalStore.DueItem current=review(recreated).current().item();
         assertEquals(b,current.entryId);assertEquals(1,current.start);
         assertEquals("Начатый ответ",((LessonWritingState)field(recreated,"lessonWriting")).draft);
-        assertEquals(1,((List<?>)field(recreated,"reviewQueue")).size());
+        assertEquals(1,queue(recreated).size());
         successful(b,1,System.currentTimeMillis());
         start(recreated,-1);
         assertEquals("DUE",field(recreated,"screen").toString());
@@ -238,12 +246,12 @@ public class ReviewIdentityTest {
         controller=Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity=controller.get();ActivityTestWorkers.awaitStartup(activity);
         start(activity,-1);
-        List<?> planned=(List<?>)field(activity,"reviewQueue");
+        List<?> planned=queue(activity);
         assertEquals(2,planned.size());
         assertEquals("VERSE_RUN",((LocalStore.DueItem)planned.get(1)).stage);
         successful(alias,0,System.currentTimeMillis());
         invoke(activity,"advanceReviewSession");
-        LocalStore.DueItem current=(LocalStore.DueItem)field(activity,"currentReview");
+        LocalStore.DueItem current=review(activity).current().item();
         assertEquals("VERSE",current.stage);assertEquals(1,current.start);assertEquals(passage,current.entryId);
     }
 
@@ -256,8 +264,8 @@ public class ReviewIdentityTest {
         controller=Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity activity=controller.get();ActivityTestWorkers.awaitStartup(activity);
         start(activity,-1);
-        assertEquals(2,((List<?>)field(activity,"reviewQueue")).size());
-        assertEquals(first,((LocalStore.DueItem)field(activity,"currentReview")).entryId);
+        assertEquals(2,queue(activity).size());
+        assertEquals(first,review(activity).current().item().entryId);
         successful(alias,0,System.currentTimeMillis());
         invoke(activity,"advanceReviewSession");
         assertEquals("HOME",field(activity,"screen").toString());

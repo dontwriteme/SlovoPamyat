@@ -60,7 +60,11 @@ public final class R51LessonCheck extends Instrumentation {
                 return null;
             });
             if("seed-process".equals(mode))seedProcess();
-            else{
+            else if("reviews".equals(mode)){
+                review(false);
+                review(true);
+                reviewCompletion();
+            }else{
                 lesson();
                 group();
                 review(false);
@@ -171,8 +175,7 @@ public final class R51LessonCheck extends Instrumentation {
                 store().markMastered(entry,i,i+1,100,"VERSE");
                 store().scheduleReview(entry,"VERSE",i,i+1,100,false,1000L);
             }
-            set("reviewCollectionGroup",group);
-            call("startReviewSession",new Class<?>[0]);
+            call("startReviewSession",new Class<?>[]{long.class},group);
             firstEdit((View)get("root")).setText("Незавершённое повторение");
             return entry;
         });
@@ -180,13 +183,48 @@ public final class R51LessonCheck extends Instrumentation {
         awaitBible();
         onMain(()->{
             checkLesson(id);
-            LocalStore.DueItem item=(LocalStore.DueItem)get("currentReview");
+            LocalStore.DueItem item=((ReviewSession)get("reviewSession")).current().item();
             require((run?"VERSE_RUN":"VERSE").equals(item.stage),"Review kind");
             require("Незавершённое повторение".equals(((LessonWritingState)get("lessonWriting")).draft),"Review draft");
             activity.onBackPressed();
             return null;
         });
         results.putString(run?"verse_run":"review","stage and draft");
+    }
+
+    private void reviewCompletion()throws Exception{
+        awaitBible();
+        long[] entries=onMain(()->{
+            long group=collection("Очередь повторения");
+            long first=add(group,TEXT), next=add(group,"Другой стих для повторения");
+            store().commitSuccessfulRecall(first,"VERSE",0,1,false,true,1000);
+            store().commitSuccessfulRecall(next,"VERSE",0,1,false,true,2000);
+            String before=store().recallCheckpoint(first,"VERSE",0,1);
+            call("startReviewSession",new Class<?>[]{long.class},group);
+            checkLesson(first);
+            firstEdit((View)get("root")).setText(TEXT);
+            press((View)get("root"),"Проверить");
+            require((boolean)get("passed"),"Review committed");
+            require(!before.equals(store().recallCheckpoint(first,"VERSE",0,1)),"Checkpoint changed");
+            return new long[]{first,next};
+        });
+        String checkpoint=onMain(()->store().recallCheckpoint(entries[0],"VERSE",0,1));
+        recreate();
+        awaitBible();
+        onMain(()->{
+            checkLesson(entries[0]);
+            require((boolean)get("passed"),"Committed review restored");
+            View continued=find((View)get("root"),false,"Продолжить");
+            require(continued!=null&&continued.performClick(),"Advance to the next review");
+            checkLesson(entries[1]);
+            continued.performClick();
+            checkLesson(entries[1]);
+            require(checkpoint.equals(store().recallCheckpoint(entries[0],"VERSE",0,1)),
+                "The restored completion did not record another attempt");
+            activity.onBackPressed();
+            return null;
+        });
+        results.putString("review_completion","restored checkpoint and one continuation");
     }
 
     private void deletionAndImport()throws Exception{

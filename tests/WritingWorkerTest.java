@@ -55,6 +55,11 @@ public class WritingWorkerTest {
         return null;
     }
 
+    private void startReview()throws Exception{
+        Method start=MainActivity.class.getDeclaredMethod("startReviewSession",long.class);start.setAccessible(true);
+        start.invoke(activity,-1L);
+    }
+
     private EditText input()throws Exception{return (EditText)find((View)field("root"),null);}
     private View check()throws Exception{return find((View)field("root"),"Проверить");}
 
@@ -132,11 +137,57 @@ public class WritingWorkerTest {
         ActivityTestWorkers.awaitDestroyed(old);
         activity=controller.get();ActivityTestWorkers.awaitStartup(activity);
         store=(LocalStore)field("store");
-        Method start=MainActivity.class.getDeclaredMethod("startReviewSession");start.setAccessible(true);
-        start.invoke(activity);
+        startReview();
         assertEquals(1,attempts());
         assertEquals(ANSWER,((LessonWritingState)field("lessonWriting")).draft);
         assertNull(field("answerReview"));
+    }
+
+    @Test public void failedSuccessfulWriteKeepsTaskAndRetiredContinueCannotSkipNext()throws Exception{
+        long next=store.add(store.entry(entry).groupId,"Next","Следующий",
+            Collections.singletonList(new Bible.Verse("1:1","Текст следующего стиха")));
+        store.commitSuccessfulRecall(next,"VERSE",0,1,false,true,2);
+        startReview();
+        ReviewSession review=(ReviewSession)field("reviewSession");
+        ReviewSession.Exercise current=review.current();
+        assertEquals(entry,current.item().entryId);
+        store.getWritableDatabase().execSQL("CREATE TRIGGER refuse_attempt BEFORE INSERT ON review_attempts "+
+            "BEGIN SELECT RAISE(ABORT,'injected'); END");
+        input().setText(ANSWER);
+        check().performClick();
+        ActivityTestWorkers.awaitWriting(activity);
+        assertSame(current,review.current());
+        assertEquals(1,attempts());
+        assertEquals(false,field("passed"));
+        assertEquals(ANSWER,input().getText().toString());
+
+        store.getWritableDatabase().execSQL("DROP TRIGGER refuse_attempt");
+        check().performClick();
+        ActivityTestWorkers.awaitWriting(activity);
+        assertEquals(2,attempts());
+        assertTrue((Boolean)field("passed"));
+        View continued=find((View)field("root"),"Продолжить");
+        assertNotNull(continued);
+        continued.performClick();
+        assertEquals(next,review.current().item().entryId);
+        continued.performClick();
+        assertEquals(next,review.current().item().entryId);
+        assertEquals(2,attempts());
+    }
+
+    @Test public void changedMaterialWhileWorkerRunsCannotCommitTheOldAnswer()throws Exception{
+        CountDownLatch release=holdWorker();
+        try{
+            input().setText(ANSWER);
+            check().performClick();
+            assertNotNull(field("pendingWritingCheck"));
+            store.getWritableDatabase().execSQL("UPDATE entries SET lines=? WHERE id=?",
+                new Object[]{"[{\"ref\":\"1\",\"text\":\"Новый текст\"}]",entry});
+        }finally{release.countDown();}
+        ActivityTestWorkers.awaitWriting(activity);
+        assertEquals(1,attempts());
+        assertEquals(false,field("passed"));
+        assertEquals(ANSWER,input().getText().toString());
     }
 
     @Test public void asyncFailurePreservesDraftAndAllowsRetry()throws Exception{

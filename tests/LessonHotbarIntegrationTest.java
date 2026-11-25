@@ -284,7 +284,9 @@ public class LessonHotbarIntegrationTest {
     @Test public void groupUsesItsExistingIntroFlagAndReviewHasOnlyWriting()throws Exception{
         set("groupMode",true);set("groupIntroDone",false);assertEquals(0,model(LessonCurriculumLogic.Phase.INTRO).completedCount);
         set("groupIntroDone",true);assertEquals(1,model(LessonCurriculumLogic.Phase.BUILD).completedCount);
-        set("groupMode",false);set("reviewMode",true);LessonHotbarLogic.Model review=model(LessonCurriculumLogic.Phase.WRITE);
+        call("openReview",new Class<?>[]{LocalStore.DueItem.class},
+            new LocalStore.DueItem(id,"VERSE",0,1,0));
+        LessonHotbarLogic.Model review=model(LessonCurriculumLogic.Phase.WRITE);
         assertEquals(0,review.totals[0]);assertEquals(0,review.totals[1]);assertEquals(review.totals[2],review.total);
     }
     @Test public void stripFitsNarrowScreenAndRetainsTalkBackCountsForManyTasks()throws Exception{
