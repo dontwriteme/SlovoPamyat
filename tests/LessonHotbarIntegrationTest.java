@@ -420,6 +420,62 @@ public class LessonHotbarIntegrationTest {
         assertEquals(5,store.exerciseDone(id,0));
     }
 
+    @Test public void sixteenLandscapesPersistAndNewAssignmentsDoNotRepeatImmediately(){
+        android.content.SharedPreferences prefs=activity.getSharedPreferences("landscape_test",0);
+        prefs.edit().clear().commit();
+        Set<Integer> seen=new HashSet<>();
+        Random random=new Random(42);
+        int previous=-1;
+        for(int i=0;i<256;i++){
+            String key="verse:"+i;
+            int next=LessonLandscapes.choose(prefs,key,random);
+            assertTrue(next>=0&&next<LessonLandscapes.COUNT);
+            assertNotEquals(previous,next);
+            assertEquals(next,LessonLandscapes.choose(prefs,key,new Random(i)));
+            seen.add(next);previous=next;
+        }
+        assertEquals(16,seen.size());
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(200,180,
+            android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);
+        for(int i=0;i<LessonLandscapes.COUNT;i++){
+            android.graphics.drawable.Drawable scene=LessonLandscapes.artwork(activity,i);
+            assertNotNull(scene);
+            assertTrue(scene.getIntrinsicWidth()>0);
+            assertTrue(scene.getIntrinsicHeight()>0);
+            scene.setBounds(0,0,200,180);
+            scene.draw(canvas);
+        }
+        bitmap.recycle();
+    }
+
+    @Test public void verseLandscapeRemainsAcrossPhasesAndChangesForNewVerse()throws Exception{
+        View root=(View)get("root");
+        Object first=root.getTag();
+        assertTrue(first instanceof String&&first.toString().startsWith("lesson-landscape:"));
+        assertTrue(root.getBackground() instanceof StableLessonBackground);
+        store.finishExercise(id,0,1);invoke("render");
+        assertEquals(first,((View)get("root")).getTag());
+        openWritingFixture();
+        assertEquals(first,((View)get("root")).getTag());
+        submit("а");
+        assertEquals(first,((View)get("root")).getTag());
+        call("renderCompletion",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        View completion=(View)((View)get("root")).getParent();
+        assertEquals(first,completion.getTag());
+        assertTrue(completion.getBackground() instanceof StableLessonBackground);
+        set("answerReview",null);
+        set("checked",false);
+        set("passed",false);
+        set("stepCursor",1);
+        invoke("render");
+        Object second=((View)get("root")).getTag();
+        assertNotEquals(first,second);
+        set("stepCursor",0);
+        invoke("render");
+        assertEquals(first,((View)get("root")).getTag());
+    }
+
     @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
         assertSeamlessFooter();
         store.finishExercise(id,0,1);invoke("render");
