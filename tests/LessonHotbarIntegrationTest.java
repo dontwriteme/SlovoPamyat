@@ -289,6 +289,49 @@ public class LessonHotbarIntegrationTest {
         assertEquals(3,store.exerciseDone(id,0));
     }
 
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void fullWritingUsesScenicEditorAndPreservesUncheckedText()throws Exception{
+        openWritingFixture();
+        View root=(View)get("root");
+        EditText answer=root.findViewWithTag("writing-full-input");
+        assertNotNull(answer);
+        assertSame(answer,edit(root));
+        assertNotNull(text(root,LearningHelp.WRITE_FULL));
+        assertEquals(0xFF553722,answer.getCurrentTextColor());
+        assertEquals(6,answer.getMinLines());
+        assertEquals(12,answer.getMaxLines());
+        assertTrue((answer.getInputType()&android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE)!=0);
+        assertTrue((answer.getInputType()&android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)!=0);
+        assertTrue(answer.getHint() instanceof android.text.Spanned);
+        android.text.Spanned hint=(android.text.Spanned)answer.getHint();
+        android.text.style.StyleSpan[] styles=hint.getSpans(0,hint.length(),android.text.style.StyleSpan.class);
+        assertEquals(1,styles.length);
+        assertEquals(android.graphics.Typeface.ITALIC,styles[0].getStyle());
+        TextView check=text(root,"Проверить");
+        assertNotNull(check);assertTrue(check.isEnabled());
+        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
+            ((android.graphics.drawable.GradientDrawable)check.getBackground()).getColors());
+        StringBuilder longDraft=new StringBuilder();
+        for(int i=0;i<60;i++)longDraft.append("Слово истины живо. ");
+        String value=longDraft.toString();
+        answer.setText(value);
+        answer.setSelection(answer.length());
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,560);
+        assertEquals(value,answer.getText().toString());
+        assertEquals(value,get("draft"));
+        assertEquals(3,store.exerciseDone(id,0));
+        assertEquals(560,((ViewGroup)root).getChildAt(((ViewGroup)root).getChildCount()-1).getBottom());
+        invoke("render");
+        EditText restored=((View)get("root")).findViewWithTag("writing-full-input");
+        assertNotNull(restored);
+        assertEquals(value,restored.getText().toString());
+        submit("Слово истины живо");
+        ActivityTestWorkers.awaitWriting(activity);
+        assertEquals(5,store.exerciseDone(id,0));
+    }
+
     @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
         assertSeamlessFooter();
         store.finishExercise(id,0,1);invoke("render");
