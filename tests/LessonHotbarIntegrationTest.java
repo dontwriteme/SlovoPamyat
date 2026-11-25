@@ -37,6 +37,31 @@ public class LessonHotbarIntegrationTest {
         call("openTraining",new Class<?>[]{long.class},id);
     }
     @After public void close()throws Exception{waitLoader();if(lifecycle!=null)ActivityTestWorkers.destroy(lifecycle);}
+    @Test public void verseAndLinkedCompletionUseSameLampWithoutCrownOrQuote()throws Exception{
+        call("renderCompletion",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        View root=(View)get("root");
+        SuccessLampView lamp=root.findViewWithTag(SuccessLampView.TAG);
+        assertNotNull(lamp);
+        assertNotNull(text(root,"Стих освоен!"));
+        assertNull(text(root,"👑"));
+        assertNull(text(root,"«Слово Твое — светильник"));
+        assertTrue(text(root,"Продолжить").isEnabled());
+        assertTrue(lamp.ignitionProgress()>=0f&&lamp.ignitionProgress()<=1f);
+        layoutIntro(root,320);
+        assertTrue(lamp.getMeasuredWidth()>0);
+        assertTrue(lamp.getMeasuredHeight()>0);
+        set("groupMode",true);
+        call("renderCompletion",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+        assertFalse(lamp.hasRunningMotion());
+        View linked=(View)get("root");
+        assertNotNull(linked.findViewWithTag(SuccessLampView.TAG));
+        assertNotNull(text(linked,"Связка освоена!"));
+        assertNull(text(linked,"👑"));
+        set("groupMode",false);
+        activity.onBackPressed();
+        assertEquals("HOME",get("screen").toString());
+    }
+
     @Test public void masteredActiveCollectionShowsSuccessInsteadOfRestarting()throws Exception{
         long collectionId=store.createUnifiedCollection("Завершённая коллекция");
         LocalStore.UnifiedCollection collection=store.unifiedCollection(collectionId);
@@ -50,10 +75,14 @@ public class LessonHotbarIntegrationTest {
         assertNotNull(text(root,"Завершённая коллекция"));
         assertNotNull(text(root,"Коллекция освоена!"));
         assertNotNull(text(root,"1 из 1 стихов"));
+        SuccessLampView lamp=root.findViewWithTag(SuccessLampView.TAG);
+        assertNotNull(lamp);
+        assertNull(text(root,"👑"));
         assertNull(text(root,"Перейти к закреплению"));
         TextView home=text(root,"На главную");assertNotNull(home);
         assertMatteLessonAction(home);
         home.performClick();
+        assertFalse(lamp.hasRunningMotion());
         assertEquals("HOME",get("screen").toString());
         assertEquals(collectionId,get("activeUnifiedId"));
         invoke("startActiveStudy");
