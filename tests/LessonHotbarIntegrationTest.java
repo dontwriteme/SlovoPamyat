@@ -114,6 +114,48 @@ public class LessonHotbarIntegrationTest {
         assertEquals(3,store.exerciseDone(id,0));
     }
 
+    @Test @Config(qualifiers="w360dp-h760dp")
+    public void assemblyFlightDoesNotDelayAcceptanceOrMoveRemainingTiles()throws Exception{
+        text((View)get("root"),"Продолжить").performClick();
+        lifecycle.visible();
+        ViewGroup root=(ViewGroup)get("root");
+        root.measure(View.MeasureSpec.makeMeasureSpec(360,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(760,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,360,760);
+        AssemblyWordMotion motion=(AssemblyWordMotion)get("assemblyMotion");
+        List<TextView> tiles=assemblyTiles();
+        List<?> slots=(List<?>)get("lessonBuildSlots");
+        TextView first=tiles.stream().filter(t->"Слово".contentEquals(t.getText())).findFirst().get();
+        TextView second=tiles.stream().filter(t->"истины".contentEquals(t.getText())).findFirst().get();
+        TextView third=tiles.stream().filter(t->"живо".contentEquals(t.getText())).findFirst().get();
+        int left=third.getLeft(),top=third.getTop();
+        third.performClick();
+        assertEquals(0,get("lessonPicked"));
+        assertEquals(0,motion.flightCount());
+        first.performClick();
+        second.performClick();
+        assertEquals(2,get("lessonPicked"));
+        assertEquals(View.INVISIBLE,first.getVisibility());
+        assertEquals(View.INVISIBLE,second.getVisibility());
+        assertEquals(left,third.getLeft());assertEquals(top,third.getTop());
+        assertEquals(1,store.exerciseDone(id,0));
+        // Settling the visual layer must reveal all accepted words without
+        // changing the saved prefix or leaving overlays on the previous screen.
+        motion.settleAll();
+        assertEquals(0,motion.flightCount());
+        assertEquals("Слово",((TextView)slots.get(0)).getText().toString());
+        assertEquals("истины",((TextView)slots.get(1)).getText().toString());
+        assertEquals(2,get("lessonPicked"));
+        third.performClick();
+        assertEquals(3,get("lessonPicked"));
+        assertTrue(((TextView)get("lessonBuildAction")).isEnabled());
+        activity.onBackPressed();
+        assertEquals(0,motion.flightCount());
+        call("openTraining",new Class<?>[]{long.class},id);
+        assertEquals(3,get("lessonPicked"));
+        assertTrue(((TextView)get("lessonBuildAction")).isEnabled());
+    }
+
     @Test @Config(qualifiers="w320dp-h560dp")
     public void assemblyKeepsPunctuationInAnswerAndWrapsLongLinkedText()throws Exception{
         long group=store.entry(id).groupId;
