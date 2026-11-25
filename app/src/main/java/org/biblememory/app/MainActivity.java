@@ -6026,8 +6026,8 @@ public final class MainActivity extends Activity {
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
         hint.show(mask>0,false);
         updateBlurText();
-        TextView hide=button(mask==100?"Показать все слова":
-            "Скрыть "+(mask+25)+"% слов",false,()->{});
+        TextView hide=new IntroHideButton();
+        hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
         hide.setTag("lesson-intro-hide");
         hide.setTextColor(BUILD_INK);
         hide.setTypeface(Typeface.create("serif",Typeface.BOLD));
@@ -6050,6 +6050,33 @@ public final class MainActivity extends Activity {
         animateLessonPress(hide);
         add(content,hide,16);
         // The reserved hint height keeps this button stationary throughout the mask cycle.
+    }
+
+    /** Full-width touch target, but the label and eye form one centered group. */
+    private final class IntroHideButton extends TextView {
+        IntroHideButton(){
+            super(MainActivity.this);
+            setGravity(Gravity.CENTER);
+            setIncludeFontPadding(true);
+            setLineSpacing(dp(2),1.10f);
+            setPadding(dp(14),dp(11),dp(14),dp(11));
+            setClickable(true);
+            setFocusable(true);
+        }
+
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            int padding=dp(14);
+            if(View.MeasureSpec.getMode(widthSpec)==View.MeasureSpec.EXACTLY){
+                int width=View.MeasureSpec.getSize(widthSpec);
+                android.graphics.drawable.Drawable eye=getCompoundDrawablesRelative()[2];
+                int iconWidth=eye==null?0:eye.getBounds().width()+getCompoundDrawablePadding();
+                int textWidth=(int)Math.ceil(android.text.Layout.getDesiredWidth(getText(),getPaint()));
+                padding=Math.max(padding,(width-textWidth-iconWidth)/2);
+            }
+            if(getPaddingLeft()!=padding||getPaddingRight()!=padding)
+                setPadding(padding,dp(11),padding,dp(11));
+            super.onMeasure(widthSpec,heightSpec);
+        }
     }
 
     private void setIntroHideIcon(TextView button){
