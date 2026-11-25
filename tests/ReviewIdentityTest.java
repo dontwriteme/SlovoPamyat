@@ -210,7 +210,7 @@ public class ReviewIdentityTest {
         Method method=MainActivity.class.getDeclaredMethod(name);method.setAccessible(true);method.invoke(activity);
     }
     private Object field(MainActivity activity,String name)throws Exception{
-        Field field=MainActivity.class.getDeclaredField(name);field.setAccessible(true);return field.get(activity);
+        return ActivityTestWorkers.lessonField(activity,name);
     }
 
     @Test public void pendingDraftMovesToActiveAliasButSuccessfulReviewDiscardsStalePending()throws Exception{

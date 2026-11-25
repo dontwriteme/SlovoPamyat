@@ -19,10 +19,10 @@ public class SessionLifecycleRegressionTest {
     private ActivityController<MainActivity> controller;
     private LocalStore store;
     private Object get(String name)throws Exception{
-        Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);
+        return ActivityTestWorkers.lessonField(activity,name);
     }
     private void set(String name,Object value)throws Exception{
-        Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);
+        ActivityTestWorkers.setLessonField(activity,name,value);
     }
     private Object call(String name,Class<?>[] types,Object... args)throws Exception{
         Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);

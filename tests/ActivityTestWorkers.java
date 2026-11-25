@@ -12,6 +12,26 @@ import static org.junit.Assert.assertTrue;
 final class ActivityTestWorkers {
     private ActivityTestWorkers() {}
 
+    static Object lessonField(MainActivity activity,String name)throws Exception{
+        try{
+            Field member=MainActivity.class.getDeclaredField(name);
+            member.setAccessible(true);
+            return member.get(activity);
+        }catch(NoSuchFieldException moved){
+            return LessonSessionState.class.getDeclaredField(name).get(lessonField(activity,"lesson"));
+        }
+    }
+
+    static void setLessonField(MainActivity activity,String name,Object value)throws Exception{
+        try{
+            Field member=MainActivity.class.getDeclaredField(name);
+            member.setAccessible(true);
+            member.set(activity,value);
+        }catch(NoSuchFieldException moved){
+            LessonSessionState.class.getDeclaredField(name).set(lessonField(activity,"lesson"),value);
+        }
+    }
+
     static ExecutorService executor(MainActivity activity,String name)throws Exception{
         if("writingExecutor".equals(name))return (ExecutorService)writingField(activity,"executor");
         Field field=MainActivity.class.getDeclaredField(name);

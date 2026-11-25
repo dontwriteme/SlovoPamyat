@@ -24,8 +24,8 @@ public class LessonHotbarIntegrationTest {
             Field field=assembly.getClass().getDeclaredField(name);field.setAccessible(true);
             return field.get(assembly);
         }
-        Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
-    void set(String name,Object value)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
+        return ActivityTestWorkers.lessonField(activity,name);}
+    void set(String name,Object value)throws Exception{ActivityTestWorkers.setLessonField(activity,name,value);}
     Object call(String name,Class<?>[] types,Object... args)throws Exception{Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);}
     void invoke(String name)throws Exception{call(name,new Class<?>[0]);}
     LessonHotbarLogic.Model model(LessonCurriculumLogic.Phase phase)throws Exception{return (LessonHotbarLogic.Model)call("lessonHotbarModel",new Class<?>[]{LessonCurriculumLogic.Phase.class,LocalStore.Entry.class},phase,store.entry(id));}
@@ -177,6 +177,34 @@ public class LessonHotbarIntegrationTest {
             assertSame(passage,((View)get("root")).findViewWithTag("lesson-reading-passage"));assertSame(strip,((View)get("root")).findViewWithTag("lesson-progress-strip"));
         }
     }
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test public void holdingMaskedWordRevealsItUntilTheGestureEnds()throws Exception{
+        View root=(View)get("root");
+        TextView hide=text(root,"Скрыть 25% слов");
+        for(int count=0;count<4;count++)hide.performClick();
+        layoutIntro(root,480);
+        TextView passage=root.findViewWithTag("lesson-reading-passage");
+        android.text.Spannable masked=(android.text.Spannable)passage.getText();
+        android.text.style.MaskFilterSpan[] spans=masked.getSpans(0,masked.length(),android.text.style.MaskFilterSpan.class);
+        assertTrue(spans.length>0);
+        android.text.style.MaskFilterSpan first=spans[0];
+        int begin=masked.getSpanStart(first),end=masked.getSpanEnd(first);
+        android.text.Layout layout=passage.getLayout();
+        int inside=begin+Math.min(1,end-begin-1),line=layout.getLineForOffset(inside);
+        float x=passage.getTotalPaddingLeft()+layout.getPrimaryHorizontal(inside);
+        float y=passage.getTotalPaddingTop()+(layout.getLineTop(line)+layout.getLineBottom(line))/2f;
+        MotionEvent down=MotionEvent.obtain(0,0,MotionEvent.ACTION_DOWN,x,y,0);
+        assertTrue(passage.dispatchTouchEvent(down));down.recycle();
+        assertEquals(-1,masked.getSpanStart(first));
+        MotionEvent move=MotionEvent.obtain(0,1,MotionEvent.ACTION_MOVE,x+80,y,0);
+        passage.dispatchTouchEvent(move);move.recycle();
+        assertEquals(-1,masked.getSpanStart(first));
+        MotionEvent up=MotionEvent.obtain(0,2,MotionEvent.ACTION_UP,x+80,y,0);
+        passage.dispatchTouchEvent(up);up.recycle();
+        assertEquals(begin,masked.getSpanStart(first));
+        assertEquals(end,masked.getSpanEnd(first));
+    }
+
     @Test @Config(qualifiers="w320dp-h560dp")
     public void introHintKeepsHideButtonStationaryAtEveryMask()throws Exception{
         View root=(View)get("root");

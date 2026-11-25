@@ -41,8 +41,7 @@ public class WritingWorkerTest {
     @After public void destroy()throws Exception{ActivityTestWorkers.destroy(controller);}
 
     private Object field(String name)throws Exception{
-        Field field=MainActivity.class.getDeclaredField(name);field.setAccessible(true);
-        return field.get(activity);
+        return ActivityTestWorkers.lessonField(activity,name);
     }
 
     private View find(View view,String label){

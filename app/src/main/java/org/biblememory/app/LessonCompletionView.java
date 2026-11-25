@@ -10,6 +10,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.util.function.Consumer;
 import static org.biblememory.app.ScreenUi.GOLD;
 
 final class LessonCompletionView {
@@ -20,7 +21,7 @@ final class LessonCompletionView {
     LessonCompletionView(Context context,ScreenUi ui){this.context=context;this.ui=ui;}
 
     /** Celebratory page: the approved crown/check composition in the same warm scenic UI. */
-    Page create(int landscape,String caption,boolean groupMode,Runnable next){
+    Page create(int landscape,String caption,boolean groupMode,Consumer<LinearLayout> next){
         LinearLayout root=ui.column();
         FrameLayout scenery=new FrameLayout(context);
         ImageView image=new ImageView(context);
@@ -52,7 +53,7 @@ final class LessonCompletionView {
         LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,ui.dp(availableArt));
         ap.topMargin=ui.dp(10);central.addView(art,ap);
         LinearLayout footer=ui.column();footer.setPadding(ui.dp(24),ui.dp(14),ui.dp(24),ui.dp(25));
-        TextView continueButton=ui.button("Продолжить",true,next);
+        TextView continueButton=ui.button("Продолжить",true,()->next.accept(root));
         ui.animateLessonPress(continueButton);
         continueButton.setTextSize(20);
         footer.addView(continueButton,new LinearLayout.LayoutParams(-1,ui.dp(61)));

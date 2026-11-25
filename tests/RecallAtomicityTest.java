@@ -54,18 +54,12 @@ public class RecallAtomicityTest {
         if(controller!=null)ActivityTestWorkers.destroy(controller);
     }
 
-    private Field field(String name) throws Exception {
-        Field field=MainActivity.class.getDeclaredField(name);
-        field.setAccessible(true);
-        return field;
-    }
-
     private Object get(String name) throws Exception {
-        return field(name).get(activity);
+        return ActivityTestWorkers.lessonField(activity,name);
     }
 
     private void set(String name,Object value) throws Exception {
-        field(name).set(activity,value);
+        ActivityTestWorkers.setLessonField(activity,name,value);
     }
 
     private void render() throws Exception {
