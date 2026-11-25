@@ -37,16 +37,14 @@ import java.text.SimpleDateFormat;
 import android.view.inputmethod.EditorInfo;
 import java.util.*;
 
+import static org.biblememory.app.ScreenUi.*;
+
 /** Bright, entirely native Android UI with zero runtime dependencies. */
 public final class MainActivity extends Activity {
+    private final ScreenUi ui = new ScreenUi(this);
+    private final ScreenMenus menus = new ScreenMenus(ui);
+    private final ModeInfoPopover modeInfo = new ModeInfoPopover(ui);
     // The warm landscape-based interface is shared by every screen, not just the home hero.
-    // Accessible dark ink sits over opaque ivory reading surfaces. Study logic is unchanged.
-    private static final int BG=0xFFFFF1E8, CARD=0xFFFFFAF5, CARD_ALT=0xFFF7E4D8;
-    private static final int WHITE=0xFF27372D, MUTED=0xFF735D51, GREEN=0xFFBC6448;
-    private static final int VIOLET=0xFF657F75, BORDER=0xFFE8CFBE, RED=0xFFC34040;
-    private static final int HOME_SURFACE=0xFFFFF8F2, HOME_BORDER=0xFFE7CCB8;
-    private static final int SUCCESS=0xFF4D815C, GOLD=0xFFD8A75C;
-    private static final int PRIMARY_ON=0xFFFFFFFF;
     private static final int EXPORT=10,IMPORT=11;
     private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY}
     private Screen screen=Screen.HOME;
@@ -257,8 +255,8 @@ public final class MainActivity extends Activity {
         try {
             screen = destination;
 
-            root = column();
-            root.setBackground(pageBackground());
+            root = ui.column();
+            root.setBackground(ui.pageBackground());
 
             ScrollView scroll = new ScrollView(this);
             scroll.setFillViewport(true);
@@ -266,9 +264,9 @@ public final class MainActivity extends Activity {
 
             currentScroller = scroll;
 
-            content = column();
+            content = ui.column();
             content.setPadding(
-                    dp(19), dp(17), dp(19), dp(27)
+                    ui.dp(19), ui.dp(17), ui.dp(19), ui.dp(27)
             );
 
             scroll.addView(content);
@@ -348,7 +346,7 @@ public final class MainActivity extends Activity {
         bar.post(() -> {
             if (indicator.getParent() != bar) return;
 
-            int slot = (bar.getWidth() - dp(14)) / 4;
+            int slot = (bar.getWidth() - ui.dp(14)) / 4;
             if (slot <= 0) return;
 
             FrameLayout.LayoutParams params =
@@ -356,9 +354,9 @@ public final class MainActivity extends Activity {
                             indicator.getLayoutParams();
 
             params.width = slot;
-            params.height = dp(57);
-            params.leftMargin = dp(7);
-            params.topMargin = dp(7);
+            params.height = ui.dp(57);
+            params.leftMargin = ui.dp(7);
+            params.topMargin = ui.dp(7);
 
             indicator.setLayoutParams(params);
             indicator.animate().cancel();
@@ -623,7 +621,7 @@ public final class MainActivity extends Activity {
         cancelWritingCheck();
         resumed=false;
         if(!ownsData||backupInProgress){super.onPause();return;}
-        dismissModeInfo(false);
+        modeInfo.dismiss(false);
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
@@ -662,7 +660,7 @@ public final class MainActivity extends Activity {
     }
     @Override public void onBackPressed() {
         if(resetInProgress||backupInProgress)return;
-        if(dismissModeInfo(true))return;
+        if(modeInfo.dismiss(true))return;
         lessonWaitingForBible=null;
         switch(screen) {
             case HOME: super.onBackPressed(); break;
@@ -716,61 +714,6 @@ public final class MainActivity extends Activity {
                 screen=Screen.HOME;render();break;
         }
     }
-    private int dp(float d) {return (int)(getResources().getDisplayMetrics().density*d+0.5f);}
-    private GradientDrawable shape(int color,int radius) {
-        GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;
-    }
-    private GradientDrawable outlined(int color,int radius,int border) {
-        GradientDrawable d=shape(color,radius);d.setStroke(dp(1),border);return d;
-    }
-    private GradientDrawable gradient() {
-        GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{0xFFFFD7BF,0xFFF6D1C3,0xFFE1E9DD});
-        d.setCornerRadius(dp(25));d.setStroke(dp(1),BORDER);return d;
-    }
-    /** Subtle watercolor-like mountain silhouettes outside the opaque text surfaces. */
-    private android.graphics.drawable.Drawable pageBackground(){
-        return new android.graphics.drawable.Drawable(){
-            final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-            @Override public void draw(Canvas canvas){
-                Rect bounds=getBounds();float w=bounds.width(),h=bounds.height();
-                if(w<=0||h<=0)return;
-                paint.setShader(new LinearGradient(0,0,0,h,
-                    0xFFFFF7F0,0xFFF8E5D9,Shader.TileMode.CLAMP));
-                canvas.drawRect(0,0,w,h,paint);paint.setShader(null);
-                Path far=new Path();far.moveTo(0,dp(85));
-                far.lineTo(w*.09f,dp(64));far.lineTo(w*.20f,dp(85));
-                far.lineTo(w*.31f,dp(49));far.lineTo(w*.44f,dp(95));
-                far.lineTo(w*.58f,dp(57));far.lineTo(w*.75f,dp(88));
-                far.lineTo(w*.90f,dp(62));far.lineTo(w,dp(91));
-                far.lineTo(w,0);far.lineTo(0,0);far.close();
-                paint.setColor(0x50EEC3B4);canvas.drawPath(far,paint);
-                Path foothills=new Path();foothills.moveTo(0,h);
-                foothills.lineTo(0,h-dp(72));foothills.lineTo(w*.19f,h-dp(110));
-                foothills.lineTo(w*.36f,h-dp(62));foothills.lineTo(w*.57f,h-dp(126));
-                foothills.lineTo(w*.79f,h-dp(85));foothills.lineTo(w,h-dp(120));
-                foothills.lineTo(w,h);foothills.close();
-                paint.setColor(0x55B8CEC2);canvas.drawPath(foothills,paint);
-            }
-            @Override public void setAlpha(int alpha){}
-            @Override public void setColorFilter(android.graphics.ColorFilter filter){}
-            @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
-        };
-    }
-    private GradientDrawable softAccent(){
-        GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{0xFFDB8C6C,0xFFB8583F});d.setCornerRadius(dp(18));return d;
-    }
-    private TextView displayText(String text,int size){
-        TextView view=txt(text,size,WHITE,true);
-        view.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        view.setLetterSpacing(0.005f);return view;
-    }
-    private TextView prose(String text,int size){
-        TextView view=txt(text,size,WHITE,false);
-        view.setTypeface(Typeface.create("serif",Typeface.NORMAL));
-        view.setLineSpacing(dp(4),1.14f);return view;
-    }
     private int bookInk(int book){
         int hue=BookColorLogic.color(book);
         return Color.rgb((Color.red(hue)*2+Color.red(WHITE))/4,
@@ -780,7 +723,7 @@ public final class MainActivity extends Activity {
     /** Decorative scenery only; long reading passages remain on opaque ivory cards. */
     private void illustratedBanner(LinearLayout into,String heading,long scene,int height){
         FrameLayout art=new FrameLayout(this);
-        art.setBackground(outlined(CARD,22,BORDER));art.setClipToOutline(true);
+        art.setBackground(ui.outlined(CARD,22,BORDER));art.setClipToOutline(true);
         ImageView landscape=new ImageView(this);
         landscape.setImageResource(landscapeFor(scene));
         landscape.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -791,35 +734,13 @@ public final class MainActivity extends Activity {
             new int[]{0x55FFF7EC,0x33FFF2E5,0x99FFF0DF}));
         art.addView(scrim,new FrameLayout.LayoutParams(-1,-1));
         if(heading!=null&&!heading.isEmpty()){
-            TextView name=displayText(heading,26);name.setGravity(Gravity.CENTER);
-            name.setShadowLayer(dp(4),0,dp(2),0xAAFFF5E9);
+            TextView name=ui.displayText(heading,26);name.setGravity(Gravity.CENTER);
+            name.setShadowLayer(ui.dp(4),0,ui.dp(2),0xAAFFF5E9);
             FrameLayout.LayoutParams label=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);
-            label.setMargins(dp(14),dp(16),dp(14),0);art.addView(name,label);
+            label.setMargins(ui.dp(14),ui.dp(16),ui.dp(14),0);art.addView(name,label);
         }
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(height));
-        p.topMargin=dp(12);into.addView(art,p);
-    }
-    private TextView txt(String value,int sp,int color,boolean bold) {
-        TextView t=new TextView(this);t.setText(value);t.setTextSize(sp);t.setTextColor(color);
-        t.setIncludeFontPadding(true);
-        if(bold)t.setTypeface(Typeface.create("sans-serif-medium",Typeface.BOLD));
-        t.setLineSpacing(dp(2),1.10f);
-        return t;
-    }
-    private LinearLayout column() {LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
-    private LinearLayout row() {LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.HORIZONTAL);l.setGravity(Gravity.CENTER_VERTICAL);return l;}
-    private void add(LinearLayout into,View v,int top) {
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);into.addView(v,p);
-    }
-    private void gap(LinearLayout into,int d) {View v=new View(this);into.addView(v,new LinearLayout.LayoutParams(1,dp(d)));}
-    private LinearLayout card(LinearLayout into) {
-        LinearLayout l=column();l.setPadding(dp(17),dp(18),dp(17),dp(18));
-        l.setBackground(outlined(CARD,22,BORDER));l.setElevation(dp(2));
-        add(into,l,12);return l;
-    }
-    private LinearLayout headerCard(LinearLayout into) {
-        LinearLayout l=column();l.setPadding(dp(19),dp(23),dp(19),dp(23));
-        l.setBackground(gradient());add(into,l,10);return l;
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,ui.dp(height));
+        p.topMargin=ui.dp(12);into.addView(art,p);
     }
     /** Six original bundled landscapes; no runtime network access or per-verse downloads. */
     private int landscapeFor(long key){
@@ -836,7 +757,7 @@ public final class MainActivity extends Activity {
     private GradientDrawable homeSurface(){
         GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
             new int[]{0xFFFFFCF8,0xFFFFF5EF,0xFFFBE9DD});
-        d.setCornerRadius(dp(22));d.setStroke(dp(1),HOME_BORDER);return d;
+        d.setCornerRadius(ui.dp(22));d.setStroke(ui.dp(1),HOME_BORDER);return d;
     }
     private static final int MAX_LANDSCAPE_THUMBNAIL_DP=96;
     // The six bundled landscape resources are shared only by thumbnails in this Activity.
@@ -853,7 +774,7 @@ public final class MainActivity extends Activity {
             options.inJustDecodeBounds=true;
             BitmapFactory.decodeResource(getResources(),resource,options);
             int side=Math.min(options.outWidth,options.outHeight);
-            int minimum=dp(MAX_LANDSCAPE_THUMBNAIL_DP);
+            int minimum=ui.dp(MAX_LANDSCAPE_THUMBNAIL_DP);
             options.inSampleSize=1;
             // CENTER_CROP still receives enough source pixels for the largest thumbnail.
             while(side/(options.inSampleSize*2)>=minimum)options.inSampleSize*=2;
@@ -864,7 +785,7 @@ public final class MainActivity extends Activity {
         if(bitmap!=null)thumb.setImageBitmap(bitmap);
         else thumb.setImageResource(resource);
         thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        thumb.setBackground(shape(CARD_ALT,14));
+        thumb.setBackground(ui.shape(CARD_ALT,14));
         thumb.setClipToOutline(true);
         thumb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         return thumb;
@@ -979,31 +900,31 @@ public final class MainActivity extends Activity {
                                 0,
                                 view.getWidth(),
                                 view.getHeight(),
-                                dp(24)
+                                ui.dp(24)
                         );
                     }
                 }
         );
 
         hero.setClipToOutline(true);
-        hero.setElevation(dp(3));
+        hero.setElevation(ui.dp(3));
 
         // Содержимое определяет реальную высоту.
-        LinearLayout body = column();
+        LinearLayout body = ui.column();
 
         body.setGravity(
                 Gravity.TOP | Gravity.CENTER_HORIZONTAL
         );
 
         body.setPadding(
-                dp(22),
-                dp(14),
-                dp(22),
-                dp(18)
+                ui.dp(22),
+                ui.dp(14),
+                ui.dp(22),
+                ui.dp(18)
         );
 
         // Оригинальная плашка.
-        TextView heading = txt(
+        TextView heading = ui.txt(
                 "Стих дня",
                 15,
                 GREEN,
@@ -1013,14 +934,14 @@ public final class MainActivity extends Activity {
         heading.setGravity(Gravity.CENTER);
 
         heading.setPadding(
-                dp(19),
-                dp(8),
-                dp(19),
-                dp(8)
+                ui.dp(19),
+                ui.dp(8),
+                ui.dp(19),
+                ui.dp(8)
         );
 
         heading.setBackground(
-                shape(0xE9FFE4D3, 25)
+                ui.shape(0xE9FFE4D3, 25)
         );
 
         LinearLayout.LayoutParams headingParams =
@@ -1031,22 +952,22 @@ public final class MainActivity extends Activity {
         body.addView(heading, headingParams);
 
         // Текст стиха полностью сохраняется.
-        TextView verse = prose(
+        TextView verse = ui.prose(
                 "«" + verseText + "»",
                 22
         );
 
         verse.setGravity(Gravity.CENTER);
 
-        add(body, verse, 12);
+        ui.add(body, verse, 12);
 
         // Ссылка на стих.
-        TextView source = displayText(reference, 17);
+        TextView source = ui.displayText(reference, 17);
 
         source.setGravity(Gravity.CENTER);
         source.setTextColor(0xFF83503E);
 
-        add(body, source, 10);
+        ui.add(body, source, 10);
 
         hero.addView(
                 body,
@@ -1063,97 +984,13 @@ public final class MainActivity extends Activity {
                         ViewGroup.LayoutParams.WRAP_CONTENT
                 );
 
-        heroParams.topMargin = dp(12);
+        heroParams.topMargin = ui.dp(12);
 
         content.addView(hero, heroParams);
     }
 
 
 
-    private TextView button(String label,boolean primary,Runnable action) {
-        TextView b=txt(label,15,primary?PRIMARY_ON:WHITE,true);
-        b.setGravity(Gravity.CENTER);b.setMinHeight(dp(49));
-        b.setPadding(dp(14),dp(11),dp(14),dp(11));
-        b.setBackground(primary?softAccent():outlined(CARD_ALT,18,BORDER));
-        b.setClickable(true);b.setFocusable(true);b.setOnClickListener(v->action.run());
-        return b;
-    }
-    private void animateLessonPress(View button){
-        button.setOnTouchListener((view,event)->{
-            if(!view.isEnabled()||!ValueAnimator.areAnimatorsEnabled())return false;
-            switch(event.getActionMasked()){
-                case MotionEvent.ACTION_DOWN:
-                    animateLessonScale(view,0.98f,100);
-                    break;
-                case MotionEvent.ACTION_MOVE:
-                    if(event.getX()<0||event.getX()>view.getWidth()||
-                       event.getY()<0||event.getY()>view.getHeight())
-                        animateLessonScale(view,1f,160);
-                    break;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    animateLessonScale(view,1f,160);
-                    break;
-            }
-            return false; // Keep Android's click and cancellation behavior.
-        });
-        button.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){
-            @Override public void onViewAttachedToWindow(View view){}
-            @Override public void onViewDetachedFromWindow(View view){
-                view.animate().cancel();view.setScaleX(1f);view.setScaleY(1f);
-            }
-        });
-    }
-    private void animateLessonScale(View view,float scale,long duration){
-        view.animate().cancel();
-        view.animate().scaleX(scale).scaleY(scale).setDuration(duration)
-            .setInterpolator(new DecelerateInterpolator()).start();
-    }
-    private void action(LinearLayout into,String label,boolean primary,Runnable runnable) {add(into,button(label,primary,runnable),10);}
-    private LinearLayout tapCard(LinearLayout into,String title,String secondary,String arrow,Runnable action) {
-        LinearLayout c=card(into);
-        LinearLayout line=row();
-        LinearLayout left=column();left.addView(txt(title,16,WHITE,true));
-        if(secondary!=null&&!secondary.isEmpty())add(left,txt(secondary,13,MUTED,false),4);
-        line.addView(left,new LinearLayout.LayoutParams(0,-2,1));
-        line.addView(txt(arrow,18,GREEN,true));
-        c.addView(line);c.setClickable(true);c.setFocusable(true);c.setOnClickListener(v->action.run());
-        return c;
-    }
-    private void label(LinearLayout into,String label) { add(into,txt(label,15,WHITE,true),14); }
-    private void helper(LinearLayout into,String label) { add(into,txt(label,13,MUTED,false),5); }
-    private void progress(LinearLayout into,int value,int total) {
-        LinearLayout track=column();track.setBackground(shape(CARD_ALT,12));
-        LinearLayout.LayoutParams trackP=new LinearLayout.LayoutParams(-1,dp(8));trackP.topMargin=dp(12);
-        into.addView(track,trackP);
-        View fill=new View(this);fill.setBackground(shape(GREEN,12));
-        int pct=total<=0?0:Math.max(0,Math.min(100,Math.round(100f*value/total)));
-        track.post(()->{LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(Math.max(dp(3),track.getWidth()*pct/100),dp(8));fill.setLayoutParams(p);});
-        track.addView(fill,new LinearLayout.LayoutParams(dp(3),dp(8)));
-    }
-    private EditText input(String hint,boolean multiline) {
-        EditText e=new EditText(this);
-        e.setTextColor(WHITE);e.setHintTextColor(MUTED);e.setTextSize(15);
-        e.setSingleLine(!multiline);e.setHint(hint);
-        e.setInputType(multiline?android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|
-            android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES:android.text.InputType.TYPE_CLASS_TEXT);
-        e.setGravity(multiline?Gravity.TOP|Gravity.START:Gravity.CENTER_VERTICAL);
-        e.setPadding(dp(15),dp(13),dp(15),dp(13));
-        e.setBackground(outlined(CARD_ALT,14,BORDER));
-        if(multiline){e.setMinLines(5);e.setMaxLines(12);}
-        return e;
-    }
-    private void forbidKeyboardHints(EditText edit,boolean multiline){
-        int flags=android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
-        if(multiline)flags|=android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE;
-        edit.setInputType(flags);
-        edit.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        edit.setPrivateImeOptions("nm");
-    }
-    private EditText numeric(String hint,String initial) {
-        EditText e=input(hint,false);e.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-        e.setText(initial);e.setSelectAllOnFocus(true);return e;
-    }
     private int number(EditText e){try{return Integer.parseInt(e.getText().toString().trim());}catch(Exception x){return -1;}}
     private String value(EditText e){return e.getText().toString().trim();}
     private void toast(String message){Toast.makeText(this,message,Toast.LENGTH_LONG).show();}
@@ -1162,28 +999,28 @@ public final class MainActivity extends Activity {
         // The app name intentionally stays on the Android launcher, not within screens.
     }
     private void title(String main,String subtitle) {
-        TextView heading=displayText(main,26);
+        TextView heading=ui.displayText(main,26);
         heading.setGravity(Gravity.CENTER);
         heading.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
-        add(content,heading,8);
+        ui.add(content,heading,8);
         if(subtitle!=null&&!subtitle.isEmpty()){
-            TextView sub=txt(subtitle,14,MUTED,false);
-            sub.setGravity(Gravity.CENTER);add(content,sub,6);
+            TextView sub=ui.txt(subtitle,14,MUTED,false);
+            sub.setGravity(Gravity.CENTER);ui.add(content,sub,6);
         }
-        gap(content,6);
+        ui.gap(content,6);
     }
     /** Section boundary is visually centered, with measured whitespace only at the canon split. */
     private void testamentHeading(String text,boolean startOfNewTestament){
-        if(startOfNewTestament)gap(content,28);
-        LinearLayout row=row();row.setGravity(Gravity.CENTER_VERTICAL);
+        if(startOfNewTestament)ui.gap(content,28);
+        LinearLayout row=ui.row();row.setGravity(Gravity.CENTER_VERTICAL);
         View left=new View(this),right=new View(this);
         left.setBackgroundColor(HOME_BORDER);right.setBackgroundColor(HOME_BORDER);
-        row.addView(left,new LinearLayout.LayoutParams(0,dp(1),1));
-        TextView heading=displayText(text,21);
-        heading.setGravity(Gravity.CENTER);heading.setPadding(dp(14),dp(6),dp(14),dp(6));
+        row.addView(left,new LinearLayout.LayoutParams(0,ui.dp(1),1));
+        TextView heading=ui.displayText(text,21);
+        heading.setGravity(Gravity.CENTER);heading.setPadding(ui.dp(14),ui.dp(6),ui.dp(14),ui.dp(6));
         row.addView(heading,new LinearLayout.LayoutParams(-2,-2));
-        row.addView(right,new LinearLayout.LayoutParams(0,dp(1),1));
-        add(content,row,startOfNewTestament?3:13);
+        row.addView(right,new LinearLayout.LayoutParams(0,ui.dp(1),1));
+        ui.add(content,row,startOfNewTestament?3:13);
     }
     private void rememberHomeScroll(){
         if(lastRenderedScreen==Screen.HOME && homeScrollRestored && currentScroller!=null){
@@ -1199,7 +1036,7 @@ public final class MainActivity extends Activity {
         collectionDetailLoading=false;
         collectionGeneration++;
         if(collectionTask!=null){collectionTask.cancel(false);collectionTask=null;}
-        dismissModeInfo(false);
+        modeInfo.dismiss(false);
         getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN?0xFFF8E5D9:CARD);
         CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
         if(previousCollections!=null && previousCollections.isSelected())
@@ -1222,10 +1059,10 @@ public final class MainActivity extends Activity {
         if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
         boolean focusedReaderChapter=screen==Screen.CHAPTER && chapterFromVerseGrid && focusVerse>0;
         boolean virtualBibleSearch=isBibleSearchScreen()&&bibleSearchActive&&!bibleSearchLoading&&bibleSearchError.isEmpty();
-        root=column();root.setBackground(pageBackground());
+        root=ui.column();root.setBackground(ui.pageBackground());
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
         currentScroller=scroll;
-        content=column();content.setPadding(dp(19),dp(17),dp(19),dp(27));scroll.addView(content);
+        content=ui.column();content.setPadding(ui.dp(19),ui.dp(17),ui.dp(19),ui.dp(27));scroll.addView(content);
         if(isBibleSearchScreen()&&!virtualBibleSearch)renderScrollingBibleSearch(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         switch(screen) {
@@ -1330,29 +1167,29 @@ public final class MainActivity extends Activity {
     }
     /** Search is the first scrolling item, both in the catalogue and the search results. */
     private void renderScrollingBibleSearch(LinearLayout into){
-        LinearLayout outer=column();
+        LinearLayout outer=ui.column();
         if(screen!=Screen.BOOKS)outer.setBackgroundColor(BG);
-        outer.setPadding(0,dp(8),0,dp(8));
-        LinearLayout bar=row();bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(14),dp(3),dp(7),dp(3));
-        bar.setMinimumHeight(dp(58));
-        GradientDrawable frame=shape(0xFFFFFDF9,17);
-        frame.setStroke(dp(2),0xFFCE9072);
-        bar.setBackground(frame);bar.setElevation(dp(2));
-        NavigationGlyph glass=new NavigationGlyph("search",GREEN);
-        bar.addView(glass,new LinearLayout.LayoutParams(dp(29),dp(29)));
-        EditText query=input("Поиск по словам стиха",false);
+        outer.setPadding(0,ui.dp(8),0,ui.dp(8));
+        LinearLayout bar=ui.row();bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(ui.dp(14),ui.dp(3),ui.dp(7),ui.dp(3));
+        bar.setMinimumHeight(ui.dp(58));
+        GradientDrawable frame=ui.shape(0xFFFFFDF9,17);
+        frame.setStroke(ui.dp(2),0xFFCE9072);
+        bar.setBackground(frame);bar.setElevation(ui.dp(2));
+        NavigationGlyph glass=new NavigationGlyph(this,"search",GREEN);
+        bar.addView(glass,new LinearLayout.LayoutParams(ui.dp(29),ui.dp(29)));
+        EditText query=ui.input("Поиск по словам стиха",false);
         query.setTextSize(17);query.setSingleLine(true);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        query.setPadding(dp(12),dp(9),dp(5),dp(9));
+        query.setPadding(ui.dp(12),ui.dp(9),ui.dp(5),ui.dp(9));
         query.setBackgroundColor(Color.TRANSPARENT);
         query.setText(bibleSearchQuery);query.setSelection(query.length());
         query.setContentDescription("Поиск по словам Библии");
         bar.addView(query,new LinearLayout.LayoutParams(0,-2,1));
-        TextView erase=txt("×",24,MUTED,false);erase.setGravity(Gravity.CENTER);
+        TextView erase=ui.txt("×",24,MUTED,false);erase.setGravity(Gravity.CENTER);
         erase.setContentDescription("Очистить поиск по Библии");
         erase.setVisibility(bibleSearchQuery.isEmpty()?View.GONE:View.VISIBLE);
-        bar.addView(erase,new LinearLayout.LayoutParams(dp(40),dp(45)));
+        bar.addView(erase,new LinearLayout.LayoutParams(ui.dp(40),ui.dp(45)));
         erase.setOnClickListener(v->query.setText(""));
         // The magnifier submits too; the keyboard search action does the same.
         glass.setClickable(true);
@@ -1510,14 +1347,14 @@ public final class MainActivity extends Activity {
     private void renderSearchResults() {
 
         if (bibleSearchLoading) {
-            helper(content, "Поиск...");
+            ui.helper(content, "Поиск...");
             return;
         }
 
         if (!bibleSearchError.isEmpty()) {
-            helper(content, bibleSearchError);
+            ui.helper(content, bibleSearchError);
 
-            action(
+            ui.action(
                     content,
                     "Повторить поиск",
                     false,
@@ -1527,7 +1364,7 @@ public final class MainActivity extends Activity {
         }
 
         if (bibleSearchHits.isEmpty()) {
-            helper(
+            ui.helper(
                     content,
                     "Ничего не найдено"
             );
@@ -1559,12 +1396,12 @@ public final class MainActivity extends Activity {
         list.setTag(state);
         // A ListView is used for large results. Its search field is a header so
         // the field scrolls away with result rows instead of remaining pinned.
-        LinearLayout searchHeader=column();
-        searchHeader.setPadding(dp(19),0,dp(19),0);
+        LinearLayout searchHeader=ui.column();
+        searchHeader.setPadding(ui.dp(19),0,ui.dp(19),0);
         renderScrollingBibleSearch(searchHeader);
         list.addHeaderView(searchHeader,null,false);
         // Показываем реальное число ВСЕХ результатов.
-        TextView summary = txt(
+        TextView summary = ui.txt(
                 state.hits.isEmpty()?"Ничего не найдено":"Найдено стихов: " + state.hits.size(),
                 14,
                 MUTED,
@@ -1572,8 +1409,8 @@ public final class MainActivity extends Activity {
         );
 
         summary.setPadding(
-                dp(19), dp(15),
-                dp(19), dp(11)
+                ui.dp(19), ui.dp(15),
+                ui.dp(19), ui.dp(11)
         );
 
         list.addHeaderView(summary, null, false);
@@ -1607,31 +1444,31 @@ public final class MainActivity extends Activity {
 
                 if (result == null) {
 
-                    LinearLayout outer = column();
+                    LinearLayout outer = ui.column();
 
                     outer.setPadding(
-                            dp(19), dp(4),
-                            dp(19), dp(7)
+                            ui.dp(19), ui.dp(4),
+                            ui.dp(19), ui.dp(7)
                     );
 
-                    LinearLayout card = column();
+                    LinearLayout card = ui.column();
 
                     card.setPadding(
-                            dp(15), dp(13),
-                            dp(15), dp(13)
+                            ui.dp(15), ui.dp(13),
+                            ui.dp(15), ui.dp(13)
                     );
 
                     card.setBackground(
-                            outlined(CARD, 18, BORDER)
+                            ui.outlined(CARD, 18, BORDER)
                     );
 
-                    LinearLayout heading = row();
+                    LinearLayout heading = ui.row();
 
                     heading.setGravity(
                             Gravity.CENTER_VERTICAL
                     );
 
-                    TextView reference = txt(
+                    TextView reference = ui.txt(
                             "", 15, GREEN, true
                     );
 
@@ -1644,17 +1481,17 @@ public final class MainActivity extends Activity {
 
                     card.addView(heading);
 
-                    TextView verse = prose("", 16);
+                    TextView verse = ui.prose("", 16);
 
                     LinearLayout.LayoutParams vp =
                             new LinearLayout.LayoutParams(
                                     -1, -2
                             );
 
-                    vp.topMargin = dp(8);
+                    vp.topMargin = ui.dp(8);
                     card.addView(verse, vp);
 
-                    TextView open = txt(
+                    TextView open = ui.txt(
                             "Показать в главе  ›",
                             13,
                             GREEN,
@@ -1662,15 +1499,15 @@ public final class MainActivity extends Activity {
                     );
 
                     open.setPadding(
-                            0, dp(11), 0, dp(8)
+                            0, ui.dp(11), 0, ui.dp(8)
                     );
 
                     LinearLayout.LayoutParams op =
                             new LinearLayout.LayoutParams(
-                                    -1, dp(48)
+                                    -1, ui.dp(48)
                             );
 
-                    op.topMargin = dp(3);
+                    op.topMargin = ui.dp(3);
                     card.addView(open, op);
 
                     outer.addView(
@@ -1745,125 +1582,6 @@ public final class MainActivity extends Activity {
     }
 
 
-    /** Outline navigation icons, independent of system fonts and Android theme packs. */
-    private final class NavigationGlyph extends View {
-        private final String kind;
-        private final int ink;
-        private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
-        NavigationGlyph(String kind,int ink){super(MainActivity.this);this.kind=kind;this.ink=ink;
-            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
-        @Override protected void onDraw(Canvas canvas){
-            super.onDraw(canvas);
-            float size=dp(kind.equals("info")?25:kind.startsWith("mode-")?22:23),cx=getWidth()/2f,cy=getHeight()/2f;
-            canvas.save();canvas.translate(cx,cy);canvas.scale(size/24f,size/24f);
-            pen.setColor(ink);pen.setStrokeWidth(1.85f);pen.setStrokeCap(Paint.Cap.ROUND);
-            pen.setStrokeJoin(Paint.Join.ROUND);pen.setStyle(Paint.Style.STROKE);
-            Path path=new Path();
-            if(kind.startsWith("mode-")||kind.equals("info"))pen.setStrokeWidth(1.6f);
-            if(kind.equals("info")){
-                canvas.drawCircle(0,0,10,pen);
-                canvas.drawPoint(0,-4,pen);
-                canvas.drawLine(0,-0.8f,0,5,pen);
-            }else if(kind.equals("puzzle")||kind.equals("help-puzzle")){
-                if(kind.equals("puzzle")){
-                    canvas.rotate(-22f);
-                    pen.setStyle(Paint.Style.FILL);
-                }else pen.setStrokeWidth(1.6f);
-                path.moveTo(-9,-9);path.lineTo(-3,-9);
-                path.cubicTo(-5,-15,5,-15,3,-9);
-                path.lineTo(9,-9);path.lineTo(9,-3);
-                path.cubicTo(3,-5,3,5,9,3);
-                path.lineTo(9,9);path.lineTo(3,9);
-                path.cubicTo(5,15,-5,15,-3,9);
-                path.lineTo(-9,9);path.lineTo(-9,3);
-                path.cubicTo(-3,5,-3,-5,-9,-3);
-                path.close();canvas.drawPath(path,pen);
-            }else if(kind.equals("mode-cards")){
-                canvas.drawRoundRect(-10,-3,10,8,2,2,pen);
-                path.moveTo(-8,-6);path.lineTo(8,-6);
-                path.moveTo(-6,-9);path.lineTo(6,-9);
-                canvas.drawPath(path,pen);
-            }else if(kind.equals("mode-check")){
-                canvas.drawRoundRect(-8,-9,8,10,2,2,pen);
-                canvas.drawRoundRect(-4,-11,4,-7,1.5f,1.5f,pen);
-                path.moveTo(-4,2);path.lineTo(-1,5);path.lineTo(4,-1);
-                canvas.drawPath(path,pen);
-            }else if(kind.equals("home")){
-                path.moveTo(-10,-1);path.lineTo(0,-10);path.lineTo(10,-1);
-                path.lineTo(10,10);path.lineTo(-10,10);path.close();canvas.drawPath(path,pen);
-                canvas.drawRoundRect(-2,3,2,10,1,1,pen);
-            }else if(kind.equals("book")||kind.equals("mode-book")){
-                path.moveTo(0,-8);path.cubicTo(-4,-11,-8,-10,-11,-8);
-                path.lineTo(-11,9);path.cubicTo(-6,7,-2,8,0,10);
-                path.cubicTo(2,8,6,7,11,9);path.lineTo(11,-8);
-                path.cubicTo(8,-10,4,-11,0,-8);path.close();canvas.drawPath(path,pen);
-                canvas.drawLine(0,-8,0,10,pen);
-            }else if(kind.equals("refresh")||kind.equals("mode-repeat")){
-                // Symmetric two-arrow circular refresh glyph, fully path-based.
-                // Both arrowheads are connected to their arcs: no overlapping strokes.
-                path.moveTo(-9,-2);
-                path.cubicTo(-8,-6,-4,-9,1,-9);
-                path.cubicTo(5,-9,8,-6,9,-2);
-                path.moveTo(4,-2);path.lineTo(9,-2);path.lineTo(9,-7);
-                canvas.drawPath(path,pen);path.reset();
-                path.moveTo(9,2);
-                path.cubicTo(8,6,4,9,-1,9);
-                path.cubicTo(-5,9,-8,6,-9,2);
-                path.moveTo(-4,2);path.lineTo(-9,2);path.lineTo(-9,7);
-                canvas.drawPath(path,pen);
-            }else if(kind.equals("settings")){
-                // Crisp outlined gear with eight spokes, independent of system emoji.
-                canvas.drawCircle(0,0,7.5f,pen);
-                canvas.drawCircle(0,0,3.1f,pen);
-                for(int spoke=0;spoke<8;spoke++){
-                    canvas.save();canvas.rotate(spoke*45f);
-                    canvas.drawLine(0,-8f,0,-11f,pen);
-                    canvas.restore();
-                }
-            }else if(kind.equals("search")){
-                // Magnifying glass, sized to match the collection search bar.
-                canvas.drawCircle(-2,-2,6.5f,pen);
-                canvas.drawLine(3,3,10,10,pen);
-            }else if(kind.equals("brain")||kind.equals("mode-brain")){
-                // Split cerebral hemispheres and internal folds.
-                path.moveTo(0,-9);path.cubicTo(-4,-12,-8,-9,-8,-6);
-                path.cubicTo(-12,-5,-12,-1,-10,1);
-                path.cubicTo(-12,5,-8,9,-5,8);
-                path.cubicTo(-4,12,-1,11,0,9);
-                path.moveTo(0,-9);path.cubicTo(4,-12,8,-9,8,-6);
-                path.cubicTo(12,-5,12,-1,10,1);
-                path.cubicTo(12,5,8,9,5,8);
-                path.cubicTo(4,12,1,11,0,9);
-                path.moveTo(0,-9);path.lineTo(0,9);
-                canvas.drawPath(path,pen);
-                canvas.drawLine(-7,-2,-4,0,pen);canvas.drawLine(7,-2,4,0,pen);
-                canvas.drawLine(-6,5,-3,4,pen);canvas.drawLine(6,5,3,4,pen);
-            }else if(kind.equals("notebook")){
-                // Notebook and pencil: strict writing-from-memory examination.
-                canvas.drawRoundRect(-10,-10,5,10,2,2,pen);
-                canvas.drawLine(-6,-10,-6,10,pen);
-                canvas.drawLine(-3,-5,2,-5,pen);
-                canvas.drawLine(-3,-1,2,-1,pen);
-                path.moveTo(1,8);path.lineTo(3,4);
-                path.lineTo(9,-5);path.lineTo(11,-7);
-                path.lineTo(8,-9);path.lineTo(6,-7);
-                path.lineTo(1,2);path.close();canvas.drawPath(path,pen);
-            }else if(kind.equals("repeat")){
-                // Two consecutive opposing arrows for the global repeat action.
-                canvas.drawLine(-8,-4,8,-4,pen);
-                canvas.drawLine(8,-4,4,-8,pen);
-                canvas.drawLine(8,-4,4,0,pen);
-                canvas.drawLine(8,5,-8,5,pen);
-                canvas.drawLine(-8,5,-4,1,pen);
-                canvas.drawLine(-8,5,-4,9,pen);
-            }else{
-                canvas.drawRoundRect(-10,-6,6,9,1.8f,1.8f,pen);
-                canvas.drawRoundRect(-6,-10,10,5,1.8f,1.8f,pen);
-                canvas.drawLine(-1,-2,4,-2,pen);
-            }
-            canvas.restore();
-        }
-    }
     /** Quiet category illustration beside each compact group of Bible books. */
     private final class BibleGroupGlyph extends View {
         private final BookColorLogic.Group category;
@@ -1916,28 +1634,28 @@ public final class MainActivity extends Activity {
         final Screen[] destinations={Screen.HOME,Screen.BOOKS,Screen.COLLECTIONS,Screen.SETTINGS};
         final String[] names={"Главная","Библия","Коллекции","Настройки"};
         final int current=mainTabIndex();
-        LinearLayout outer=column();outer.setPadding(dp(16),dp(4),dp(16),dp(12));
+        LinearLayout outer=ui.column();outer.setPadding(ui.dp(16),ui.dp(4),ui.dp(16),ui.dp(12));
         FrameLayout floating=new FrameLayout(this);
-        floating.setBackground(outlined(CARD,36,BORDER));
+        floating.setBackground(ui.outlined(CARD,36,BORDER));
         floating.setClipToOutline(false);
         final View indicator=new View(this);
         indicator.setTag("sv-nav-indicator");
-        indicator.setBackground(shape(0xFFF7DED0,29));
-        floating.addView(indicator,new FrameLayout.LayoutParams(dp(80),dp(57),Gravity.TOP|Gravity.LEFT));
-        LinearLayout row=row();row.setPadding(dp(7),dp(7),dp(7),dp(7));
+        indicator.setBackground(ui.shape(0xFFF7DED0,29));
+        floating.addView(indicator,new FrameLayout.LayoutParams(ui.dp(80),ui.dp(57),Gravity.TOP|Gravity.LEFT));
+        LinearLayout row=ui.row();row.setPadding(ui.dp(7),ui.dp(7),ui.dp(7),ui.dp(7));
         for(int i=0;i<destinations.length;i++){
             final int index=i;
             int ink=i==current?0xFFB7553D:MUTED;
-            LinearLayout tab=column();tab.setGravity(Gravity.CENTER);
-            tab.setPadding(dp(5),dp(3),dp(5),dp(3));
+            LinearLayout tab=ui.column();tab.setGravity(Gravity.CENTER);
+            tab.setPadding(ui.dp(5),ui.dp(3),ui.dp(5),ui.dp(3));
             View symbol=i==0 ? new HomeNavigationIcon(this,ink,current==0)
                     : i==1 ? new BookNavigationIcon(this,ink,current==1)
                     : i==2 ? new CollectionsNavigationIcon(this,ink,current==2,collectionsIconCycle)
-                    : new NavigationGlyph("settings",ink);
-            LinearLayout.LayoutParams glyph=new LinearLayout.LayoutParams(dp(27),dp(27));
+                    : new NavigationGlyph(this,"settings",ink);
+            LinearLayout.LayoutParams glyph=new LinearLayout.LayoutParams(ui.dp(27),ui.dp(27));
             glyph.gravity=Gravity.CENTER_HORIZONTAL;tab.addView(symbol,glyph);
-            TextView name=txt(names[i],12,ink,i==current);
-            name.setGravity(Gravity.CENTER);add(tab,name,1);
+            TextView name=ui.txt(names[i],12,ink,i==current);
+            name.setGravity(Gravity.CENTER);ui.add(tab,name,1);
             tab.setClickable(true);tab.setFocusable(true);
             tab.setContentDescription("Открыть раздел "+names[i]);
             tab.setOnClickListener(v->{
@@ -1955,17 +1673,17 @@ public final class MainActivity extends Activity {
                 }
                 goToMainTab(index);
             });
-            row.addView(tab,new LinearLayout.LayoutParams(0,dp(57),1));
+            row.addView(tab,new LinearLayout.LayoutParams(0,ui.dp(57),1));
         }
-        floating.addView(row,new FrameLayout.LayoutParams(-1,dp(71)));
-        outer.addView(floating,new LinearLayout.LayoutParams(-1,dp(71)));
+        floating.addView(row,new FrameLayout.LayoutParams(-1,ui.dp(71)));
+        outer.addView(floating,new LinearLayout.LayoutParams(-1,ui.dp(71)));
         parent.addView(outer,new LinearLayout.LayoutParams(-1,-2));
         final int from=lastNavIndex;
         floating.post(()->{
-            int slot=(floating.getWidth()-dp(14))/destinations.length;
+            int slot=(floating.getWidth()-ui.dp(14))/destinations.length;
             if(slot<=0)return;
             FrameLayout.LayoutParams p=(FrameLayout.LayoutParams)indicator.getLayoutParams();
-            p.width=slot;p.height=dp(57);p.leftMargin=dp(7);p.topMargin=dp(7);
+            p.width=slot;p.height=ui.dp(57);p.leftMargin=ui.dp(7);p.topMargin=ui.dp(7);
             indicator.setLayoutParams(p);
             indicator.setTranslationX(slot*from);
             if(from!=current && ValueAnimator.areAnimatorsEnabled()){
@@ -2090,7 +1808,7 @@ public final class MainActivity extends Activity {
                                 Screen.SETTINGS;
 
         if (screen == destination) return;
-        dismissModeInfo(false);
+        modeInfo.dismiss(false);
         if(isBibleSearchScreen()&&bibleSearchLoading){
             cancelBibleSearchWork();bibleSearchLoading=false;bibleSearchNeedsRefresh=true;
         }
@@ -2137,7 +1855,7 @@ public final class MainActivity extends Activity {
                     .getHeight();
 
         } else if (!leavingHasNav) {
-            navHeight = dp(84);
+            navHeight = ui.dp(84);
         }
 
         reviewMode = false;
@@ -2265,7 +1983,7 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams overlay =
                 new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
-                        Math.max(dp(1), height - navHeight),
+                        Math.max(ui.dp(1), height - navHeight),
                         Gravity.TOP
                 );
 
@@ -2334,13 +2052,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event){
-        if(modeInfoAnchor!=null && event.getActionMasked()==MotionEvent.ACTION_DOWN){
-            int[] location=new int[2];
-            modeInfoAnchor.getLocationOnScreen(location);
-            float x=event.getRawX(),y=event.getRawY();
-            if(x<location[0]||x>=location[0]+modeInfoAnchor.getWidth()||
-               y<location[1]||y>=location[1]+modeInfoAnchor.getHeight())dismissModeInfo(true);
-        }
+        modeInfo.onActivityTouch(event);
         // Fullscreen training and card carousels retain their own swipe gestures.
         if(screen==Screen.TRAIN||screen==Screen.CARD_SESSION||tabSwitchInProgress)
             return super.dispatchTouchEvent(event);
@@ -2350,7 +2062,7 @@ public final class MainActivity extends Activity {
         }
         if(action==MotionEvent.ACTION_MOVE&&!swipeIntercepted){
             float dx=event.getX()-swipeStartX,dy=event.getY()-swipeStartY;
-            if(Math.abs(dx)>dp(90)&&Math.abs(dx)>Math.abs(dy)*1.6f){
+            if(Math.abs(dx)>ui.dp(90)&&Math.abs(dx)>Math.abs(dy)*1.6f){
                 swipeIntercepted=true;
                 MotionEvent cancel=MotionEvent.obtain(event);
                 cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -2360,7 +2072,7 @@ public final class MainActivity extends Activity {
         if(swipeIntercepted){
             if(action==MotionEvent.ACTION_UP){
                 float dx=event.getX()-swipeStartX;
-                if(Math.abs(dx)>dp(60))goToMainTab(mainTabIndex()+(dx<0?1:-1));
+                if(Math.abs(dx)>ui.dp(60))goToMainTab(mainTabIndex()+(dx<0?1:-1));
                 swipeIntercepted=false;return true;
             }
             if(action==MotionEvent.ACTION_CANCEL){swipeIntercepted=false;return true;}
@@ -2470,7 +2182,7 @@ public final class MainActivity extends Activity {
         String[] options=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)options[i]=collections.get(i).title;
         options[collections.size()]="＋ Новая коллекция";
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Добавить в коллекцию").setItems(options,(dialog,index)->{
                 if(index==collections.size())newCardDeck(action);
                 else action.apply(collections.get(index).deckId);
@@ -2488,8 +2200,8 @@ public final class MainActivity extends Activity {
             final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
             @Override protected void onDraw(Canvas canvas){
                 super.onDraw(canvas);
-                float cx=getWidth()/2f+dp(1),cy=getHeight()/2f;
-                float size=dp(10);
+                float cx=getWidth()/2f+ui.dp(1),cy=getHeight()/2f;
+                float size=ui.dp(10);
                 Path triangle=new Path();
                 triangle.moveTo(cx-size*.62f,cy-size);
                 triangle.lineTo(cx+size*.9f,cy);
@@ -2508,19 +2220,19 @@ public final class MainActivity extends Activity {
     }
     private void renderCardDecks(){
         tabWordmark();
-        action(content,"＋  Создать подборку",true,()->newCardDeck(null));
+        ui.action(content,"＋  Создать подборку",true,()->newCardDeck(null));
         for(LocalStore.CardDeck deck:store.cardDecks()){
-            LinearLayout panel=card(content);panel.setPadding(dp(11),dp(11),dp(9),dp(11));
+            LinearLayout panel=ui.card(content);panel.setPadding(ui.dp(11),ui.dp(11),ui.dp(9),ui.dp(11));
             panel.setBackground(homeSurface());
-            LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
             ImageView illustration=landscapeThumbnail(deck.id);
-            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(dp(79),dp(MAX_LANDSCAPE_THUMBNAIL_DP));
-            imageP.rightMargin=dp(12);line.addView(illustration,imageP);
-            LinearLayout details=column();
-            TextView name=displayText(deck.title,18);name.setMaxLines(2);
+            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(ui.dp(79),ui.dp(MAX_LANDSCAPE_THUMBNAIL_DP));
+            imageP.rightMargin=ui.dp(12);line.addView(illustration,imageP);
+            LinearLayout details=ui.column();
+            TextView name=ui.displayText(deck.title,18);name.setMaxLines(2);
             name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            add(details,name,0);
-            add(details,txt(deck.count+" "+(deck.count==1?"карточка":
+            ui.add(details,name,0);
+            ui.add(details,ui.txt(deck.count+" "+(deck.count==1?"карточка":
                 ((deck.count%10>=2&&deck.count%10<=4&&(deck.count%100<12||deck.count%100>14))?
                     "карточки":"карточек")),13,MUTED,false),4);
             line.addView(details,new LinearLayout.LayoutParams(0,-2,1));
@@ -2533,7 +2245,7 @@ public final class MainActivity extends Activity {
     private void showCardDeckActions(LocalStore.CardDeck deck,View anchor){
         String[] actions={"Изучить","Добавить свой текст","Переименовать","Удалить"};
         String[] icons={"study","file","pencil","trash"};
-        showActionsMenu(anchor,actions,icons,which->{
+        menus.showActionsMenu(anchor,actions,icons,which->{
             selectedDeck=deck.id;
             switch(which){
                 case 0:studyCardDeck();break;
@@ -2544,144 +2256,10 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private interface ActionSelection {void select(int index);}
-
-    /** Native anchored popup; no new libraries or drawable assets are required. */
-    private void showActionsMenu(View anchor,String[] labels,String[] iconKinds,ActionSelection selection){
-        if(labels.length!=iconKinds.length)throw new IllegalArgumentException("Menu labels/icons mismatch");
-        LinearLayout menu=column();
-        menu.setPadding(dp(8),dp(8),dp(8),dp(8));
-        menu.setBackground(outlined(0xFFFFFCF9,18,0xFFE8D7CA));
-        menu.setClipToOutline(true);
-        Rect visibleMenuArea=new Rect();anchor.getWindowVisibleDisplayFrame(visibleMenuArea);
-        int available=Math.max(dp(160),visibleMenuArea.width()-dp(24));
-        // Give labels space on normal phones; on narrow screens allow two rows.
-        final int popupWidth=Math.min(dp(316),available);
-        ScrollView menuScroll=new ScrollView(this);
-        menuScroll.setVerticalScrollBarEnabled(false);
-        menuScroll.addView(menu,new android.widget.FrameLayout.LayoutParams(-1,-2));
-        PopupWindow popup=new PopupWindow(menuScroll,popupWidth,dp(270),true);
-        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setOutsideTouchable(true);
-        popup.setElevation(dp(10));
-        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
-        popup.setClippingEnabled(true);
-        for(int i=0;i<labels.length;i++){
-            final int index=i;
-            boolean destructive="trash".equals(iconKinds[i]);
-            if(destructive){
-                View rule=new View(this);rule.setBackgroundColor(0xFFF0E3D9);
-                LinearLayout.LayoutParams ruleP=new LinearLayout.LayoutParams(-1,dp(1));
-                ruleP.setMargins(dp(8),dp(5),dp(8),dp(5));menu.addView(rule,ruleP);
-            }
-            LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
-            item.setPadding(dp(9),0,dp(9),0);
-            item.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(0x24C78E6D),
-                shape(Color.TRANSPARENT,12),shape(Color.WHITE,12)));
-            int ink=destructive?0xFFB9504D:0xFF91674E;
-            MenuGlyph glyph=new MenuGlyph(iconKinds[i],ink);
-            glyph.setBackground(shape(destructive?0xFFFBE8E5:0xFFF7EDE5,10));
-            LinearLayout.LayoutParams glyphP=new LinearLayout.LayoutParams(dp(35),dp(35));
-            glyphP.rightMargin=dp(12);item.addView(glyph,glyphP);
-            TextView text=txt(labels[i],14,destructive?0xFFB9504D:0xFF4A4038,true);
-            text.setGravity(Gravity.CENTER_VERTICAL);
-            text.setSingleLine(false);text.setMaxLines(2);
-            item.addView(text,new LinearLayout.LayoutParams(0,-2,1));
-            item.setClickable(true);item.setFocusable(true);
-            item.setContentDescription(labels[i]);
-            item.setOnClickListener(v->{popup.dismiss();selection.select(index);});
-            item.setMinimumHeight(dp(labels[i].length()>26?70:54));
-            menu.addView(item,new LinearLayout.LayoutParams(-1,-2));
-        }
-        Rect screen=new Rect();anchor.getWindowVisibleDisplayFrame(screen);
-        int[] onScreen=new int[2];anchor.getLocationOnScreen(onScreen);
-        int spaceAbove=onScreen[1]-screen.top-dp(8);
-        int spaceBelow=screen.bottom-(onScreen[1]+anchor.getHeight())-dp(8);
-        // Height follows the actual rendered rows, including multi-line labels.
-        menu.measure(View.MeasureSpec.makeMeasureSpec(popupWidth,View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-        int needed=menu.getMeasuredHeight();
-        boolean above=spaceBelow<needed&&spaceAbove>spaceBelow;
-        int free=Math.max(0,above?spaceAbove:spaceBelow);
-        int popupHeight=Math.min(needed,free);
-        if(popupHeight<dp(48)){popupHeight=Math.min(needed,Math.max(dp(48),screen.height()-dp(32)));}
-        popup.setHeight(popupHeight);
-        int x=Math.max(screen.left+dp(8),Math.min(screen.right-popupWidth-dp(8),
-            onScreen[0]+anchor.getWidth()-popupWidth));
-        int y=above?onScreen[1]-popupHeight-dp(6):onScreen[1]+anchor.getHeight()+dp(6);
-        y=Math.max(screen.top+dp(4),Math.min(y,screen.bottom-popupHeight-dp(4)));
-        popup.showAtLocation(anchor,Gravity.TOP|Gravity.LEFT,x,y);
-    }
-
-    /** Small custom vector icons; all strokes are drawn, not text symbols or emoji. */
-    private final class MenuGlyph extends View {
-        final String kind;final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
-        MenuGlyph(String kind,int color){
-            super(MainActivity.this);this.kind=kind;
-            pen.setColor(color);pen.setStyle(Paint.Style.STROKE);
-            pen.setStrokeWidth(1.8f);pen.setStrokeCap(Paint.Cap.ROUND);
-            pen.setStrokeJoin(Paint.Join.ROUND);
-            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        }
-        @Override protected void onDraw(Canvas canvas){
-            super.onDraw(canvas);
-            float size=Math.min(getWidth(),getHeight())*.57f;
-            canvas.save();
-            canvas.translate((getWidth()-size)/2f,(getHeight()-size)/2f);
-            canvas.scale(size/24f,size/24f);
-            Path path=new Path();
-            switch(kind){
-                case "book":
-                    path.moveTo(12,6);path.cubicTo(8,3.5f,5,3.5f,3,5);
-                    path.lineTo(3,18);path.cubicTo(6,16.5f,9,17,12,19);
-                    path.cubicTo(15,17,18,16.5f,21,18);path.lineTo(21,5);
-                    path.cubicTo(19,3.5f,16,3.5f,12,6);canvas.drawPath(path,pen);
-                    canvas.drawLine(12,6,12,19,pen);break;
-                case "file":
-                    canvas.drawRoundRect(5,3,19,21,2,2,pen);
-                    canvas.drawLine(8,8,16,8,pen);
-                    canvas.drawLine(12,11,12,18,pen);canvas.drawLine(8.5f,14.5f,15.5f,14.5f,pen);break;
-                case "pencil":
-                    path.moveTo(4,20);path.lineTo(8.5f,18.9f);path.lineTo(20,7.4f);
-                    path.quadTo(21.3f,6.1f,20,4.8f);path.lineTo(19.2f,4);
-                    path.quadTo(17.9f,2.7f,16.6f,4);path.lineTo(5,15.6f);
-                    path.close();canvas.drawPath(path,pen);
-                    canvas.drawLine(14.8f,5.8f,18.2f,9.2f,pen);break;
-                case "shuffle":
-                    // Crossing tracks with separate arrowheads (shuffle).
-                    path.moveTo(3,6);path.lineTo(6,6);
-                    path.cubicTo(12,6,12,18,18,18);path.lineTo(21,18);
-                    path.moveTo(18,15);path.lineTo(21,18);path.lineTo(18,21);
-                    path.moveTo(3,18);path.lineTo(6,18);
-                    path.cubicTo(12,18,12,6,18,6);path.lineTo(21,6);
-                    path.moveTo(18,3);path.lineTo(21,6);path.lineTo(18,9);
-                    canvas.drawPath(path,pen);break;
-                case "eraser":
-                    // Eraser icon is deliberately distinct from the delete/trash icon.
-                    path.moveTo(4,14);path.lineTo(12,5);path.quadTo(13,4,14,5);
-                    path.lineTo(20,11);path.quadTo(21,12,20,13);
-                    path.lineTo(13,20);path.lineTo(9,20);path.close();
-                    canvas.drawPath(path,pen);canvas.drawLine(12,7,18,13,pen);
-                    canvas.drawLine(12,20,21,20,pen);break;
-                case "trash":
-                    canvas.drawRoundRect(6,7,18,21,1,1,pen);
-                    canvas.drawLine(4,6,20,6,pen);canvas.drawLine(10,4,14,4,pen);
-                    canvas.drawLine(10,10,10,18,pen);canvas.drawLine(14,10,14,18,pen);break;
-                default: // graduation cap, for «Изучить»
-                    path.moveTo(2,9);path.lineTo(12,4);path.lineTo(22,9);
-                    path.lineTo(12,14);path.close();canvas.drawPath(path,pen);
-                    path.reset();path.moveTo(7,12);path.lineTo(7,17);
-                    path.quadTo(12,21,17,17);path.lineTo(17,12);canvas.drawPath(path,pen);
-                    canvas.drawLine(22,9,22,18,pen);break;
-            }
-            canvas.restore();
-        }
-    }
     private void renameCardDeck(LocalStore.CardDeck deck){
-        EditText name=input("Название подборки",false);name.setText(deck.title);
-        LinearLayout wrap=column();wrap.setPadding(dp(20),dp(5),dp(20),dp(0));add(wrap,name,0);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        EditText name=ui.input("Название подборки",false);name.setText(deck.title);
+        LinearLayout wrap=ui.column();wrap.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(0));ui.add(wrap,name,0);
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Переименовать").setView(wrap)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(name).isEmpty()){toast("Укажи название");return;}
@@ -2689,7 +2267,7 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void confirmDeleteCardDeck(LocalStore.CardDeck deck){
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить подборку?")
             .setPositiveButton("Удалить",(d,w)->{
                 store.deleteCardDeck(deck.id);clearSavedCardSession(deck.id);
@@ -2697,11 +2275,11 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void showNewCustomFlashcard(long deckId){
-        EditText reference=input("Название / источник",false);
-        EditText verse=input("Текст",true);verse.setMinLines(4);
-        LinearLayout fields=column();fields.setPadding(dp(20),dp(7),dp(20),dp(4));
-        add(fields,reference,0);add(fields,verse,12);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        EditText reference=ui.input("Название / источник",false);
+        EditText verse=ui.input("Текст",true);verse.setMinLines(4);
+        LinearLayout fields=ui.column();fields.setPadding(ui.dp(20),ui.dp(7),ui.dp(20),ui.dp(4));
+        ui.add(fields,reference,0);ui.add(fields,verse,12);
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Добавить свой текст").setView(fields)
             .setPositiveButton("Добавить",(dialog,which)->{
                 if(value(reference).isEmpty()||value(verse).isEmpty()){
@@ -2716,18 +2294,18 @@ public final class MainActivity extends Activity {
         if(deck==null){screen=Screen.CARDS;render();return;}
         title(deck.title,null);
         List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
-        if(cards.isEmpty())helper(content,"Здесь пока нет карточек.");
+        if(cards.isEmpty())ui.helper(content,"Здесь пока нет карточек.");
         for(LocalStore.Flashcard card:cards){
-            LinearLayout c=card(content);c.setBackground(homeSurface());
-            LinearLayout head=row();
-            TextView ref=displayText(card.reference,18);
+            LinearLayout c=ui.card(content);c.setBackground(homeSurface());
+            LinearLayout head=ui.row();
+            TextView ref=ui.displayText(card.reference,18);
             head.addView(ref,new LinearLayout.LayoutParams(0,-2,1));
-            TextView more=txt("⋮",26,MUTED,true);
+            TextView more=ui.txt("⋮",26,MUTED,true);
             more.setGravity(Gravity.CENTER);
             more.setContentDescription("Действия с карточкой "+card.reference);
-            head.addView(more,new LinearLayout.LayoutParams(dp(48),dp(52)));
+            head.addView(more,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(52)));
             more.setOnClickListener(v->showCardActions(card,more));
-            add(c,head,0);add(c,prose(card.content,16),8);
+            ui.add(c,head,0);ui.add(c,ui.prose(card.content,16),8);
         }
         addCardDeckFooter(deck, !cards.isEmpty());
     }
@@ -2739,17 +2317,17 @@ public final class MainActivity extends Activity {
             boolean hasCards) {
 
         // Закреплённая панель под списком карточек.
-        LinearLayout footer = column();
+        LinearLayout footer = ui.column();
 
         footer.setPadding(
-                dp(19), dp(10),
-                dp(19), dp(10)
+                ui.dp(19), ui.dp(10),
+                ui.dp(19), ui.dp(10)
         );
 
         footer.setBackgroundColor(BG);
 
         // Кнопка запуска карусели карточек.
-        TextView start = button(
+        TextView start = ui.button(
                 "▶  Начать",
                 true,
                 () -> {
@@ -2767,7 +2345,7 @@ public final class MainActivity extends Activity {
                         }
                 );
 
-        greenBackground.setCornerRadius(dp(18));
+        greenBackground.setCornerRadius(ui.dp(18));
 
         start.setBackground(greenBackground);
         start.setTextColor(Color.WHITE);
@@ -2815,11 +2393,11 @@ public final class MainActivity extends Activity {
 
         footer.addView(
                 start,
-                new LinearLayout.LayoutParams(-1, dp(54))
+                new LinearLayout.LayoutParams(-1, ui.dp(54))
         );
 
         // Вторая кнопка — добавление из Библии.
-        TextView addBible = button(
+        TextView addBible = ui.button(
                 "＋  Добавить из Библии",
                 false,
                 () -> openBiblePicker(
@@ -2837,9 +2415,9 @@ public final class MainActivity extends Activity {
         );
 
         LinearLayout.LayoutParams addParams =
-                new LinearLayout.LayoutParams(-1, dp(52));
+                new LinearLayout.LayoutParams(-1, ui.dp(52));
 
-        addParams.topMargin = dp(9);
+        addParams.topMargin = ui.dp(9);
 
         footer.addView(addBible, addParams);
 
@@ -2852,11 +2430,11 @@ public final class MainActivity extends Activity {
 
 
     private void addBibleFooter(BibleTarget target,long groupId,Screen back){
-        LinearLayout footer=column();footer.setPadding(dp(19),dp(8),dp(19),dp(10));
+        LinearLayout footer=ui.column();footer.setPadding(ui.dp(19),ui.dp(8),ui.dp(19),ui.dp(10));
         footer.setBackgroundColor(BG);
-        TextView add=button("＋  Добавить из Библии",true,()->openBiblePicker(target,groupId,back));
+        TextView add=ui.button("＋  Добавить из Библии",true,()->openBiblePicker(target,groupId,back));
         add.setContentDescription("Добавить стихи из Библии в текущую коллекцию");
-        footer.addView(add,new LinearLayout.LayoutParams(-1,dp(54)));
+        footer.addView(add,new LinearLayout.LayoutParams(-1,ui.dp(54)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
     }
 
@@ -2864,15 +2442,15 @@ public final class MainActivity extends Activity {
     private void addStudyCollectionFooter(LocalStore.Group group) {
 
         // Панель находится вне прокручиваемого списка.
-        LinearLayout footer = column();
+        LinearLayout footer = ui.column();
         footer.setPadding(
-                dp(19), dp(10),
-                dp(19), dp(10)
+                ui.dp(19), ui.dp(10),
+                ui.dp(19), ui.dp(10)
         );
         footer.setBackgroundColor(BG);
 
         // Основная кнопка — начало изучения коллекции.
-        TextView start = button(
+        TextView start = ui.button(
                 "▶  Начать изучение",
                 true,
                 () -> startStudyCollection(group.id)
@@ -2887,7 +2465,7 @@ public final class MainActivity extends Activity {
                         }
                 );
 
-        greenBackground.setCornerRadius(dp(18));
+        greenBackground.setCornerRadius(ui.dp(18));
         start.setBackground(greenBackground);
         start.setTextColor(Color.WHITE);
         start.setTextSize(16);
@@ -2932,11 +2510,11 @@ public final class MainActivity extends Activity {
 
         footer.addView(
                 start,
-                new LinearLayout.LayoutParams(-1, dp(54))
+                new LinearLayout.LayoutParams(-1, ui.dp(54))
         );
 
         // Вторичная кнопка — добавление новых стихов.
-        TextView addBible = button(
+        TextView addBible = ui.button(
                 "＋  Добавить из Библии",
                 false,
                 () -> openBiblePicker(
@@ -2953,9 +2531,9 @@ public final class MainActivity extends Activity {
         );
 
         LinearLayout.LayoutParams addParams =
-                new LinearLayout.LayoutParams(-1, dp(52));
+                new LinearLayout.LayoutParams(-1, ui.dp(52));
 
-        addParams.topMargin = dp(9);
+        addParams.topMargin = ui.dp(9);
 
         footer.addView(addBible, addParams);
 
@@ -3008,17 +2586,17 @@ public final class MainActivity extends Activity {
         pickerSelectionPanel=null;
         if(bibleNotReady())return;
         title("Задать диапазон",passageSelection.book>0?Bible.NAMES[passageSelection.book-1]:null);
-        TextView start=button("Задать начало отрывка\n"+pickerBoundaryReference(false),
+        TextView start=ui.button("Задать начало отрывка\n"+pickerBoundaryReference(false),
             passageSelection.startChapter>0,()->beginPickerBoundary(false));
-        start.setMinHeight(dp(82));add(content,start,10);
-        TextView end=button("Задать конец отрывка\n"+pickerBoundaryReference(true),
+        start.setMinHeight(ui.dp(82));ui.add(content,start,10);
+        TextView end=ui.button("Задать конец отрывка\n"+pickerBoundaryReference(true),
             passageSelection.endChapter>0,()->beginPickerBoundary(true));
-        end.setMinHeight(dp(82));add(content,end,10);
-        pickerSelectionLabel=prose("",18);add(content,pickerSelectionLabel,18);
-        pickerSelectionPanel=column();pickerSelectionPanel.setPadding(dp(19),dp(8),dp(19),dp(8));
-        pickerSelectionPanel.setBackground(outlined(CARD,16,BORDER));
-        pickerSaveButton=button("Добавить отрывок",true,this::savePickerRange);
-        add(pickerSelectionPanel,pickerSaveButton,0);updatePickerRangeSummary();
+        end.setMinHeight(ui.dp(82));ui.add(content,end,10);
+        pickerSelectionLabel=ui.prose("",18);ui.add(content,pickerSelectionLabel,18);
+        pickerSelectionPanel=ui.column();pickerSelectionPanel.setPadding(ui.dp(19),ui.dp(8),ui.dp(19),ui.dp(8));
+        pickerSelectionPanel.setBackground(ui.outlined(CARD,16,BORDER));
+        pickerSaveButton=ui.button("Добавить отрывок",true,this::savePickerRange);
+        ui.add(pickerSelectionPanel,pickerSaveButton,0);updatePickerRangeSummary();
     }
     private void updatePickerRangeSummary(){
         boolean valid=passageSelection.valid();
@@ -3051,12 +2629,12 @@ public final class MainActivity extends Activity {
         if(bibleNotReady())return;
         List<Bible.Verse> verses=bible.chapter(selectedBook,selectedChapter);
         title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,"Стихи");
-        if(verses.isEmpty()){helper(content,"В главе нет стихов");return;}
+        if(verses.isEmpty()){ui.helper(content,"В главе нет стихов");return;}
         for(int base=1;base<=verses.size();base+=4){
-            LinearLayout r=row();
+            LinearLayout r=ui.row();
             for(int k=base;k<base+4;k++){
                 if(k>verses.size()){
-                    r.addView(new View(this),new LinearLayout.LayoutParams(0,dp(50),1));
+                    r.addView(new View(this),new LinearLayout.LayoutParams(0,ui.dp(50),1));
                     continue;
                 }
                 final int verse=k;
@@ -3064,7 +2642,7 @@ public final class MainActivity extends Activity {
                 int boundaryVerse=pickerChooseEnd?passageSelection.endVerse:passageSelection.startVerse;
                 boolean selected=reader?verse==readerVerseNumber:passageSelection.active?
                     selectedChapter==boundaryChapter&&verse==boundaryVerse:verse==pickerVerseNumber;
-                TextView b=button(String.valueOf(verse),selected,()->{
+                TextView b=ui.button(String.valueOf(verse),selected,()->{
                     if(reader){
                         readerVerseNumber=verse;focusVerse=verse;
                         chapterFromVerseGrid=true;screen=Screen.CHAPTER;
@@ -3080,13 +2658,13 @@ public final class MainActivity extends Activity {
                     }
                     render();
                 });
-                b.setPadding(dp(4),dp(4),dp(4),dp(4));
+                b.setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4));
                 b.setContentDescription((!reader&&passageSelection.active?"Выбрать стих ":"Открыть текст стиха ")+verse+
                     (selected?", выбран":""));
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(50),1);
-                p.setMargins(dp(3),dp(4),dp(3),dp(4));r.addView(b,p);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(50),1);
+                p.setMargins(ui.dp(3),ui.dp(4),ui.dp(3),ui.dp(4));r.addView(b,p);
             }
-            add(content,r,2);
+            ui.add(content,r,2);
 
         }
     }
@@ -3098,15 +2676,15 @@ public final class MainActivity extends Activity {
         pickerQuickButtons.clear();
         List<Bible.Verse> verses=bible.chapter(selectedBook,selectedChapter);
         title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,null);
-        LinearLayout navigation=row();
-        navigation.addView(button("Главы · "+selectedChapter,false,()->{
+        LinearLayout navigation=ui.row();
+        navigation.addView(ui.button("Главы · "+selectedChapter,false,()->{
             savedScrollY.remove(Screen.PICKER_CHAPTERS);screen=Screen.PICKER_CHAPTERS;render();
         }),new LinearLayout.LayoutParams(0,-2,1));
-        navigation.addView(button("Стихи",false,()->{
+        navigation.addView(ui.button("Стихи",false,()->{
             savedScrollY.remove(Screen.PICKER_VERSES);screen=Screen.PICKER_VERSES;render();
         }),new LinearLayout.LayoutParams(0,-2,1));
-        add(content,navigation,4);
-        action(content,"Задать диапазон",false,this::openPickerRange);
+        ui.add(content,navigation,4);
+        ui.action(content,"Задать диапазон",false,this::openPickerRange);
         final ScrollView scroller=currentScroller;
         final int targetVerse=focusVerse;focusVerse=-1;
         // Keep the chapter heading for verse 1; jump to later selections and search hits.
@@ -3124,15 +2702,15 @@ public final class MainActivity extends Activity {
             final int number=Integer.parseInt(verse.ref.substring(verse.ref.indexOf(':')+1));
             final int book=selectedBook,chapter=selectedChapter;
             final String reference=Bible.reference(book,chapter,number,chapter,number);
-            LinearLayout line=card(content);
-            LinearLayout head=row();head.setGravity(Gravity.CENTER_VERTICAL);
-            TextView marker=txt(verse.ref,14,bookInk(book),true);
+            LinearLayout line=ui.card(content);
+            LinearLayout head=ui.row();head.setGravity(Gravity.CENTER_VERTICAL);
+            TextView marker=ui.txt(verse.ref,14,bookInk(book),true);
             head.addView(marker,new LinearLayout.LayoutParams(0,-2,1));
             if(pickerTarget==BibleTarget.STUDY_GROUP){
                 boolean standalone=present.contains(reference),covered=!standalone&&included.contains(verse.ref);
-                TextView toggle=button(standalone?"−":covered?"✓":"+",false,()->{});
+                TextView toggle=ui.button(standalone?"−":covered?"✓":"+",false,()->{});
                 toggle.setContentDescription((standalone?"Убрать ":covered?"Уже в отрывке: ":"Добавить ")+reference);
-                pickerQuickButtons.add(toggle);head.addView(toggle,new LinearLayout.LayoutParams(dp(48),dp(48)));
+                pickerQuickButtons.add(toggle);head.addView(toggle,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
                 toggle.setOnClickListener(v->{
                     if(included.contains(verse.ref)&&!present.contains(reference))return;
                     if(togglePickerCollectionVerse(book,chapter,number)){
@@ -3143,14 +2721,14 @@ public final class MainActivity extends Activity {
                     }
                 });
             }
-            add(line,head,0);add(line,prose(verse.text,19),8);
+            ui.add(line,head,0);ui.add(line,ui.prose(verse.text,19),8);
             if(targetVerse==number){
                 afterPickerLayout(line,()->{
                     if(currentScroller!=scroller)return;
                     if(scrollToTarget)
-                        scroller.scrollTo(0,Math.max(0,line.getTop()-dp(16)));
-                    line.setBackground(outlined(0xFFFFE8B5,20,BORDER));
-                    line.postDelayed(()->{if(currentScroller==scroller)line.setBackground(outlined(CARD,20,BORDER));},1100);
+                        scroller.scrollTo(0,Math.max(0,line.getTop()-ui.dp(16)));
+                    line.setBackground(ui.outlined(0xFFFFE8B5,20,BORDER));
+                    line.postDelayed(()->{if(currentScroller==scroller)line.setBackground(ui.outlined(CARD,20,BORDER));},1100);
                 });
             }
         }
@@ -3356,8 +2934,8 @@ public final class MainActivity extends Activity {
     private void renderCardPicker(){
         title("Добавить карточку",null);
         if(bibleNotReady())return;
-        action(content,Bible.NAMES[selectedBook-1]+" ▾",false,()->{
-            styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.action(content,Bible.NAMES[selectedBook-1]+" ▾",false,()->{
+            ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Книга Библии").setItems(Bible.NAMES,(d,which)->{
                     selectedBook=which+1;selectedChapter=lastReadChapter(selectedBook);
                     clearPassageSelection();render();
@@ -3444,7 +3022,7 @@ public final class MainActivity extends Activity {
                     x0=ev.getX();y0=ev.getY();handling=false;return false;
                 case MotionEvent.ACTION_MOVE:
                     float dx=ev.getX()-x0,dy=ev.getY()-y0;
-                    if(Math.abs(dx)>dp(24)&&Math.abs(dx)>Math.abs(dy)*1.15f){handling=true;return true;}
+                    if(Math.abs(dx)>ui.dp(24)&&Math.abs(dx)>Math.abs(dy)*1.15f){handling=true;return true;}
                     return false;
                 default:return false;
             }
@@ -3452,8 +3030,8 @@ public final class MainActivity extends Activity {
         @Override public boolean onTouchEvent(MotionEvent ev){
             if(ev.getActionMasked()==MotionEvent.ACTION_UP){
                 float delta=ev.getX()-x0;
-                if(Math.abs(delta)>dp(55)){
-                    animate().translationX(Math.signum(delta)*Math.max(dp(360),getWidth()))
+                if(Math.abs(delta)>ui.dp(55)){
+                    animate().translationX(Math.signum(delta)*Math.max(ui.dp(360),getWidth()))
                         .alpha(0f).setDuration(175).withEndAction(()->nextFlashcard()).start();
                 } else animate().translationX(0f).alpha(1f).setDuration(120).start();
                 handling=false;return true;
@@ -3490,14 +3068,14 @@ public final class MainActivity extends Activity {
         }
         @Override protected void onDraw(Canvas c){
             super.onDraw(c);
-            float cx=getWidth()/2f,cy=getHeight()/2f,r=dp(15);
+            float cx=getWidth()/2f,cy=getHeight()/2f,r=ui.dp(15);
             float open=Math.max(0f,Math.min(1f,openness));
-            paint.setColor(0xFF9B5E41);paint.setStrokeWidth(dp(2.5f));
+            paint.setColor(0xFF9B5E41);paint.setStrokeWidth(ui.dp(2.5f));
             paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
             paint.setStyle(Paint.Style.STROKE);
             // At t=0 the lids meet in one curved closed-eye line;
             // at t=1 they frame a fully open, almond-shaped eye.
-            float closedArc=dp(3);
+            float closedArc=ui.dp(3);
             float arc=closedArc+(r*.82f-closedArc)*open;
             Path upper=new Path();upper.moveTo(cx-r,cy);
             upper.cubicTo(cx-r*.55f,cy-arc,cx+r*.55f,cy-arc,cx+r,cy);
@@ -3509,7 +3087,7 @@ public final class MainActivity extends Activity {
             if(open>0.003f){
                 paint.setStyle(Paint.Style.FILL);
                 paint.setAlpha(Math.round(255f*open));
-                c.drawCircle(cx,cy,dp(4)*open,paint);
+                c.drawCircle(cx,cy,ui.dp(4)*open,paint);
                 paint.setAlpha(255);
             }
         }
@@ -3524,31 +3102,31 @@ public final class MainActivity extends Activity {
         if(!cardSequence.isEmpty())for(LocalStore.Flashcard f:items)
             if(f.id==cardSequence.get(Math.min(cardIndex,cardSequence.size()-1))){current=f;break;}
         if(current==null){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
-        root=column();root.setBackground(pageBackground());
-        LinearLayout header=column();header.setPadding(dp(16),dp(16),dp(16),dp(7));
+        root=ui.column();root.setBackground(ui.pageBackground());
+        LinearLayout header=ui.column();header.setPadding(ui.dp(16),ui.dp(16),ui.dp(16),ui.dp(7));
         LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
-        TextView deckHeading=displayText(deck==null?"Карточки":deck.title,22);
+        TextView deckHeading=ui.displayText(deck==null?"Карточки":deck.title,22);
         deckHeading.setGravity(Gravity.CENTER);
-        header.addView(deckHeading,new LinearLayout.LayoutParams(-1,dp(45)));
+        header.addView(deckHeading,new LinearLayout.LayoutParams(-1,ui.dp(45)));
         root.addView(header,new LinearLayout.LayoutParams(-1,-2));
         SwipeCardLayout swipe=new SwipeCardLayout();
-        swipe.setBackground(outlined(CARD,26,BORDER));
+        swipe.setBackground(ui.outlined(CARD,26,BORDER));
         swipe.setClipToOutline(true);
         View readableOverlay=new View(this);
         readableOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{0xFFFFFCF8,0xFFFFFAF5,0xFAFFF6EE,0xDDFFF3E6,0x44FFF3E6}));
         swipe.addView(readableOverlay,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout.LayoutParams swipeParams=new LinearLayout.LayoutParams(-1,0,1);
-        swipeParams.setMargins(dp(17),dp(16),dp(17),dp(24));root.addView(swipe,swipeParams);
+        swipeParams.setMargins(ui.dp(17),ui.dp(16),ui.dp(17),ui.dp(24));root.addView(swipe,swipeParams);
         ScrollView scrolling=new ScrollView(this);scrolling.setFillViewport(true);
         swipe.addView(scrolling,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout vertical=column();vertical.setGravity(Gravity.CENTER);
-        vertical.setPadding(dp(22),dp(22),dp(22),dp(22));scrolling.addView(vertical);
-        TextView initial=txt(cardShowReference?current.reference:current.content,
+        LinearLayout vertical=ui.column();vertical.setGravity(Gravity.CENTER);
+        vertical.setPadding(ui.dp(22),ui.dp(22),ui.dp(22),ui.dp(22));scrolling.addView(vertical);
+        TextView initial=ui.txt(cardShowReference?current.reference:current.content,
             cardShowReference?27:20,0xFF3C422E,cardShowReference);
         initial.setTypeface(Typeface.create("serif",cardShowReference?Typeface.BOLD:Typeface.NORMAL));
-        initial.setGravity(Gravity.CENTER);add(vertical,initial,0);
-        TextView answer=txt(cardShowReference?current.content:current.reference,
+        initial.setGravity(Gravity.CENTER);ui.add(vertical,initial,0);
+        TextView answer=ui.txt(cardShowReference?current.content:current.reference,
             cardShowReference?20:25,0xFF694F3F,!cardShowReference);
         answer.setTypeface(Typeface.create("serif",cardShowReference?Typeface.NORMAL:Typeface.BOLD));
         // Reserve an answer area so opening the eye never shifts the original citation/text.
@@ -3563,22 +3141,22 @@ public final class MainActivity extends Activity {
         answer.setAutoSizeTextTypeUniformWithConfiguration(
             cardShowReference?11:14,cardShowReference?20:25,1,
             android.util.TypedValue.COMPLEX_UNIT_SP);
-        int answerHeight=Math.min(dp(230),Math.max(dp(100),
+        int answerHeight=Math.min(ui.dp(230),Math.max(ui.dp(100),
             getResources().getDisplayMetrics().heightPixels*32/100));
         LinearLayout.LayoutParams answerArea=new LinearLayout.LayoutParams(-1,answerHeight);
-        answerArea.topMargin=dp(10);vertical.addView(answer,answerArea);
+        answerArea.topMargin=ui.dp(10);vertical.addView(answer,answerArea);
         EyeButton eye=new EyeButton();
         eye.setOpen(cardRevealed,false);
         eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
-        eye.setBackground(outlined(0xFFF0F2E7,14,0xFFC9D5C4));
+        eye.setBackground(ui.outlined(0xFFF0F2E7,14,0xFFC9D5C4));
         // Keep the complete eye button (icon and its background) near the card's lower edge.
         // This reserved space is measured by ScrollView, so the button is not clipped.
         FrameLayout eyeSlot=new FrameLayout(this);
-        LinearLayout.LayoutParams eyeSlotParams=new LinearLayout.LayoutParams(-1,dp(136));
-        eyeSlotParams.topMargin=dp(56);
+        LinearLayout.LayoutParams eyeSlotParams=new LinearLayout.LayoutParams(-1,ui.dp(136));
+        eyeSlotParams.topMargin=ui.dp(56);
         vertical.addView(eyeSlot,eyeSlotParams);
         FrameLayout.LayoutParams eyeParams=new FrameLayout.LayoutParams(
-            dp(60),dp(60),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
+            ui.dp(60),ui.dp(60),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
         eyeSlot.addView(eye,eyeParams);
         eye.setOnClickListener(v->{
             cardRevealed=!cardRevealed;
@@ -3608,7 +3186,7 @@ public final class MainActivity extends Activity {
     private final class ChevronView extends View{
         private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         ChevronView(boolean open){super(MainActivity.this);
-            p.setColor(MUTED);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(dp(2.5f));
+            p.setColor(MUTED);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(ui.dp(2.5f));
             p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);
             setRotation(open?180f:0f);
             setContentDescription(open?"Свернуть":"Развернуть");
@@ -3616,8 +3194,8 @@ public final class MainActivity extends Activity {
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             float x=getWidth()/2f,y=getHeight()/2f;
-            Path path=new Path();path.moveTo(x-dp(7),y-dp(3));
-            path.lineTo(x,y+dp(4));path.lineTo(x+dp(7),y-dp(3));
+            Path path=new Path();path.moveTo(x-ui.dp(7),y-ui.dp(3));
+            path.lineTo(x,y+ui.dp(4));path.lineTo(x+ui.dp(7),y-ui.dp(3));
             canvas.drawPath(path,p);
         }
         void setOpen(boolean open){
@@ -3639,8 +3217,8 @@ public final class MainActivity extends Activity {
     }
     private FrameLayout collectionTile(LocalStore.Group group){
         FrameLayout tile=new FrameLayout(this);
-        tile.setBackground(outlined(CARD,22,BORDER));tile.setClipToOutline(true);
-        tile.setElevation(dp(2));
+        tile.setBackground(ui.outlined(CARD,22,BORDER));tile.setClipToOutline(true);
+        tile.setElevation(ui.dp(2));
         ImageView scene=new ImageView(this);
         scene.setImageResource(landscapeFor(group.id));
         scene.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -3650,65 +3228,65 @@ public final class MainActivity extends Activity {
         light.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{0xFFFFF2E6,0xE8FFF0E2,0x40FFF0E5,0x08FFF0E5}));
         tile.addView(light,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout caption=column();caption.setPadding(dp(12),dp(11),dp(12),dp(4));
-        TextView name=displayText(group.title,17);name.setMaxLines(2);
+        LinearLayout caption=ui.column();caption.setPadding(ui.dp(12),ui.dp(11),ui.dp(12),ui.dp(4));
+        TextView name=ui.displayText(group.title,17);name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        add(caption,name,0);
-        add(caption,txt(group.count+" "+collectionCountNoun(group.count),12,MUTED,false),5);
+        ui.add(caption,name,0);
+        ui.add(caption,ui.txt(group.count+" "+collectionCountNoun(group.count),12,MUTED,false),5);
         tile.addView(caption,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
         tile.setContentDescription(group.title+", "+group.count+" "+collectionCountNoun(group.count));
         tile.setClickable(true);tile.setFocusable(true);
         return tile;
     }
     private void renderHomeCollections(){
-        LinearLayout section=column();add(content,section,13);
-        LinearLayout controls=row();add(section,controls,0);
-        LinearLayout heading=row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.setPadding(dp(12),dp(5),dp(9),dp(5));
+        LinearLayout section=ui.column();ui.add(content,section,13);
+        LinearLayout controls=ui.row();ui.add(section,controls,0);
+        LinearLayout heading=ui.row();heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.setPadding(ui.dp(12),ui.dp(5),ui.dp(9),ui.dp(5));
         heading.setBackground(homeSurface());
-        heading.setElevation(dp(1));
-        NavigationGlyph folder=new NavigationGlyph("cards",0xFFAC684C);
-        LinearLayout.LayoutParams iconP=new LinearLayout.LayoutParams(dp(30),dp(30));
-        iconP.rightMargin=dp(10);heading.addView(folder,iconP);
-        TextView label=displayText("Мои коллекции",20);
+        heading.setElevation(ui.dp(1));
+        NavigationGlyph folder=new NavigationGlyph(this,"cards",0xFFAC684C);
+        LinearLayout.LayoutParams iconP=new LinearLayout.LayoutParams(ui.dp(30),ui.dp(30));
+        iconP.rightMargin=ui.dp(10);heading.addView(folder,iconP);
+        TextView label=ui.displayText("Мои коллекции",20);
         label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);
         heading.addView(label,new LinearLayout.LayoutParams(0,-2,1));
         ChevronView arrow=new ChevronView(homeCollectionsExpanded);
-        heading.addView(arrow,new LinearLayout.LayoutParams(dp(30),dp(38)));
-        LinearLayout.LayoutParams headingP=new LinearLayout.LayoutParams(0,dp(55),1);
-        headingP.rightMargin=dp(9);controls.addView(heading,headingP);
-        TextView plus=txt("+",28,0xFFB7553D,false);
+        heading.addView(arrow,new LinearLayout.LayoutParams(ui.dp(30),ui.dp(38)));
+        LinearLayout.LayoutParams headingP=new LinearLayout.LayoutParams(0,ui.dp(55),1);
+        headingP.rightMargin=ui.dp(9);controls.addView(heading,headingP);
+        TextView plus=ui.txt("+",28,0xFFB7553D,false);
         plus.setGravity(Gravity.CENTER);
-        plus.setBackground(outlined(0xFFFFE7D9,18,BORDER));
+        plus.setBackground(ui.outlined(0xFFFFE7D9,18,BORDER));
         plus.setClickable(true);plus.setFocusable(true);
         plus.setContentDescription("Создать коллекцию");
         plus.setOnClickListener(v->createHomeCollection());
-        controls.addView(plus,new LinearLayout.LayoutParams(dp(55),dp(55)));
+        controls.addView(plus,new LinearLayout.LayoutParams(ui.dp(55),ui.dp(55)));
         FrameLayout clip=new FrameLayout(this);clip.setClipChildren(true);
-        LinearLayout collectionList=column();collectionList.setPadding(0,0,0,dp(4));
+        LinearLayout collectionList=ui.column();collectionList.setPadding(0,0,0,ui.dp(4));
         // One readable compact list, part of the main page's single scroll surface.
         for(LocalStore.Group group:store.groups()){
-            LinearLayout tile=row();tile.setPadding(dp(9),dp(8),dp(8),dp(8));
+            LinearLayout tile=ui.row();tile.setPadding(ui.dp(9),ui.dp(8),ui.dp(8),ui.dp(8));
             tile.setGravity(Gravity.CENTER_VERTICAL);
-            tile.setMinimumHeight(dp(72));
+            tile.setMinimumHeight(ui.dp(72));
             tile.setBackground(homeSurface());
             ImageView thumb=landscapeThumbnail(group.id);
-            LinearLayout.LayoutParams thumbP=new LinearLayout.LayoutParams(dp(48),dp(48));
-            thumbP.rightMargin=dp(12);tile.addView(thumb,thumbP);
-            LinearLayout caption=column();
-            TextView collectionName=displayText(group.title,16);
+            LinearLayout.LayoutParams thumbP=new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48));
+            thumbP.rightMargin=ui.dp(12);tile.addView(thumb,thumbP);
+            LinearLayout caption=ui.column();
+            TextView collectionName=ui.displayText(group.title,16);
             collectionName.setMaxLines(2);
             collectionName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            add(caption,collectionName,0);
-            add(caption,txt(group.count+" "+collectionCountNoun(group.count),12,MUTED,false),3);
+            ui.add(caption,collectionName,0);
+            ui.add(caption,ui.txt(group.count+" "+collectionCountNoun(group.count),12,MUTED,false),3);
             tile.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
             tile.setClickable(true);tile.setFocusable(true);
             tile.setOnClickListener(v->{selectedGroup=group.id;screen=Screen.ENTRIES;render();});
-            add(collectionList,tile,7);
+            ui.add(collectionList,tile,7);
         }
         clip.addView(collectionList,new FrameLayout.LayoutParams(-1,-2));
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,
-            homeCollectionsExpanded?-2:0);cp.topMargin=dp(2);section.addView(clip,cp);
+            homeCollectionsExpanded?-2:0);cp.topMargin=ui.dp(2);section.addView(clip,cp);
         heading.setClickable(true);heading.setFocusable(true);
         heading.setContentDescription("Мои коллекции, "+(homeCollectionsExpanded?"свернуть":"раскрыть"));
         heading.setOnClickListener(v->{
@@ -3730,8 +3308,8 @@ public final class MainActivity extends Activity {
     /** Animates only the collection container, never recreating/scrolling Home. */
     private void animateHomeCollections(FrameLayout clip,LinearLayout items,boolean expand){
         int availableWidth=clip.getWidth();
-        if(availableWidth<=0)availableWidth=Math.max(dp(200),
-            getResources().getDisplayMetrics().widthPixels-dp(38));
+        if(availableWidth<=0)availableWidth=Math.max(ui.dp(200),
+            getResources().getDisplayMetrics().widthPixels-ui.dp(38));
         items.measure(View.MeasureSpec.makeMeasureSpec(availableWidth,View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
         int desired=items.getMeasuredHeight();
@@ -3760,13 +3338,13 @@ public final class MainActivity extends Activity {
         animation.start();
     }
     private void stat(LinearLayout row,String number,String desc) {
-        LinearLayout col=column();col.addView(txt(number,25,WHITE,true));col.addView(txt(desc,11,0xFFE1FFFA,false));
+        LinearLayout col=ui.column();col.addView(ui.txt(number,25,WHITE,true));col.addView(ui.txt(desc,11,0xFFE1FFFA,false));
         row.addView(col,new LinearLayout.LayoutParams(0,-2,1));
     }
     private boolean bibleNotReady() {
         if(bible.isReady())return false;
-        if(!bibleError.isEmpty()) helper(content,"Ошибка встроенного текста: "+bibleError);
-        else helper(content,"Загружаем текст Библии из памяти устройства…");
+        if(!bibleError.isEmpty()) ui.helper(content,"Ошибка встроенного текста: "+bibleError);
+        else ui.helper(content,"Загружаем текст Библии из памяти устройства…");
         return true;
     }
     private String bookGroupName(BookColorLogic.Group group){
@@ -3797,35 +3375,35 @@ public final class MainActivity extends Activity {
             BookColorLogic.Group group=BookColorLogic.group(b);
             if(group!=previous){
                 // The ten large serif category headers and spacing are from v0.16.0.
-                TextView groupTitle = displayText(bookGroupName(group), 21);
+                TextView groupTitle = ui.displayText(bookGroupName(group), 21);
                 groupTitle.setGravity(Gravity.CENTER);
-                add(content, groupTitle, 17);
-                LinearLayout panel=column();
-                panel.setBackground(outlined(CARD,18,BORDER));
-                panel.setPadding(dp(11),dp(7),dp(11),dp(7));
-                add(content,panel,4);
-                groupedRows=column();panel.addView(groupedRows,new LinearLayout.LayoutParams(-1,-2));
+                ui.add(content, groupTitle, 17);
+                LinearLayout panel=ui.column();
+                panel.setBackground(ui.outlined(CARD,18,BORDER));
+                panel.setPadding(ui.dp(11),ui.dp(7),ui.dp(11),ui.dp(7));
+                ui.add(content,panel,4);
+                groupedRows=ui.column();panel.addView(groupedRows,new LinearLayout.LayoutParams(-1,-2));
                 previous=group;
             }
             final int book=b;
-            LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
-            TextView abbreviated=txt(BookColorLogic.shortName(b),14,bookInk(b),true);
-            line.addView(abbreviated,new LinearLayout.LayoutParams(dp(68),-2));
-            TextView full=txt(Bible.NAMES[b-1],16,WHITE,false);
+            LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
+            TextView abbreviated=ui.txt(BookColorLogic.shortName(b),14,bookInk(b),true);
+            line.addView(abbreviated,new LinearLayout.LayoutParams(ui.dp(68),-2));
+            TextView full=ui.txt(Bible.NAMES[b-1],16,WHITE,false);
             full.setSingleLine(true);full.setEllipsize(android.text.TextUtils.TruncateAt.END);
             line.addView(full,new LinearLayout.LayoutParams(0,-2,1));
             if(bulk){
                 BookToggle toggle=new BookToggle();
                 toggle.setFocusable(true);
                 applyBookToggle(toggle,pickerTargetId,book,addedBooks.contains(book));
-                animateLessonPress(toggle);
+                ui.animateLessonPress(toggle);
                 pickerBookActions.put(book,toggle);
-                line.addView(toggle,new LinearLayout.LayoutParams(dp(48),dp(48)));
+                line.addView(toggle,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
             }else{
-                TextView arrow=txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
-                line.addView(arrow,new LinearLayout.LayoutParams(dp(20),-2));
+                TextView arrow=ui.txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
+                line.addView(arrow,new LinearLayout.LayoutParams(ui.dp(20),-2));
             }
-            line.setMinimumHeight(dp(48));
+            line.setMinimumHeight(ui.dp(48));
             line.setContentDescription(Bible.NAMES[b-1]);
             line.setOnClickListener(v->{
                 selectedBook=book;selectedChapter=screen==Screen.PICKER_BOOKS&&passageSelection.book==book?
@@ -3846,7 +3424,7 @@ public final class MainActivity extends Activity {
             groupedRows.addView(line,new LinearLayout.LayoutParams(-1,-2));
             if(b<66&&BookColorLogic.group(b+1)==group){
                 View separator=new View(this);separator.setBackgroundColor(0xFFEADACE);
-                groupedRows.addView(separator,new LinearLayout.LayoutParams(-1,dp(1)));
+                groupedRows.addView(separator,new LinearLayout.LayoutParams(-1,ui.dp(1)));
             }
         }
     }
@@ -3875,11 +3453,11 @@ public final class MainActivity extends Activity {
         boolean bulk=screen==Screen.PICKER_CHAPTERS&&canBulkPick();
         if(bulk)pickerChapterButtons.clear();
         for(int base=1;base<=n;base+=4){
-            LinearLayout r=row();
+            LinearLayout r=ui.row();
             for(int k=base;k<base+4;k++){
-                if(k>n){r.addView(new View(this),new LinearLayout.LayoutParams(0,dp(50),1));continue;}
+                if(k>n){r.addView(new View(this),new LinearLayout.LayoutParams(0,ui.dp(50),1));continue;}
                 final int c=k;
-                TextView b=button(String.valueOf(k),c==selected,()->{
+                TextView b=ui.button(String.valueOf(k),c==selected,()->{
                     if(bulk&&!selectedPickerChapters.isEmpty()){togglePickerChapter(c);return;}
                     if(screen==Screen.PICKER_CHAPTERS&&!passageSelection.active&&selectedChapter!=c)pickerVerseNumber=1;
                     selectedChapter=c;
@@ -3892,7 +3470,7 @@ public final class MainActivity extends Activity {
                     render();
                 });
                 if(screen==Screen.PICKER_CHAPTERS){
-                    b.setPadding(dp(4),dp(4),dp(4),dp(4));
+                    b.setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4));
                     b.setContentDescription("Глава "+c+(c==selected?", выбрана":""));
                     if(bulk){
                         pickerChapterButtons.put(c,b);
@@ -3900,10 +3478,10 @@ public final class MainActivity extends Activity {
                         stylePickerChapter(c,b);
                     }
                 }else if(c==selected)b.setContentDescription("Глава "+c+", последняя прочитанная");
-                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(50),1);
-                p.setMargins(dp(3),dp(4),dp(3),dp(4));r.addView(b,p);
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(50),1);
+                p.setMargins(ui.dp(3),ui.dp(4),ui.dp(3),ui.dp(4));r.addView(b,p);
             }
-            add(content,r,2);
+            ui.add(content,r,2);
         }
     }
     private boolean canBulkPick(){
@@ -3928,7 +3506,7 @@ public final class MainActivity extends Activity {
             setBackground(new android.graphics.drawable.InsetDrawable(
                 new android.graphics.drawable.RippleDrawable(
                     android.content.res.ColorStateList.valueOf(0x24426747),
-                    outlined(surface,16,edge),null),dp(8)));
+                    ui.outlined(surface,16,edge),null),ui.dp(8)));
             invalidate();
         }
 
@@ -3939,10 +3517,10 @@ public final class MainActivity extends Activity {
             float x=getWidth()/2f,y=getHeight()/2f;
             ink.setColor(busy?MUTED:BULK_INK);
             if(busy){
-                for(int i=-1;i<=1;i++)canvas.drawCircle(x+i*dp(4),y,dp(1),ink);
+                for(int i=-1;i<=1;i++)canvas.drawCircle(x+i*ui.dp(4),y,ui.dp(1),ink);
             }else{
-                float arm=dp(5);
-                ink.setStrokeWidth(dp(2));
+                float arm=ui.dp(5);
+                ink.setStrokeWidth(ui.dp(2));
                 canvas.drawLine(x-arm,y,x+arm,y,ink);
                 if(!added)canvas.drawLine(x,y-arm,x,y+arm,ink);
             }
@@ -3990,8 +3568,8 @@ public final class MainActivity extends Activity {
         boolean highlighted=selectedPickerChapters.isEmpty()&&chapter==selectedChapter;
         button.setContentDescription("Глава "+chapter+(selected?", выделена":highlighted?", выбрана":""));
         button.setTextColor(selected?BULK_INK:highlighted?PRIMARY_ON:WHITE);
-        button.setBackground(selected?outlined(BULK_SELECTED,18,0xFFABC5A7):
-            highlighted?softAccent():outlined(CARD_ALT,18,BORDER));
+        button.setBackground(selected?ui.outlined(BULK_SELECTED,18,0xFFABC5A7):
+            highlighted?ui.softAccent():ui.outlined(CARD_ALT,18,BORDER));
     }
 
     private void updatePickerChapterSelection(){
@@ -4009,20 +3587,20 @@ public final class MainActivity extends Activity {
     }
 
     private void addPickerChapterFooter(){
-        pickerChapterFooter=row();
-        pickerChapterFooter.setPadding(dp(19),dp(8),dp(19),dp(8));
+        pickerChapterFooter=ui.row();
+        pickerChapterFooter.setPadding(ui.dp(19),ui.dp(8),ui.dp(19),ui.dp(8));
         pickerChapterFooter.setBackgroundColor(CARD);
-        pickerChapterAdd=button("",true,this::commitPickerChapters);
-        pickerChapterAdd.setBackground(shape(BULK_INK,18));
+        pickerChapterAdd=ui.button("",true,this::commitPickerChapters);
+        pickerChapterAdd.setBackground(ui.shape(BULK_INK,18));
         pickerChapterAdd.setTextColor(Color.WHITE);
-        animateLessonPress(pickerChapterAdd);
+        ui.animateLessonPress(pickerChapterAdd);
         pickerChapterFooter.addView(pickerChapterAdd,new LinearLayout.LayoutParams(0,-2,1));
-        pickerChapterCancel=txt("×",26,MUTED,false);
+        pickerChapterCancel=ui.txt("×",26,MUTED,false);
         pickerChapterCancel.setGravity(Gravity.CENTER);
         pickerChapterCancel.setContentDescription("Отменить выделение глав");
         pickerChapterCancel.setFocusable(true);
         pickerChapterCancel.setOnClickListener(v->clearPickerChapterSelection());
-        pickerChapterFooter.addView(pickerChapterCancel,new LinearLayout.LayoutParams(dp(48),dp(49)));
+        pickerChapterFooter.addView(pickerChapterCancel,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(49)));
         root.addView(pickerChapterFooter,new LinearLayout.LayoutParams(-1,-2));
         updatePickerChapterSelection();
     }
@@ -4105,9 +3683,9 @@ public final class MainActivity extends Activity {
         title(Bible.NAMES[selectedBook-1]+" "+selectedChapter,null);
         if(bibleNotReady())return;
         List<Bible.Verse> verses=bible.chapter(selectedBook,selectedChapter);
-        if(verses.isEmpty()){helper(content,"Нет текста главы.");return;}
+        if(verses.isEmpty()){ui.helper(content,"Нет текста главы.");return;}
         rememberChapter(selectedBook,selectedChapter);
-        action(content,"Глава "+selectedChapter+"  ▾",false,this::showChapterJump);
+        ui.action(content,"Глава "+selectedChapter+"  ▾",false,this::showChapterJump);
         Map<Integer,LocalStore.VerseStatus> statuses=store.statusesForChapter(
             Bible.NAMES[selectedBook-1],selectedChapter);
         for(Bible.Verse verse:verses){
@@ -4116,37 +3694,37 @@ public final class MainActivity extends Activity {
             catch(Exception ex){continue;}
             boolean highlighted=verseNumber==focusVerse;
             LocalStore.VerseStatus stat=statuses.get(verseNumber);
-            LinearLayout c=card(content);
+            LinearLayout c=ui.card(content);
             if(highlighted){
-                c.setBackground(outlined(0xFFEDEBDD,20,SUCCESS));
+                c.setBackground(ui.outlined(0xFFEDEBDD,20,SUCCESS));
                 if(chapterFromVerseGrid){
                     final ScrollView scroller=currentScroller;
                     afterPickerLayout(c,()->{if(screen==Screen.CHAPTER&&currentScroller==scroller){
-                        scroller.scrollTo(0,Math.max(0,c.getTop()-dp(30)));
+                        scroller.scrollTo(0,Math.max(0,c.getTop()-ui.dp(30)));
                         c.postDelayed(()->{
-                            if(currentScroller==scroller)c.setBackground(outlined(CARD,22,BORDER));
+                            if(currentScroller==scroller)c.setBackground(ui.outlined(CARD,22,BORDER));
                         },1100);
                     }});
                 }else c.post(()->{if(currentScroller!=null){
                     int top=c.getTop();View node=c.getParent() instanceof View?(View)c.getParent():null;
                     if(node!=null)top+=node.getTop();
-                    currentScroller.smoothScrollTo(0,Math.max(0,top-dp(30)));
+                    currentScroller.smoothScrollTo(0,Math.max(0,top-ui.dp(30)));
                 }});
                 focusVerse=-1;
             }
-            LinearLayout head=row();
-            head.addView(txt(verse.ref,14,bookInk(selectedBook),true));
-            add(c,head,0);
-            add(c,prose(verse.text,19),8);
+            LinearLayout head=ui.row();
+            head.addView(ui.txt(verse.ref,14,bookInk(selectedBook),true));
+            ui.add(c,head,0);
+            ui.add(c,ui.prose(verse.text,19),8);
             {
                 int color=stat==null?MUTED:stat.rank==3?SUCCESS:
                     stat.rank==2?0xFF517993:stat.rank==1?0xFF99723D:MUTED;
                 String label=stat==null?"Не изучен":stat.rank==3?"Закреплён":
                     stat.rank==2?"Предварительно освоен":stat.rank==1?"Изучается":"Не изучен";
                 int rep=stat==null?0:stat.repetitions;
-                add(c,txt("● "+label+"   ·   Повторений: "+rep,12,color,true),12);
+                ui.add(c,ui.txt("● "+label+"   ·   Повторений: "+rep,12,color,true),12);
                 if(stat!=null && stat.nextDue>0 && stat.rank>0)
-                    add(c,txt(stat.nextDue<=System.currentTimeMillis()?"Повторить сегодня":
+                    ui.add(c,ui.txt(stat.nextDue<=System.currentTimeMillis()?"Повторить сегодня":
                         "Следующее повторение: "+date(stat.nextDue),12,MUTED,false),4);
             }
         }
@@ -4154,14 +3732,14 @@ public final class MainActivity extends Activity {
     private ArrayAdapter<String> spinnerAdapter(String[] values){
         return new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,values){
             @Override public View getView(int position,View reusable,ViewGroup parent){
-                TextView text=txt(getItem(position),15,WHITE,true);
+                TextView text=ui.txt(getItem(position),15,WHITE,true);
                 text.setGravity(Gravity.CENTER_VERTICAL);
-                text.setPadding(dp(8),dp(5),dp(4),dp(5));
+                text.setPadding(ui.dp(8),ui.dp(5),ui.dp(4),ui.dp(5));
                 return text;
             }
             @Override public View getDropDownView(int position,View reusable,ViewGroup parent){
-                TextView text=txt(getItem(position),16,WHITE,false);
-                text.setPadding(dp(14),dp(14),dp(14),dp(14));
+                TextView text=ui.txt(getItem(position),16,WHITE,false);
+                text.setPadding(ui.dp(14),ui.dp(14),ui.dp(14),ui.dp(14));
                 text.setBackgroundColor(CARD_ALT);
                 return text;
             }
@@ -4192,15 +3770,15 @@ public final class MainActivity extends Activity {
     private void showChapterJump(){
         if(!bible.isReady())return;
         Dialog dialog=new Dialog(this,R.style.MemoryDialogTheme);
-        LinearLayout layout=column();layout.setPadding(dp(18),dp(24),dp(18),dp(20));
+        LinearLayout layout=ui.column();layout.setPadding(ui.dp(18),ui.dp(24),ui.dp(18),ui.dp(20));
         layout.setBackgroundColor(BG);
-        TextView name=displayText(Bible.NAMES[selectedBook-1],25);
-        name.setGravity(Gravity.CENTER);add(layout,name,0);
-        EditText number=numeric("Введите номер главы","");
+        TextView name=ui.displayText(Bible.NAMES[selectedBook-1],25);
+        name.setGravity(Gravity.CENTER);ui.add(layout,name,0);
+        EditText number=ui.numeric("Введите номер главы","");
         number.setSingleLine(true);number.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        add(layout,number,15);
+        ui.add(layout,number,15);
         ScrollView scroll=new ScrollView(this);
-        LinearLayout list=column();list.setPadding(0,dp(8),0,dp(16));scroll.addView(list);
+        LinearLayout list=ui.column();list.setPadding(0,ui.dp(8),0,ui.dp(16));scroll.addView(list);
         int total=bible.chapterCount(selectedBook);
         Runnable refresh=()->{
             list.removeAllViews();
@@ -4208,25 +3786,25 @@ public final class MainActivity extends Activity {
             if(numberFilter>0){
                 if(numberFilter<=total){
                     final int selection=numberFilter;
-                    TextView one=button("Глава "+selection,true,()->{
+                    TextView one=ui.button("Глава "+selection,true,()->{
                         dialog.dismiss();openReaderVerseGrid(selection);
                     });
-                    add(list,one,5);
-                }else helper(list,"В этой книге только "+total+" глав.");
+                    ui.add(list,one,5);
+                }else ui.helper(list,"В этой книге только "+total+" глав.");
                 return;
             }
             for(int base=1;base<=total;base+=4){
-                LinearLayout row=row();
+                LinearLayout row=ui.row();
                 for(int k=base;k<base+4;k++){
-                    if(k>total){row.addView(new View(this),new LinearLayout.LayoutParams(0,dp(52),1));continue;}
+                    if(k>total){row.addView(new View(this),new LinearLayout.LayoutParams(0,ui.dp(52),1));continue;}
                     final int chapter=k;
-                    TextView b=button(String.valueOf(k),k==selectedChapter,()->{
+                    TextView b=ui.button(String.valueOf(k),k==selectedChapter,()->{
                         dialog.dismiss();openReaderVerseGrid(chapter);
                     });
-                    LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(52),1);
-                    p.setMargins(dp(3),dp(4),dp(3),dp(4));row.addView(b,p);
+                    LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);
+                    p.setMargins(ui.dp(3),ui.dp(4),ui.dp(3),ui.dp(4));row.addView(b,p);
                 }
-                add(list,row,2);
+                ui.add(list,row,2);
             }
         };
         number.addTextChangedListener(new TextWatcher(){
@@ -4244,8 +3822,8 @@ public final class MainActivity extends Activity {
         });
         refresh.run();
         layout.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        TextView close=button("Закрыть",false,dialog::dismiss);
-        add(layout,close,8);
+        TextView close=ui.button("Закрыть",false,dialog::dismiss);
+        ui.add(layout,close,8);
         dialog.setContentView(layout);
         Window window=dialog.getWindow();
         if(window!=null){window.setBackgroundDrawableResource(android.R.color.transparent);
@@ -4256,9 +3834,9 @@ public final class MainActivity extends Activity {
     /** Always-visible, four-field passage composer. Tapping Scripture never selects ranges. */
     private void renderInlineRangeBuilder(){renderInlineRangeBuilder(false);}
     private void renderInlineRangeBuilder(boolean cardPicker){
-        LinearLayout builder=card(content);
-        add(builder,txt("Выбрать отрывок",19,WHITE,true),0);
-        if(!cardPicker)helper(builder,"Укажи начало и конец. Можно выбрать несколько глав.");
+        LinearLayout builder=ui.card(content);
+        ui.add(builder,ui.txt("Выбрать отрывок",19,WHITE,true),0);
+        if(!cardPicker)ui.helper(builder,"Укажи начало и конец. Можно выбрать несколько глав.");
         int sc=rangeStartChapter<1?selectedChapter:rangeStartChapter;
         int ec=rangeEndChapter<1?sc:rangeEndChapter;
         int sv=rangeStartVerse<1?1:rangeStartVerse;
@@ -4266,14 +3844,14 @@ public final class MainActivity extends Activity {
         Spinner startChapter=chapterPicker(sc),endChapter=chapterPicker(ec);
         Spinner startVerse=new Spinner(this),endVerse=new Spinner(this);
         updateVersePicker(startVerse,sc,sv);updateVersePicker(endVerse,ec,ev);
-        LinearLayout first=row(),last=row();
-        TextView firstHeading=txt("НАЧАЛО",12,GREEN,true);add(builder,firstHeading,14);
-        first.addView(startChapter,new LinearLayout.LayoutParams(0,dp(53),1));
-        first.addView(startVerse,new LinearLayout.LayoutParams(0,dp(53),1));add(builder,first,5);
-        add(builder,txt("КОНЕЦ",12,GREEN,true),12);
-        last.addView(endChapter,new LinearLayout.LayoutParams(0,dp(53),1));
-        last.addView(endVerse,new LinearLayout.LayoutParams(0,dp(53),1));add(builder,last,5);
-        TextView info=txt("",13,MUTED,false);add(builder,info,9);
+        LinearLayout first=ui.row(),last=ui.row();
+        TextView firstHeading=ui.txt("НАЧАЛО",12,GREEN,true);ui.add(builder,firstHeading,14);
+        first.addView(startChapter,new LinearLayout.LayoutParams(0,ui.dp(53),1));
+        first.addView(startVerse,new LinearLayout.LayoutParams(0,ui.dp(53),1));ui.add(builder,first,5);
+        ui.add(builder,ui.txt("КОНЕЦ",12,GREEN,true),12);
+        last.addView(endChapter,new LinearLayout.LayoutParams(0,ui.dp(53),1));
+        last.addView(endVerse,new LinearLayout.LayoutParams(0,ui.dp(53),1));ui.add(builder,last,5);
+        TextView info=ui.txt("",13,MUTED,false);ui.add(builder,info,9);
         Runnable update=()->{
             int a=startChapter.getSelectedItemPosition()+1,b=startVerse.getSelectedItemPosition()+1;
             int c=endChapter.getSelectedItemPosition()+1,d=endVerse.getSelectedItemPosition()+1;
@@ -4339,7 +3917,7 @@ public final class MainActivity extends Activity {
             suppress[0]=false;matchStart.run();
         });
         update.run();
-        action(builder,screen==Screen.BIBLE_PICKER?"Добавить отрывок":cardPicker?"Добавить карточку":"Просмотреть отрывок",true,()->{
+        ui.action(builder,screen==Screen.BIBLE_PICKER?"Добавить отрывок":cardPicker?"Добавить карточку":"Просмотреть отрывок",true,()->{
             update.run();
             if(!PassageRangeLogic.valid(rangeStartChapter,rangeStartVerse,rangeEndChapter,rangeEndVerse)){
                 toast("Конец не может быть раньше начала");return;
@@ -4352,7 +3930,7 @@ public final class MainActivity extends Activity {
             else if(cardPicker)addCardFromSelection(selectedDeck);
             else previewPassage();
         });
-        if(!cardPicker&&screen!=Screen.BIBLE_PICKER)action(builder,"Добавить в карточки",false,()->{
+        if(!cardPicker&&screen!=Screen.BIBLE_PICKER)ui.action(builder,"Добавить в карточки",false,()->{
             update.run();
             if(!PassageRangeLogic.valid(rangeStartChapter,rangeStartVerse,rangeEndChapter,rangeEndVerse)){
                 toast("Неверный диапазон");return;
@@ -4406,25 +3984,13 @@ public final class MainActivity extends Activity {
         }
         dialog.show();
     }
-    private void styledDialog(AlertDialog d){
-        d.setOnShowListener(x->{
-            if(d.getWindow()!=null){
-                d.getWindow().setBackgroundDrawable(shape(CARD,22));
-                d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-                d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.91f),-2);
-            }
-            int[] ids={android.R.id.button1,android.R.id.button2,android.R.id.button3};
-            for(int id:ids){View v=d.findViewById(id);if(v instanceof TextView)((TextView)v).setTextColor(GREEN);}
-        });
-        d.show();
-    }
     private interface Pick {void apply(long groupId);}
     private void chooseGroup(Pick action) {
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
         String[] names=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)names[i]=collections.get(i).title;
         names[collections.size()]="＋ Новая коллекция";
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Добавить в коллекцию").setItems(names,(d,which)->{
                 if(which==collections.size())newGroup(action);
                 else action.apply(collections.get(which).groupId);
@@ -4440,7 +4006,7 @@ public final class MainActivity extends Activity {
     private void showStudyGroupActions(LocalStore.Group group,View anchor){
         String[] actions={"Добавить свой текст","Переименовать","Удалить"};
         String[] icons={"file","pencil","trash"};
-        showActionsMenu(anchor,actions,icons,which->{
+        menus.showActionsMenu(anchor,actions,icons,which->{
             selectedGroup=group.id;
             switch(which){
                 case 0:customTargetGroupId=group.id;screen=Screen.CUSTOM;render();break;
@@ -4450,7 +4016,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void confirmDeleteStudyGroup(LocalStore.Group group){
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить коллекцию из списка?")
             .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
             .setPositiveButton("Удалить",(d,w)->{
@@ -4473,7 +4039,7 @@ public final class MainActivity extends Activity {
         title(group.title, null);
 
         // Общий прогресс изучения.
-        helper(
+        ui.helper(
                 content,
                 "Освоено: " + studyProgressFor(group.id)
         );
@@ -4491,9 +4057,9 @@ public final class MainActivity extends Activity {
     }
 
     private void renameGroup(LocalStore.Group group) {
-        EditText name=input("Название коллекции",false);name.setText(group.title);
-        LinearLayout box=column();box.setPadding(dp(20),dp(5),dp(20),dp(5));box.addView(name);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать коллекцию").setView(box)
+        EditText name=ui.input("Название коллекции",false);name.setText(group.title);
+        LinearLayout box=ui.column();box.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(5));box.addView(name);
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать коллекцию").setView(box)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(name).isEmpty()){toast("Укажи название");return;}
                 store.renameGroup(group.id,value(name));render();
@@ -4533,7 +4099,7 @@ public final class MainActivity extends Activity {
         List<LocalStore.Entry> list=store.entries(selectedGroup);
         List<Long> ids=new ArrayList<>();for(LocalStore.Entry e:list)ids.add(e.id);
         for(LocalStore.Entry e:list)renderReorderRow(e.id,e.reference,ids,false);
-        action(content,"Готово",true,()->{
+        ui.action(content,"Готово",true,()->{
             LocalStore.UnifiedCollection u=store.unifiedForGroup(selectedGroup);
             screen=u==null?Screen.ENTRIES:Screen.COLLECTION_DETAIL;
             if(u!=null)openUnifiedId=u.id;render();
@@ -4544,14 +4110,14 @@ public final class MainActivity extends Activity {
         List<LocalStore.Flashcard> list=store.flashcards(selectedDeck);
         List<Long> ids=new ArrayList<>();for(LocalStore.Flashcard f:list)ids.add(f.id);
         for(LocalStore.Flashcard f:list)renderReorderRow(f.id,f.reference,ids,true);
-        action(content,"Готово",true,()->{screen=Screen.CARD_DECK;render();});
+        ui.action(content,"Готово",true,()->{screen=Screen.CARD_DECK;render();});
     }
     private void renderReorderRow(long id,String label,List<Long> ids,boolean cards){
-        LinearLayout item=row();item.setPadding(dp(16),dp(12),dp(16),dp(12));
-        item.setBackground(outlined(CARD,14,BORDER));
-        MenuGlyph dragGlyph=new MenuGlyph("shuffle",GREEN);
-        item.addView(dragGlyph,new LinearLayout.LayoutParams(dp(40),dp(44)));
-        item.addView(txt(label,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout item=ui.row();item.setPadding(ui.dp(16),ui.dp(12),ui.dp(16),ui.dp(12));
+        item.setBackground(ui.outlined(CARD,14,BORDER));
+        MenuGlyph dragGlyph=new MenuGlyph(this,"shuffle",GREEN);
+        item.addView(dragGlyph,new LinearLayout.LayoutParams(ui.dp(40),ui.dp(44)));
+        item.addView(ui.txt(label,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
         item.setContentDescription("Удерживай и перемести: "+label);
         item.setOnLongClickListener(v->{
             android.content.ClipData data=android.content.ClipData.newPlainText("study-row",String.valueOf(id));
@@ -4571,7 +4137,7 @@ public final class MainActivity extends Activity {
             }
             return true;
         });
-        add(content,item,7);
+        ui.add(content,item,7);
     }
 
     private interface OnBibleRangeEdit {void save(int sc,int sv,int ec,int ev);}
@@ -4583,12 +4149,12 @@ public final class MainActivity extends Activity {
         }catch(Exception err){return null;}
     }
     private void editBibleRange(String heading,int book,int sc,int sv,int ec,int ev,OnBibleRangeEdit save){
-        LinearLayout wrap=column();wrap.setPadding(dp(20),dp(8),dp(20),dp(10));
-        add(wrap,txt(Bible.NAMES[book-1],17,WHITE,true),0);
-        EditText startChapter=numeric("Начальная глава",String.valueOf(sc));
-        EditText startVerse=numeric("Начальный стих",String.valueOf(sv));
-        EditText endChapter=numeric("Конечная глава",String.valueOf(ec));
-        EditText endVerse=numeric("Конечный стих",String.valueOf(ev));
+        LinearLayout wrap=ui.column();wrap.setPadding(ui.dp(20),ui.dp(8),ui.dp(20),ui.dp(10));
+        ui.add(wrap,ui.txt(Bible.NAMES[book-1],17,WHITE,true),0);
+        EditText startChapter=ui.numeric("Начальная глава",String.valueOf(sc));
+        EditText startVerse=ui.numeric("Начальный стих",String.valueOf(sv));
+        EditText endChapter=ui.numeric("Конечная глава",String.valueOf(ec));
+        EditText endVerse=ui.numeric("Конечный стих",String.valueOf(ev));
         final boolean[] changed={false};
         TextWatcher autoEnd=new TextWatcher(){
             public void beforeTextChanged(CharSequence text,int start,int count,int after){}
@@ -4607,13 +4173,13 @@ public final class MainActivity extends Activity {
             public void afterTextChanged(Editable e){}
         };
         endChapter.addTextChangedListener(markManual);endVerse.addTextChangedListener(markManual);
-        add(wrap,txt("НАЧАЛО",12,GREEN,true),13);
-        LinearLayout first=row();first.addView(startChapter,new LinearLayout.LayoutParams(0,dp(54),1));
-        first.addView(startVerse,new LinearLayout.LayoutParams(0,dp(54),1));add(wrap,first,5);
-        add(wrap,txt("КОНЕЦ",12,GREEN,true),12);
-        LinearLayout last=row();last.addView(endChapter,new LinearLayout.LayoutParams(0,dp(54),1));
-        last.addView(endVerse,new LinearLayout.LayoutParams(0,dp(54),1));add(wrap,last,5);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.add(wrap,ui.txt("НАЧАЛО",12,GREEN,true),13);
+        LinearLayout first=ui.row();first.addView(startChapter,new LinearLayout.LayoutParams(0,ui.dp(54),1));
+        first.addView(startVerse,new LinearLayout.LayoutParams(0,ui.dp(54),1));ui.add(wrap,first,5);
+        ui.add(wrap,ui.txt("КОНЕЦ",12,GREEN,true),12);
+        LinearLayout last=ui.row();last.addView(endChapter,new LinearLayout.LayoutParams(0,ui.dp(54),1));
+        last.addView(endVerse,new LinearLayout.LayoutParams(0,ui.dp(54),1));ui.add(wrap,last,5);
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle(heading).setView(wrap)
             .setPositiveButton("Сохранить",(d,w)->{
                 int a=number(startChapter),b=number(startVerse),c=number(endChapter),end=number(endVerse);
@@ -4642,19 +4208,19 @@ public final class MainActivity extends Activity {
         editCustomStudyEntry(e);
     }
     private void editCustomStudyEntry(LocalStore.Entry e){
-        EditText source=input("Название / источник",false);source.setText(e.reference);
-        EditText words=input("Текст",true);words.setMinLines(5);
+        EditText source=ui.input("Название / источник",false);source.setText(e.reference);
+        EditText words=ui.input("Текст",true);words.setMinLines(5);
         StringBuilder original=new StringBuilder();
         for(Bible.Verse v:e.lines()){
             if(original.length()>0)original.append('\n');original.append(v.text);
         }
         words.setText(original.toString());
-        LinearLayout fields=column();fields.setPadding(dp(20),dp(5),dp(20),dp(12));
-        add(fields,source,0);add(fields,words,10);
+        LinearLayout fields=ui.column();fields.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(12));
+        ui.add(fields,source,0);ui.add(fields,words,10);
         AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Изменить свой текст").setView(fields)
             .setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
-        styledDialog(dialog);
+        ui.styledDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
             if(value(source).isEmpty()){source.setError("Укажи название");source.requestFocus();return;}
             List<Bible.Verse> lines;
@@ -4678,11 +4244,11 @@ public final class MainActivity extends Activity {
                 });
             return;
         }
-        EditText source=input("Название / источник",false);source.setText(card.reference);
-        EditText words=input("Текст",true);words.setMinLines(4);words.setText(card.content);
-        LinearLayout fields=column();fields.setPadding(dp(20),dp(5),dp(20),dp(12));
-        add(fields,source,0);add(fields,words,9);
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        EditText source=ui.input("Название / источник",false);source.setText(card.reference);
+        EditText words=ui.input("Текст",true);words.setMinLines(4);words.setText(card.content);
+        LinearLayout fields=ui.column();fields.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(12));
+        ui.add(fields,source,0);ui.add(fields,words,9);
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Изменить карточку").setView(fields)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(source).isEmpty()||value(words).isEmpty()){toast("Заполни поля");return;}
@@ -4694,7 +4260,7 @@ public final class MainActivity extends Activity {
     private void showEntryActions(LocalStore.Entry entry,View anchor){
         String[] labels={"Изменить отрывок","Добавить стих / отрывок после него","Удалить"};
         String[] icons={"pencil","book","trash"};
-        showActionsMenu(anchor,labels,icons,which->{
+        menus.showActionsMenu(anchor,labels,icons,which->{
             switch(which){
                 case 0:editStudyEntry(entry);break;
                 case 1:
@@ -4702,7 +4268,7 @@ public final class MainActivity extends Activity {
                     insertAfterEntryId=entry.id;studyInsertionTrail.add(entry.id);
                     openBiblePicker(BibleTarget.STUDY_GROUP,entry.groupId,screen==Screen.COLLECTION_DETAIL?Screen.COLLECTION_DETAIL:Screen.ENTRIES);break;
                 case 2:
-                    styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                    ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать отрывок из коллекции?")
                         .setPositiveButton("Убрать",(d,w)->{
                             store.removeUnifiedPassage(entry.groupId,entry.reference);render();
@@ -4713,7 +4279,7 @@ public final class MainActivity extends Activity {
     private void showCardActions(LocalStore.Flashcard card,View anchor){
         String[] labels={"Изменить отрывок","Добавить стих / отрывок после него","Удалить"};
         String[] icons={"pencil","book","trash"};
-        showActionsMenu(anchor,labels,icons,which->{
+        menus.showActionsMenu(anchor,labels,icons,which->{
             switch(which){
                 case 0:editCardEntry(card);break;
                 case 1:
@@ -4721,7 +4287,7 @@ public final class MainActivity extends Activity {
                     insertAfterCardId=card.id;cardInsertionTrail.add(card.id);
                     openBiblePicker(BibleTarget.FLASHCARD_DECK,selectedDeck,Screen.CARD_DECK);break;
                 case 2:
-                    styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                    ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать карточку из подборки?")
                         .setPositiveButton("Убрать",(d,w)->{
                             store.removeFlashcard(selectedDeck,card.id);render();
@@ -4734,8 +4300,8 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle(entry.title)
             .setItems(new String[]{"Переименовать отрывок","Удалить отрывок"},(d,choice)->{
                 if(choice==0){
-                    EditText name=input("Название отрывка",false);name.setText(entry.title);
-                    LinearLayout box=column();box.setPadding(dp(20),dp(5),dp(20),dp(5));box.addView(name);
+                    EditText name=ui.input("Название отрывка",false);name.setText(entry.title);
+                    LinearLayout box=ui.column();box.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(5));box.addView(name);
                     new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать отрывок").setView(box)
                         .setPositiveButton("Сохранить",(dd,w)->{
                             if(value(name).isEmpty()){toast("Укажи название");return;}
@@ -4757,32 +4323,32 @@ public final class MainActivity extends Activity {
         int established=snapshot.consolidatedCount(source);
         String progress=established+" закреплено · "+Math.max(0,learned-established)+" предварительно освоено";
         String detail=e.reference+" · "+progress+" · Связок: "+snapshot.linkedCount(source);
-        LinearLayout c=card(content);c.setBackground(homeSurface());
-        LinearLayout row=row();
-        LinearLayout body=column();
-        add(body,displayText(e.title,17),0);
-        add(body,txt(detail,13,MUTED,false),6);
+        LinearLayout c=ui.card(content);c.setBackground(homeSurface());
+        LinearLayout row=ui.row();
+        LinearLayout body=ui.column();
+        ui.add(body,ui.displayText(e.title,17),0);
+        ui.add(body,ui.txt(detail,13,MUTED,false),6);
         row.addView(body,new LinearLayout.LayoutParams(0,-2,1));
-        TextView more=txt("⋮",26,MUTED,true);more.setGravity(Gravity.CENTER);
+        TextView more=ui.txt("⋮",26,MUTED,true);more.setGravity(Gravity.CENTER);
         more.setContentDescription("Действия с отрывком "+e.reference);
-        row.addView(more,new LinearLayout.LayoutParams(dp(48),dp(54)));
+        row.addView(more,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(54)));
         more.setOnClickListener(v->showEntryActions(e,more));
         body.setFocusable(true);
         body.setContentDescription("Изучать "+e.reference);
         body.setOnClickListener(v->openTraining(e.id));
-        add(c,row,0);
+        ui.add(c,row,0);
     }
     private String date(long millis){return new SimpleDateFormat("dd.MM",Locale.forLanguageTag("ru-RU")).format(new Date(millis));}
     private void renderCustom() {
         title("Свой текст","Вставь стих, песню Писания или собственный учебный фрагмент.");
-        LinearLayout form=card(content);
-        label(form,"Название");EditText title=input("Например: Обетования",false);add(form,title,7);
-        label(form,"Ссылка / источник");EditText ref=input("Например: Римлянам 8:28",false);add(form,ref,7);
-        label(form,"Текст для заучивания");
-        EditText lines=input("Вставь текст. Для большого отрывка размести каждый стих с новой строки.",true);
-        add(form,lines,7);
-        helper(form,"Каждая непустая строка будет отдельным шагом обучения (до 500 строк).");
-        action(form,"Сохранить в коллекцию",true,()->{
+        LinearLayout form=ui.card(content);
+        ui.label(form,"Название");EditText title=ui.input("Например: Обетования",false);ui.add(form,title,7);
+        ui.label(form,"Ссылка / источник");EditText ref=ui.input("Например: Римлянам 8:28",false);ui.add(form,ref,7);
+        ui.label(form,"Текст для заучивания");
+        EditText lines=ui.input("Вставь текст. Для большого отрывка размести каждый стих с новой строки.",true);
+        ui.add(form,lines,7);
+        ui.helper(form,"Каждая непустая строка будет отдельным шагом обучения (до 500 строк).");
+        ui.action(form,"Сохранить в коллекцию",true,()->{
             String t=value(title),r=value(ref),s=value(lines);
             if(t.isEmpty()||s.isEmpty()){toast("Введи название и текст");return;}
             List<Bible.Verse> items;
@@ -4868,11 +4434,11 @@ public final class MainActivity extends Activity {
     private void renderDue() {
         LearningHelp help=reviewCollectionGroup>0?LearningHelp.REVIEW:LearningHelp.ALL_REVIEWS;
         title(help.title,null);
-        LinearLayout c=headerCard(content);
-        add(c,txt("Пока нет заданий на повторение",21,WHITE,true),0);
-        helper(c,reviewCollectionGroup>0?"В выбранной коллекции сейчас нет заданий, срок которых наступил.":
+        LinearLayout c=ui.headerCard(content);
+        ui.add(c,ui.txt("Пока нет заданий на повторение",21,WHITE,true),0);
+        ui.helper(c,reviewCollectionGroup>0?"В выбранной коллекции сейчас нет заданий, срок которых наступил.":
             "Сейчас нет запланированных заданий, срок которых наступил.");
-        action(content,"На главную",true,()->{screen=Screen.HOME;render();});
+        ui.action(content,"На главную",true,()->{screen=Screen.HOME;render();});
     }
     private void openReview(LocalStore.DueItem item){
         if(prepareReview(item))render();
@@ -5245,7 +4811,7 @@ public final class MainActivity extends Activity {
                 text.append(verse.ref+"   ");int offset=text.length();
                 text.append(verse.text);
                 for(int[] range:ReviewLogic.blurRanges(verse.text,percentage,verse.ref.hashCode()^blurSeed)) {
-                    text.setSpan(new MaskFilterSpan(new BlurMaskFilter(dp(9),BlurMaskFilter.Blur.NORMAL)),
+                    text.setSpan(new MaskFilterSpan(new BlurMaskFilter(ui.dp(9),BlurMaskFilter.Blur.NORMAL)),
                         offset+range[0],offset+range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 }
             }
@@ -5354,9 +4920,9 @@ public final class MainActivity extends Activity {
         }
     }
     private TextView wordTile(String word,int bg,int color,int stroke,Runnable tapped) {
-        TextView tv=txt(word,16,color,true);
-        tv.setMinHeight(dp(43));tv.setGravity(Gravity.CENTER);
-        tv.setPadding(dp(12),dp(8),dp(12),dp(8));tv.setBackground(outlined(bg,12,stroke));
+        TextView tv=ui.txt(word,16,color,true);
+        tv.setMinHeight(ui.dp(43));tv.setGravity(Gravity.CENTER);
+        tv.setPadding(ui.dp(12),ui.dp(8),ui.dp(12),ui.dp(8));tv.setBackground(ui.outlined(bg,12,stroke));
         if(tapped!=null){tv.setClickable(true);tv.setFocusable(true);tv.setOnClickListener(v->tapped.run());}
         return tv;
     }
@@ -5369,7 +4935,7 @@ public final class MainActivity extends Activity {
                 annotated.setSpan(new ForegroundColorSpan(RED),start,annotated.length(),
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-        TextView tv=txt("",17,WHITE,false);tv.setText(annotated);return tv;
+        TextView tv=ui.txt("",17,WHITE,false);tv.setText(annotated);return tv;
     }
     private int bookForEntry(LocalStore.Entry e){
         if(e==null||e.reference==null)return -1;
@@ -5410,18 +4976,18 @@ public final class MainActivity extends Activity {
     }
     /** Separate full-screen lesson: no card carousel or persistent app-tab bar. */
     private void renderUnlearnableLine(LocalStore.Entry entry,int invalidLine){
-        root=column();root.setBackground(pageBackground());
-        root.setPadding(dp(22),dp(24),dp(22),dp(24));
+        root=ui.column();root.setBackground(ui.pageBackground());
+        root.setPadding(ui.dp(22),ui.dp(24),ui.dp(22),ui.dp(24));
         currentScroller=null;
         activeTextArea=null;activePassage=null;
-        LinearLayout panel=card(root);
-        add(panel,displayText("Текст требует исправления",22),0);
-        helper(panel,CustomStudyText.message(invalidLine)+". Исправь строку, чтобы продолжить обучение.");
-        action(panel,"Изменить текст",true,()->{
+        LinearLayout panel=ui.card(root);
+        ui.add(panel,ui.displayText("Текст требует исправления",22),0);
+        ui.helper(panel,CustomStudyText.message(invalidLine)+". Исправь строку, чтобы продолжить обучение.");
+        ui.action(panel,"Изменить текст",true,()->{
             onBackPressed();
             editCustomStudyEntry(entry);
         });
-        action(panel,"Выйти из урока",false,this::onBackPressed);
+        ui.action(panel,"Выйти из урока",false,this::onBackPressed);
         setContentView(root);
     }
 
@@ -5443,11 +5009,11 @@ public final class MainActivity extends Activity {
         int invalidLine=CustomStudyText.firstUnlearnable(e.lines(),activeStep.start,activeStep.end);
         if(invalidLine>=0){renderUnlearnableLine(e,invalidLine);return;}
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
-        root=column();root.setBackground(assembling?assemblyBackground():pageBackground());
+        root=ui.column();root.setBackground(assembling?assemblyBackground():ui.pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        LinearLayout top=column();top.setPadding(dp(22),dp(15),dp(22),dp(6));
-        LinearLayout topRow=row();
-        TextView close=txt("×",30,WHITE,false);close.setGravity(Gravity.CENTER);
+        LinearLayout top=ui.column();top.setPadding(ui.dp(22),ui.dp(15),ui.dp(22),ui.dp(6));
+        LinearLayout topRow=ui.row();
+        TextView close=ui.txt("×",30,WHITE,false);close.setGravity(Gravity.CENTER);
         close.setContentDescription("Выйти из урока");
         close.setOnClickListener(v->onBackPressed());
         // SV_DEVELOPER_MODE_UPDATE_1: long-press the close icon for debugging.
@@ -5458,21 +5024,21 @@ public final class MainActivity extends Activity {
                 store.masteryCount(e.id));
             return true;
         });
-        topRow.addView(close,new LinearLayout.LayoutParams(dp(45),dp(45)));
+        topRow.addView(close,new LinearLayout.LayoutParams(ui.dp(45),ui.dp(45)));
         if(assembling){
             close.setTextColor(BUILD_INK);
-            close.setBackground(outlined(0xFFFFF1E2,24,0xFFFFF9F0));
-            close.setElevation(dp(2));
-            TextView title=displayText("Сборка",27);
+            close.setBackground(ui.outlined(0xFFFFF1E2,24,0xFFFFF9F0));
+            close.setElevation(ui.dp(2));
+            TextView title=ui.displayText("Сборка",27);
             title.setTextColor(BUILD_INK);
             title.setGravity(Gravity.CENTER);
             topRow.setGravity(Gravity.CENTER_VERTICAL);
             topRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
             if(!DeveloperModeController.isEnabled(this))
-                topRow.addView(new View(this),new LinearLayout.LayoutParams(dp(45),dp(45)));
-        }else topRow.addView(new View(this),new LinearLayout.LayoutParams(0,dp(45),1));
+                topRow.addView(new View(this),new LinearLayout.LayoutParams(ui.dp(45),ui.dp(45)));
+        }else topRow.addView(new View(this),new LinearLayout.LayoutParams(0,ui.dp(45),1));
         if(DeveloperModeController.isEnabled(this)){
-            TextView devButton=txt("DEV",12,GREEN,true);
+            TextView devButton=ui.txt("DEV",12,GREEN,true);
             devButton.setGravity(Gravity.CENTER);
             devButton.setContentDescription("Открыть режим разработчика");
             devButton.setOnClickListener(v->{
@@ -5481,21 +5047,21 @@ public final class MainActivity extends Activity {
                     chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
                     store.masteryCount(e.id));
             });
-            topRow.addView(devButton,new LinearLayout.LayoutParams(dp(48),dp(45)));
+            topRow.addView(devButton,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(45)));
         }
         top.addView(topRow);
         lessonHotbarStrip=null;
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         scroll.setClipToPadding(false);currentScroller=scroll;
-        content=column();content.setPadding(dp(20),dp(11),dp(20),dp(18));scroll.addView(content);
+        content=ui.column();content.setPadding(ui.dp(20),ui.dp(11),ui.dp(20),ui.dp(18));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView mainAction;
         int number=stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
             lessonPhaseHeader("Ознакомление",e);
             renderLessonIntro();
-            mainAction=button("Продолжить",true,()->{
+            mainAction=ui.button("Продолжить",true,()->{
                 if(groupMode)groupIntroDone=true;
                 else store.finishExercise(e.id,activeStep.start,1);
                 lessonVariant=0;lessonChunk=0;lessonWriting.variant=0;resetLessonTiles();mask=0;
@@ -5505,33 +5071,33 @@ public final class MainActivity extends Activity {
             trainingMode=TrainingMode.ORDER;
             assemblyReference(e);
             boolean complete=renderLessonBuild(e);
-            mainAction=button("Продолжить",true,()->{
+            mainAction=ui.button("Продолжить",true,()->{
                 if(lessonAssembly.picked()>=lessonBuildRequired)advanceLessonBuild(e);
             });
             mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
             mainAction.setTextSize(22);
-            mainAction.setElevation(dp(3));
+            mainAction.setElevation(ui.dp(3));
             styleAssemblyContinue(mainAction,complete);
             lessonBuildAction=mainAction;
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
                 renderAnswerReview(answerReview);
-                mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
+                mainAction=ui.button("Написать ещё раз",true,this::retryLessonWriting);
             }else{
                 lessonPhaseHeader("Написание",e);
                 renderLessonWriting();
-                mainAction=button("Проверить",true,()->validateLessonWriting(e));
+                mainAction=ui.button("Проверить",true,()->validateLessonWriting(e));
             }
         } else {
             renderCompletion(e);
             return;
         }
         renderLessonHotbar(top,phase,e);
-        LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
-        animateLessonPress(mainAction);
-        mainAction.setMinimumHeight(dp(58));
-        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,assembling||answerReview!=null?-2:dp(58)));
+        LinearLayout footer=ui.column();footer.setPadding(ui.dp(24),ui.dp(12),ui.dp(24),ui.dp(22));
+        ui.animateLessonPress(mainAction);
+        mainAction.setMinimumHeight(ui.dp(58));
+        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,assembling||answerReview!=null?-2:ui.dp(58)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         setContentView(root);
     }
@@ -5550,7 +5116,7 @@ public final class MainActivity extends Activity {
     }
     /** Celebratory page: the approved crown/check composition in the same warm scenic UI. */
     private void renderCompletion(LocalStore.Entry e){
-        root=column();
+        root=ui.column();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         FrameLayout scenery=new FrameLayout(this);
         ImageView image=new ImageView(this);
@@ -5562,30 +5128,30 @@ public final class MainActivity extends Activity {
         haze.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
             new int[]{0xFFFFF2E9,0xFEFFF0E6,0xDFFFF0E5,0x7DFFF0E4,0x77FFF0E4}));
         scenery.addView(haze,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout central=column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
-        central.setPadding(dp(16),dp(16),dp(16),dp(12));
+        LinearLayout central=ui.column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
+        central.setPadding(ui.dp(16),ui.dp(16),ui.dp(16),ui.dp(12));
         root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
-        TextView crown=txt("👑",34,GOLD,true);crown.setGravity(Gravity.CENTER);
-        central.addView(crown,new LinearLayout.LayoutParams(dp(75),dp(65)));
-        TextView reference=displayText(lessonFullReference(e),21);
-        reference.setGravity(Gravity.CENTER);reference.setPadding(dp(14),dp(6),dp(14),dp(6));
+        TextView crown=ui.txt("👑",34,GOLD,true);crown.setGravity(Gravity.CENTER);
+        central.addView(crown,new LinearLayout.LayoutParams(ui.dp(75),ui.dp(65)));
+        TextView reference=ui.displayText(lessonFullReference(e),21);
+        reference.setGravity(Gravity.CENTER);reference.setPadding(ui.dp(14),ui.dp(6),ui.dp(14),ui.dp(6));
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,-2);
-        rp.topMargin=dp(12);central.addView(reference,rp);
-        TextView heading=displayText(groupMode?"Связка освоена!":"Стих освоен!",38);
+        rp.topMargin=ui.dp(12);central.addView(reference,rp);
+        TextView heading=ui.displayText(groupMode?"Связка освоена!":"Стих освоен!",38);
         heading.setGravity(Gravity.CENTER);heading.setTextColor(0xFF35452E);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
-        hp.topMargin=dp(14);central.addView(heading,hp);
+        hp.topMargin=ui.dp(14);central.addView(heading,hp);
         SuccessArt art=new SuccessArt();
         int availableArt=Math.min(270,Math.max(140,
             Math.round(getResources().getDisplayMetrics().heightPixels /
                 getResources().getDisplayMetrics().density)-410));
-        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(availableArt));
-        ap.topMargin=dp(10);central.addView(art,ap);
-        LinearLayout footer=column();footer.setPadding(dp(24),dp(14),dp(24),dp(25));
-        TextView continueButton=button("Продолжить",true,()->advanceAfterSuccess(e));
-        animateLessonPress(continueButton);
+        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,ui.dp(availableArt));
+        ap.topMargin=ui.dp(10);central.addView(art,ap);
+        LinearLayout footer=ui.column();footer.setPadding(ui.dp(24),ui.dp(14),ui.dp(24),ui.dp(25));
+        TextView continueButton=ui.button("Продолжить",true,()->advanceAfterSuccess(e));
+        ui.animateLessonPress(continueButton);
         continueButton.setTextSize(20);
-        footer.addView(continueButton,new LinearLayout.LayoutParams(-1,dp(61)));
+        footer.addView(continueButton,new LinearLayout.LayoutParams(-1,ui.dp(61)));
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         scenery.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(scenery);
@@ -5713,15 +5279,15 @@ public final class MainActivity extends Activity {
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
                                      LocalStore.Entry e){
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
-        LinearLayout bar=column();bar.setTag("lesson-progress");
+        LinearLayout bar=ui.column();bar.setTag("lesson-progress");
         lessonHotbarStrip=new LessonSegmentedBar(model);
         lessonHotbarStrip.setTag("lesson-progress-strip");
-        bar.setBackground(shape(0xBFFFF8EE,12));
-        bar.setPadding(dp(4),dp(3),dp(4),dp(3));
-        bar.addView(lessonHotbarStrip,new LinearLayout.LayoutParams(-1,dp(9)));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(190),-2);
+        bar.setBackground(ui.shape(0xBFFFF8EE,12));
+        bar.setPadding(ui.dp(4),ui.dp(3),ui.dp(4),ui.dp(3));
+        bar.addView(lessonHotbarStrip,new LinearLayout.LayoutParams(-1,ui.dp(9)));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(ui.dp(190),-2);
         lp.gravity=Gravity.CENTER_HORIZONTAL;
-        lp.topMargin=dp(8);
+        lp.topMargin=ui.dp(8);
         top.addView(bar,lp);
     }
 
@@ -5770,7 +5336,7 @@ public final class MainActivity extends Activity {
             int groups=0;
             for(int total:model.totals)if(total>0)groups++;
             if(groups==0)return;
-            float gap=dp(4),width=(getWidth()-gap*(groups-1))/groups;
+            float gap=ui.dp(4),width=(getWidth()-gap*(groups-1))/groups;
             if(width<=0)return;
             float radius=getHeight()/2f,left=0f;
             for(int i=0;i<3;i++){
@@ -5808,12 +5374,12 @@ public final class MainActivity extends Activity {
         return lessonStageState(e).phase();
     }
     private void lessonPhaseHeader(String stage,LocalStore.Entry e){
-        TextView pill=txt(stage,15,0xFFAA563F,true);
+        TextView pill=ui.txt(stage,15,0xFFAA563F,true);
         pill.setGravity(Gravity.CENTER);
-        pill.setPadding(dp(17),dp(8),dp(17),dp(8));
-        pill.setBackground(shape(0xFFF9E1D2,24));
+        pill.setPadding(ui.dp(17),ui.dp(8),ui.dp(17),ui.dp(8));
+        pill.setBackground(ui.shape(0xFFF9E1D2,24));
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-2,-2);
-        pp.gravity=Gravity.CENTER_HORIZONTAL;pp.topMargin=dp(9);
+        pp.gravity=Gravity.CENTER_HORIZONTAL;pp.topMargin=ui.dp(9);
         content.addView(pill,pp);
         addLessonReference(e);
     }
@@ -5821,24 +5387,24 @@ public final class MainActivity extends Activity {
         String ref=lessonFullReference(e);
         int book=bookForEntry(e);
         int ink=book<1?GREEN:bookInk(book);
-        TextView cite=displayText(ref,20);
+        TextView cite=ui.displayText(ref,20);
         cite.setTextColor(ink);cite.setGravity(Gravity.CENTER);
-        add(content,cite,17);
+        ui.add(content,cite,17);
     }
 
     private void renderLessonIntro(){
         activeTextArea=content;
-        activePassage=prose("",22);
-        activePassage.setLineSpacing(dp(7),1.18f);
+        activePassage=ui.prose("",22);
+        activePassage.setLineSpacing(ui.dp(7),1.18f);
         activePassage.setTextIsSelectable(false);
-        add(content,activePassage,19);
+        ui.add(content,activePassage,19);
         // Both hints are measured at the actual content width, including font scale.
         LessonIntroHint hint=new LessonIntroHint();
-        add(content,hint,15);
+        ui.add(content,hint,15);
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
         hint.show(mask>0,false);
         updateBlurText();
-        TextView hide=button(mask==100?"Показать все слова":
+        TextView hide=ui.button(mask==100?"Показать все слова":
             "Скрыть "+(mask+25)+"% слов",false,()->{});
         hide.setOnClickListener(v->{
             mask=mask>=100?0:mask+25;
@@ -5849,8 +5415,8 @@ public final class MainActivity extends Activity {
             hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
             saveTrainingSession();
         });
-        animateLessonPress(hide);
-        add(content,hide,27);
+        ui.animateLessonPress(hide);
+        ui.add(content,hide,27);
         // No extra instructional caption: gesture behavior remains unchanged.
     }
     /** The taller of the two hints determines the height at every screen width.
@@ -5863,8 +5429,8 @@ public final class MainActivity extends Activity {
             super(MainActivity.this);
             setTag("lesson-intro-hint");
             setMeasureAllChildren(true);
-            readHint=txt(LearningHelp.INTRO_READ,14,MUTED,false);
-            holdHint=txt(LearningHelp.INTRO_HOLD,14,MUTED,false);
+            readHint=ui.txt(LearningHelp.INTRO_READ,14,MUTED,false);
+            holdHint=ui.txt(LearningHelp.INTRO_HOLD,14,MUTED,false);
             addView(readHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             addView(holdHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             holdHint.setVisibility(View.INVISIBLE);
@@ -5912,19 +5478,19 @@ public final class MainActivity extends Activity {
             setTextSize(18);
             setTypeface(Typeface.create("serif",Typeface.BOLD));
             setTextColor(BUILD_INK);
-            setPadding(dp(10),dp(8),dp(10),dp(8));
+            setPadding(ui.dp(10),ui.dp(8),ui.dp(10),ui.dp(8));
             setGravity(Gravity.CENTER);
-            setMinWidth(dp(56));
-            setMinHeight(dp(43));
+            setMinWidth(ui.dp(56));
+            setMinHeight(ui.dp(43));
             showWord(false);
         }
 
         void showWord(boolean filled){
             this.filled=filled;
             setText(filled?token:hidden);
-            GradientDrawable frame=shape(filled?0xFFE9EDDA:0x44FFF9EF,12);
-            if(filled)frame.setStroke(dp(1),0xFFCCD6B5);
-            else frame.setStroke(dp(1),0xFFBEB0A0,dp(5),dp(4));
+            GradientDrawable frame=ui.shape(filled?0xFFE9EDDA:0x44FFF9EF,12);
+            if(filled)frame.setStroke(ui.dp(1),0xFFCCD6B5);
+            else frame.setStroke(ui.dp(1),0xFFBEB0A0,ui.dp(5),ui.dp(4));
             setBackground(frame);
             setContentDescription(filled?null:"Пропущенное слово");
         }
@@ -5936,17 +5502,17 @@ public final class MainActivity extends Activity {
     }
 
     private void assemblyReference(LocalStore.Entry entry){
-        LinearLayout reference=row();
+        LinearLayout reference=ui.row();
         reference.setGravity(Gravity.CENTER);
-        reference.setPadding(dp(15),dp(8),dp(15),dp(8));
-        reference.setBackground(outlined(0xFFFFEBD5,26,0xFFFFF8EF));
-        reference.setElevation(dp(2));
-        reference.addView(new NavigationGlyph("book",BUILD_INK),new LinearLayout.LayoutParams(dp(28),dp(27)));
-        TextView label=displayText(lessonFullReference(entry),18);
+        reference.setPadding(ui.dp(15),ui.dp(8),ui.dp(15),ui.dp(8));
+        reference.setBackground(ui.outlined(0xFFFFEBD5,26,0xFFFFF8EF));
+        reference.setElevation(ui.dp(2));
+        reference.addView(new NavigationGlyph(this,"book",BUILD_INK),new LinearLayout.LayoutParams(ui.dp(28),ui.dp(27)));
+        TextView label=ui.displayText(lessonFullReference(entry),18);
         label.setTextColor(BUILD_INK);
         label.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(-2,-2);
-        textParams.leftMargin=dp(8);
+        textParams.leftMargin=ui.dp(8);
         reference.addView(label,textParams);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-2,-2);
         params.gravity=Gravity.CENTER_HORIZONTAL;
@@ -5956,8 +5522,8 @@ public final class MainActivity extends Activity {
     private void styleAssemblyContinue(TextView action,boolean enabled){
         GradientDrawable background=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,enabled?
             new int[]{0xFF7D9C49,0xFF3E692D}:new int[]{0xFFC3C8A7,0xFFA1AA83});
-        background.setCornerRadius(dp(32));
-        background.setStroke(dp(1),0xFFFFF9EA);
+        background.setCornerRadius(ui.dp(32));
+        background.setStroke(ui.dp(1),0xFFFFF9EA);
         action.setBackground(background);
         action.setTextColor(Color.WHITE);
         action.setEnabled(enabled);
@@ -6135,7 +5701,7 @@ public final class MainActivity extends Activity {
             if(tile.isSelected()!=wrong){
                 tile.setSelected(wrong);
                 tile.setTextColor(wrong?0xFF923C37:BUILD_INK);
-                tile.setBackground(outlined(wrong?0xFFF8DDD4:0xFFFFEEDC,17,
+                tile.setBackground(ui.outlined(wrong?0xFFF8DDD4:0xFFFFEEDC,17,
                     wrong?0xFFE6B4A7:0xFFFFF9F0));
             }
         }
@@ -6190,10 +5756,10 @@ public final class MainActivity extends Activity {
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
         lessonBuildRequired=missing.length;
         lessonAssembly.validatePrefix(tokens,missing);
-        WrapLayout prompt=new WrapLayout(this,dp(7),true);
-        prompt.setPadding(dp(14),dp(16),dp(14),dp(16));
-        prompt.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
-        prompt.setElevation(dp(2));
+        WrapLayout prompt=new WrapLayout(this,ui.dp(7),true);
+        prompt.setPadding(ui.dp(14),ui.dp(16),ui.dp(14),ui.dp(16));
+        prompt.setBackground(ui.outlined(0xF9FFF2E1,23,0xFFFFFAF3));
+        prompt.setElevation(ui.dp(2));
         prompt.setTag("assembly-answer");
         for(int i=0;i<tokens.length;i++){
             if(Arrays.binarySearch(missing,i)>=0){
@@ -6201,18 +5767,18 @@ public final class MainActivity extends Activity {
                 lessonBuildSlots.add(slot);
                 prompt.addView(slot);
             }else{
-                TextView word=displayText(tokens[i],18);
+                TextView word=ui.displayText(tokens[i],18);
                 word.setTextColor(BUILD_INK);
                 word.setGravity(Gravity.CENTER);
-                word.setMinHeight(dp(43));
-                word.setPadding(dp(4),dp(8),dp(4),dp(8));
+                word.setMinHeight(ui.dp(43));
+                word.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),ui.dp(8));
                 prompt.addView(word);
             }
         }
-        add(content,prompt,10);
-        WrapLayout choices=new WrapLayout(this,dp(8),true);
+        ui.add(content,prompt,10);
+        WrapLayout choices=new WrapLayout(this,ui.dp(8),true);
         choices.setTag("assembly-word-bank");
-        choices.setPadding(dp(6),dp(4),dp(6),dp(4));
+        choices.setPadding(ui.dp(6),ui.dp(4),ui.dp(6),ui.dp(4));
         choices.setClipChildren(false);
         choices.setClipToPadding(false);
         int[] shuffled=WordOrderLogic.shuffledIndices(missing.length,lessonSeed);
@@ -6232,12 +5798,12 @@ public final class MainActivity extends Activity {
             });
             tile.setTypeface(Typeface.create("serif",Typeface.BOLD));
             tile.setTextSize(18);
-            tile.setBackground(outlined(0xFFFFEEDC,17,0xFFFFF9F0));
-            tile.setElevation(dp(2));
-            animateLessonPress(tile);
+            tile.setBackground(ui.outlined(0xFFFFEEDC,17,0xFFFFF9F0));
+            tile.setElevation(ui.dp(2));
+            ui.animateLessonPress(tile);
             tile.setTag(index);lessonBuildTiles.add(tile);choices.addView(tile);
         }
-        add(content,choices,14);
+        ui.add(content,choices,14);
         updateLessonBuildView();
         return lessonAssembly.picked()==missing.length;
     }
@@ -6280,12 +5846,12 @@ public final class MainActivity extends Activity {
         LessonCurriculumLogic.Variant variant=variants.get(lessonWriting.variant);
         boolean full=variant==LessonCurriculumLogic.Variant.FULL;
 
-        helper(content,lessonWriting.practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:
+        ui.helper(content,lessonWriting.practiceWeakFragment?LearningHelp.WRITE_FRAGMENT:
             full?LearningHelp.WRITE_FULL:LearningHelp.WRITE_GAPS);
         if(!lessonWriting.practiceWeakFragment&&!full)renderInlineGapInputs(variant);
         if(full){
-            EditText answer=input(lessonWriting.practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
-            forbidKeyboardHints(answer,true);
+            EditText answer=ui.input(lessonWriting.practiceWeakFragment?"Воспроизведи проблемную фразу…":"Напиши стих полностью…",true);
+            ui.forbidKeyboardHints(answer,true);
             answer.setMinLines(6);answer.setText(lessonWriting.draft);
             answer.addTextChangedListener(new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence x,int a,int b,int c){}
@@ -6296,7 +5862,7 @@ public final class MainActivity extends Activity {
                 }
                 @Override public void afterTextChanged(Editable x){}
             });
-            add(content,answer,18);
+            ui.add(content,answer,18);
         }
         // Verification is always explicitly triggered by the existing footer button.
     }
@@ -6307,17 +5873,17 @@ public final class MainActivity extends Activity {
         int[] missing=InlineGapLogic.wordPositions(tokens,originalPositions);
         // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
         lessonWriting.restoreGaps(tokens,originalPositions);
-        WrapLayout inline=new WrapLayout(this,dp(6));
-        inline.setPadding(0,dp(12),0,dp(12));
-        int maxWidth=getResources().getDisplayMetrics().widthPixels-dp(58);
+        WrapLayout inline=new WrapLayout(this,ui.dp(6));
+        inline.setPadding(0,ui.dp(12),0,ui.dp(12));
+        int maxWidth=getResources().getDisplayMetrics().widthPixels-ui.dp(58);
         inlineFields.clear();inlineExpected.clear();
         List<EditText> fields=inlineFields;
         for(int i=0;i<tokens.length;i++){
             String token=tokens[i];
             int match=Arrays.binarySearch(missing,i);
             if(match<0){
-                TextView item=txt(token,19,WHITE,false);
-                item.setPadding(dp(1),dp(8),dp(1),dp(8));inline.addView(item);
+                TextView item=ui.txt(token,19,WHITE,false);
+                item.setPadding(ui.dp(1),ui.dp(8),ui.dp(1),ui.dp(8));inline.addView(item);
                 continue;
             }
             final int gapIndex=match;
@@ -6325,13 +5891,13 @@ public final class MainActivity extends Activity {
             inlineExpected.add(expected);
             String prefix=InlineGapLogic.prefix(token);
             if(!prefix.isEmpty()){
-                TextView punctuation=txt(prefix,19,WHITE,false);
-                punctuation.setPadding(0,dp(8),0,dp(8));inline.addView(punctuation);
+                TextView punctuation=ui.txt(prefix,19,WHITE,false);
+                punctuation.setPadding(0,ui.dp(8),0,ui.dp(8));inline.addView(punctuation);
             }
             EditText field=new EditText(this);
             field.setTextColor(WHITE);field.setHintTextColor(MUTED);field.setTextSize(19);
-            field.setSingleLine(true);forbidKeyboardHints(field,false);
-            field.setPadding(dp(3),dp(6),dp(3),dp(6));
+            field.setSingleLine(true);ui.forbidKeyboardHints(field,false);
+            field.setPadding(ui.dp(3),ui.dp(6),ui.dp(3),ui.dp(6));
             field.setGravity(Gravity.CENTER_VERTICAL);
             // Android native underline: width is initially based on the original word,
             // but the input itself has no maximum length.
@@ -6339,16 +5905,16 @@ public final class MainActivity extends Activity {
             field.setHint(" ");
             field.setText(lessonWriting.gap(gapIndex));
             field.setSelectAllOnFocus(false);
-            int initial=Math.max(dp(32),dp(12)*Math.max(1,InlineGapLogic.letters(expected))+dp(8));
+            int initial=Math.max(ui.dp(32),ui.dp(12)*Math.max(1,InlineGapLogic.letters(expected))+ui.dp(8));
             final int baseline=Math.min(initial,maxWidth);
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(baseline,dp(43));
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(baseline,ui.dp(43));
             field.setLayoutParams(params);field.setMinWidth(Math.min(initial,maxWidth));
             field.setContentDescription("Пропущенное слово "+(gapIndex+1));
             fields.add(field);inline.addView(field);
             String suffix=InlineGapLogic.suffix(token);
             if(!suffix.isEmpty()){
-                TextView punctuation=txt(suffix,19,WHITE,false);
-                punctuation.setPadding(0,dp(8),0,dp(8));inline.addView(punctuation);
+                TextView punctuation=ui.txt(suffix,19,WHITE,false);
+                punctuation.setPadding(0,ui.dp(8),0,ui.dp(8));inline.addView(punctuation);
             }
         }
         List<String> refsForBlanks=new ArrayList<>();
@@ -6387,10 +5953,10 @@ public final class MainActivity extends Activity {
                     cancelWritingCheck();
                     lessonWriting.editGap(gapIndex,value);
                     field.setBackgroundTintList(android.content.res.ColorStateList.valueOf(GREEN));
-                    float textPx=field.getPaint().measureText(value)+dp(25);
+                    float textPx=field.getPaint().measureText(value)+ui.dp(25);
                     int baselineWidth = Math.min(maxWidth,
-                        Math.max(dp(32), dp(12) * Math.max(1,
-                            InlineGapLogic.letters(inlineExpected.get(gapIndex))) + dp(8)));
+                        Math.max(ui.dp(32), ui.dp(12) * Math.max(1,
+                            InlineGapLogic.letters(inlineExpected.get(gapIndex))) + ui.dp(8)));
                     int width=Math.min(maxWidth,Math.max(baselineWidth,(int)Math.ceil(textPx)));
                     ViewGroup.LayoutParams lp=field.getLayoutParams();
                     if(lp.width!=width){lp.width=width;field.setLayoutParams(lp);}
@@ -6399,7 +5965,7 @@ public final class MainActivity extends Activity {
                 @Override public void afterTextChanged(Editable x){}
             });
         }
-        add(content,inline,18);
+        ui.add(content,inline,18);
     }
     private static final class AnswerReview {
         final String expected,actual;
@@ -6442,9 +6008,9 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout answerReviewPanel(int background,int border){
-        LinearLayout panel=column();
-        panel.setPadding(dp(16),dp(12),dp(16),dp(14));
-        panel.setBackground(outlined(background,18,border));
+        LinearLayout panel=ui.column();
+        panel.setPadding(ui.dp(16),ui.dp(12),ui.dp(16),ui.dp(14));
+        panel.setBackground(ui.outlined(background,18,border));
         return panel;
     }
 
@@ -6486,20 +6052,20 @@ public final class MainActivity extends Activity {
     private void addAnswerReviewCard(String title,String text,List<AnswerReviewLogic.Mark> marks,
                                      boolean correct,int background,int border,int ink){
         LinearLayout panel=answerReviewPanel(background,border);
-        LinearLayout heading=row();
-        TextView icon=txt(correct?"✓":"×",15,Color.WHITE,true);
+        LinearLayout heading=ui.row();
+        TextView icon=ui.txt(correct?"✓":"×",15,Color.WHITE,true);
         icon.setGravity(Gravity.CENTER);
-        icon.setBackground(shape(ink,20));
+        icon.setBackground(ui.shape(ink,20));
         icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams iconSize=new LinearLayout.LayoutParams(dp(24),dp(24));
-        iconSize.rightMargin=dp(8);
+        LinearLayout.LayoutParams iconSize=new LinearLayout.LayoutParams(ui.dp(24),ui.dp(24));
+        iconSize.rightMargin=ui.dp(8);
         heading.addView(icon,iconSize);
-        heading.addView(txt(title,14,ink,true),new LinearLayout.LayoutParams(0,-2,1));
-        add(panel,heading,0);
+        heading.addView(ui.txt(title,14,ink,true),new LinearLayout.LayoutParams(0,-2,1));
+        ui.add(panel,heading,0);
         SpannableString marked=new SpannableString(text);
         for(AnswerReviewLogic.Mark mark:marks){
             if(mark.kind==AnswerReviewLogic.Kind.SPELLING){
-                marked.setSpan(new ReviewErrorSpan(dp(2)),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                marked.setSpan(new ReviewErrorSpan(ui.dp(2)),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }else{
                 marked.setSpan(new ForegroundColorSpan(0xFFAD3C37),mark.start,mark.end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 if(mark.kind==AnswerReviewLogic.Kind.EXTRA)
@@ -6507,13 +6073,13 @@ public final class MainActivity extends Activity {
             }
         }
         TextView body=answerReviewText(marked,19);
-        body.setLineSpacing(dp(3),1.08f);
-        add(panel,body,8);
-        add(content,panel,content.getChildCount()==0?0:10);
+        body.setLineSpacing(ui.dp(3),1.08f);
+        ui.add(panel,body,8);
+        ui.add(content,panel,content.getChildCount()==0?0:10);
     }
 
     private TextView answerReviewText(CharSequence text,int size){
-        TextView view=txt("",size,WHITE,false);
+        TextView view=ui.txt("",size,WHITE,false);
         view.setText(text);
         return view;
     }
@@ -6664,12 +6230,12 @@ public final class MainActivity extends Activity {
     }
     private interface UnifiedCreated {void accept(LocalStore.UnifiedCollection collection);}
     private void newUnifiedCollection(UnifiedCreated after){
-        EditText name=input("Например: Нагорная проповедь",false);
-        LinearLayout wrap=column();wrap.setPadding(dp(19),dp(12),dp(19),dp(9));add(wrap,name,0);
+        EditText name=ui.input("Например: Нагорная проповедь",false);
+        LinearLayout wrap=ui.column();wrap.setPadding(ui.dp(19),ui.dp(12),ui.dp(19),ui.dp(9));ui.add(wrap,name,0);
         AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Новая коллекция").setView(wrap)
             .setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
-        styledDialog(dialog);
+        ui.styledDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
             if(value(name).isEmpty()){name.setError("Введите название коллекции");name.requestFocus();return;}
             boolean firstCollection=store.unifiedCollections().isEmpty();
@@ -6683,18 +6249,18 @@ public final class MainActivity extends Activity {
     }
     private void showUnifiedSelector(){
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
-        LinearLayout panel=column();
-        panel.setPadding(dp(20),dp(20),dp(20),dp(12));
-        LinearLayout header=row();
+        LinearLayout panel=ui.column();
+        panel.setPadding(ui.dp(20),ui.dp(20),ui.dp(20),ui.dp(12));
+        LinearLayout header=ui.row();
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(displayText("Выбрать коллекцию",23),new LinearLayout.LayoutParams(0,-2,1));
-        TextView close=txt("×",28,MUTED,false);
+        header.addView(ui.displayText("Выбрать коллекцию",23),new LinearLayout.LayoutParams(0,-2,1));
+        TextView close=ui.txt("×",28,MUTED,false);
         close.setGravity(Gravity.CENTER);
         close.setContentDescription("Закрыть выбор коллекции");
         close.setFocusable(true);
-        header.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        add(panel,header,0);
-        int visibleHeight=Math.min(dp(320),getResources().getDisplayMetrics().heightPixels/2);
+        header.addView(close,new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
+        ui.add(panel,header,0);
+        int visibleHeight=Math.min(ui.dp(320),getResources().getDisplayMetrics().heightPixels/2);
         ScrollView scroll=new ScrollView(this){
             @Override protected void onMeasure(int widthSpec,int heightSpec){
                 int maximum=MeasureSpec.getMode(heightSpec)==MeasureSpec.UNSPECIFIED?visibleHeight:
@@ -6702,59 +6268,59 @@ public final class MainActivity extends Activity {
                 super.onMeasure(widthSpec,MeasureSpec.makeMeasureSpec(maximum,MeasureSpec.AT_MOST));
             }
         };
-        LinearLayout choices=column();
+        LinearLayout choices=ui.column();
         scroll.addView(choices);
-        add(panel,scroll,12);
+        ui.add(panel,scroll,12);
         AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setView(panel).create();
         close.setOnClickListener(v->dialog.dismiss());
         for(LocalStore.UnifiedCollection collection:collections){
             boolean selected=collection.id==activeUnifiedId;
-            LinearLayout choice=row();
+            LinearLayout choice=ui.row();
             choice.setGravity(Gravity.CENTER_VERTICAL);
-            choice.setMinimumHeight(dp(52));
-            choice.setPadding(dp(12),dp(8),dp(12),dp(8));
-            choice.setBackground(selected?outlined(CARD_ALT,14,BORDER):shape(CARD,14));
-            choice.addView(txt(collection.title,17,WHITE,selected),new LinearLayout.LayoutParams(0,-2,1));
+            choice.setMinimumHeight(ui.dp(52));
+            choice.setPadding(ui.dp(12),ui.dp(8),ui.dp(12),ui.dp(8));
+            choice.setBackground(selected?ui.outlined(CARD_ALT,14,BORDER):ui.shape(CARD,14));
+            choice.addView(ui.txt(collection.title,17,WHITE,selected),new LinearLayout.LayoutParams(0,-2,1));
             if(selected){
-                TextView check=txt("✓",20,GREEN,true);
+                TextView check=ui.txt("✓",20,GREEN,true);
                 check.setGravity(Gravity.CENTER);
-                choice.addView(check,new LinearLayout.LayoutParams(dp(32),-2));
+                choice.addView(check,new LinearLayout.LayoutParams(ui.dp(32),-2));
             }
             choice.setSelected(selected);
             choice.setFocusable(true);
             choice.setOnClickListener(v->{dialog.dismiss();activateUnified(collection.id);render();});
-            add(choices,choice,4);
+            ui.add(choices,choice,4);
         }
         if(collections.isEmpty())scroll.setVisibility(View.GONE);
         dialog.setCanceledOnTouchOutside(true);
-        styledDialog(dialog);
+        ui.styledDialog(dialog);
     }
     private void renderUnifiedHomePanel(){
-        LinearLayout panel=card(content);panel.setBackground(homeSurface());
+        LinearLayout panel=ui.card(content);panel.setBackground(homeSurface());
         LocalStore.UnifiedCollection active=activeUnified();
         if(active==null){
-            add(panel,displayText("Пока нет коллекций",22),0);
-            action(panel,"＋ Создать первую коллекцию",true,()->newUnifiedCollection(null));
+            ui.add(panel,ui.displayText("Пока нет коллекций",22),0);
+            ui.action(panel,"＋ Создать первую коллекцию",true,()->newUnifiedCollection(null));
             return;
         }
         // Compact collection switcher: two curved circular arrows, no chevron.
-        LinearLayout chooser=row();chooser.setGravity(Gravity.CENTER_VERTICAL);
-        chooser.setPadding(dp(12),dp(7),dp(10),dp(7));
-        chooser.setBackground(outlined(CARD_ALT,13,BORDER));
-        LinearLayout names=column();
-        add(names,txt("ВЫБРАННАЯ КОЛЛЕКЦИЯ",10,MUTED,true),0);
-        TextView title=txt(active.title,17,WHITE,true);
+        LinearLayout chooser=ui.row();chooser.setGravity(Gravity.CENTER_VERTICAL);
+        chooser.setPadding(ui.dp(12),ui.dp(7),ui.dp(10),ui.dp(7));
+        chooser.setBackground(ui.outlined(CARD_ALT,13,BORDER));
+        LinearLayout names=ui.column();
+        ui.add(names,ui.txt("ВЫБРАННАЯ КОЛЛЕКЦИЯ",10,MUTED,true),0);
+        TextView title=ui.txt(active.title,17,WHITE,true);
         title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        add(names,title,3);
+        ui.add(names,title,3);
         chooser.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-        NavigationGlyph cycle=new NavigationGlyph("refresh",GREEN);
+        NavigationGlyph cycle=new NavigationGlyph(this,"refresh",GREEN);
         cycle.setContentDescription("Сменить коллекцию");
-        LinearLayout.LayoutParams cycleP=new LinearLayout.LayoutParams(dp(30),dp(30));
-        cycleP.leftMargin=dp(10);chooser.addView(cycle,cycleP);
+        LinearLayout.LayoutParams cycleP=new LinearLayout.LayoutParams(ui.dp(30),ui.dp(30));
+        cycleP.leftMargin=ui.dp(10);chooser.addView(cycle,cycleP);
         chooser.setContentDescription("Выбранная коллекция: "+active.title+". Нажми, чтобы сменить.");
         chooser.setClickable(true);chooser.setFocusable(true);
         chooser.setOnClickListener(v->showUnifiedSelector());
-        add(panel,chooser,0);
+        ui.add(panel,chooser,0);
         int verses=0,learned=0;
         CollectionProgressSnapshot snapshot=store.collectionProgress();
         Set<List<String>> seenVerses=new HashSet<>();
@@ -6767,9 +6333,9 @@ public final class MainActivity extends Activity {
                 if(snapshot.exerciseDone(e.id,i)>=5)learned++;
             }
         }
-        addHelpLabel(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
+        addHelpLabel(panel,ui.txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
             LearningHelp.PROGRESS,8);
-        if(verses>0)progress(panel,learned,verses);
+        if(verses>0)ui.progress(panel,learned,verses);
         unifiedModeRow(panel,LearningHelp.STUDY,"mode-book",this::startActiveStudy);
         unifiedModeRow(panel,LearningHelp.CARDS,"mode-cards",this::startActiveCards);
         unifiedModeRow(panel,LearningHelp.REVIEW,"mode-brain",()->startActiveReview(false));
@@ -6778,216 +6344,45 @@ public final class MainActivity extends Activity {
     }
 
     private void addHelpLabel(LinearLayout parent,TextView label,LearningHelp help,int margin){
-        LinearLayout line=row();
+        LinearLayout line=ui.row();
         line.setGravity(Gravity.CENTER_VERTICAL);
         line.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        line.addView(helpIcon(help,"Подсказка «"+help.title+"»"),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        add(parent,line,margin);
+        line.addView(helpIcon(help,"Подсказка «"+help.title+"»"),new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
+        ui.add(parent,line,margin);
     }
 
     private void unifiedModeRow(LinearLayout panel,LearningHelp help,String icon,Runnable run){
         String name=help.title;
-        LinearLayout item=row();
+        LinearLayout item=ui.row();
         item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(dp(12),0,0,0);
-        item.setBackground(outlined(CARD,14,BORDER));
+        item.setPadding(ui.dp(12),0,0,0);
+        item.setBackground(ui.outlined(CARD,14,BORDER));
 
-        LinearLayout launch=row();
+        LinearLayout launch=ui.row();
         launch.setGravity(Gravity.CENTER_VERTICAL);
-        launch.setMinimumHeight(dp(48));
+        launch.setMinimumHeight(ui.dp(48));
         launch.setContentDescription(name);
         launch.setFocusable(true);
         launch.setOnClickListener(v->run.run());
-        LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(dp(22),dp(24));
-        iconParams.rightMargin=dp(13);
-        launch.addView(new NavigationGlyph(icon,WHITE),iconParams);
-        launch.addView(txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(ui.dp(22),ui.dp(24));
+        iconParams.rightMargin=ui.dp(13);
+        launch.addView(new NavigationGlyph(this,icon,WHITE),iconParams);
+        launch.addView(ui.txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
         item.addView(launch,new LinearLayout.LayoutParams(0,-2,1));
 
-        item.addView(helpIcon(help,"О режиме «"+name+"»"),new LinearLayout.LayoutParams(dp(48),dp(48)));
-        add(panel,item,9);
+        item.addView(helpIcon(help,"О режиме «"+name+"»"),new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
+        ui.add(panel,item,9);
     }
 
     private View helpIcon(LearningHelp help,String description){
-        View info=new NavigationGlyph("info",0xFF1976D2);
+        View info=new NavigationGlyph(this,"info",0xFF1976D2);
         info.setContentDescription(description);
         info.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         info.setFocusable(true);
         info.setBackground(new android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x241976D2),null,shape(Color.WHITE,24)));
-        info.setOnClickListener(v->showModeInfo(v,help));
+            android.content.res.ColorStateList.valueOf(0x241976D2),null,ui.shape(Color.WHITE,24)));
+        info.setOnClickListener(v->modeInfo.show(v,help));
         return info;
-    }
-
-    private PopupWindow modeInfoPopup;
-    private View modeInfoAnchor;
-
-    private boolean dismissModeInfo(boolean animated){
-        PopupWindow popup=modeInfoPopup;
-        if(popup==null)return false;
-        View bubble=popup.getContentView();
-        bubble.animate().cancel();
-        if(animated&&ValueAnimator.areAnimatorsEnabled()){
-            bubble.animate().alpha(0f).scaleX(.9f).scaleY(.9f).setDuration(120)
-                .setInterpolator(new DecelerateInterpolator()).withEndAction(popup::dismiss).start();
-        }else popup.dismiss();
-        return true;
-    }
-
-    private void showModeInfo(View anchor,LearningHelp help){
-        if(modeInfoAnchor==anchor){dismissModeInfo(true);return;}
-        dismissModeInfo(false);
-        if(!anchor.isAttachedToWindow())return;
-
-        Rect visible=new Rect();
-        anchor.getWindowVisibleDisplayFrame(visible);
-        visible.inset(dp(12),dp(12));
-        if(visible.width()<=dp(64)||visible.height()<=dp(64))return;
-        int[] location=new int[2];
-        anchor.getLocationOnScreen(location);
-        int centerX=location[0]+anchor.getWidth()/2;
-        int centerY=location[1]+anchor.getHeight()/2;
-        int sideTip=location[0]+dp(3);
-        int caret=dp(8);
-        int width=Math.min(dp(320),visible.width());
-        boolean opensLeft=sideTip-visible.left>=Math.min(dp(250),width);
-        if(opensLeft)width=Math.min(width,sideTip-visible.left);
-
-        LinearLayout card=column();
-        card.setPadding(dp(14),dp(4),dp(8),dp(12));
-        LinearLayout heading=row();
-        heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(txt(help.title,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
-        TextView close=txt("×",23,MUTED,false);
-        close.setGravity(Gravity.CENTER);
-        close.setContentDescription("Закрыть подсказку");
-        close.setOnClickListener(v->dismissModeInfo(true));
-        heading.addView(close,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        card.addView(heading);
-        for(int i=0;i<help.sectionCount();i++){
-            String label=help.heading(i);
-            boolean hasHeading=!label.isEmpty();
-            if(hasHeading){
-                TextView subtitle=txt(label,14,SUCCESS,true);
-                subtitle.setIncludeFontPadding(false);
-                if(Build.VERSION.SDK_INT>=28)subtitle.setAccessibilityHeading(true);
-                String stageIcon=help==LearningHelp.STUDY?
-                    ("Ознакомление".equals(label)?"mode-book":
-                     "Сборка".equals(label)?"help-puzzle":
-                     "Написание".equals(label)?"notebook":null):null;
-                if(stageIcon!=null){
-                    LinearLayout stage=row();
-                    stage.setGravity(Gravity.CENTER_VERTICAL);
-                    LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(dp(22),dp(22));
-                    iconParams.rightMargin=dp(7);
-                    stage.addView(new NavigationGlyph(stageIcon,SUCCESS),iconParams);
-                    stage.addView(subtitle,new LinearLayout.LayoutParams(0,-2,1));
-                    add(card,stage,8);
-                }else add(card,subtitle,i==0?0:8);
-            }
-            TextView detail=txt(help.body(i),14,WHITE,false);
-            detail.setIncludeFontPadding(false);
-            detail.setPadding(0,0,dp(6),0);
-            detail.setLineSpacing(dp(1),1f);
-            add(card,detail,hasHeading?3:(i==0?0:8));
-        }
-        card.measure(View.MeasureSpec.makeMeasureSpec(width-(opensLeft?caret:0),View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-
-        int desiredHeight=card.getMeasuredHeight()+(opensLeft?0:caret);
-        int above=Math.max(0,location[1]+dp(3)-visible.top);
-        int below=Math.max(0,visible.bottom-(location[1]+anchor.getHeight()-dp(3)));
-        boolean opensAbove=!opensLeft && below<desiredHeight && above>=below;
-        int height=Math.min(desiredHeight,opensLeft?visible.height():opensAbove?above:below);
-        if(height<=caret)return;
-        int x=opensLeft?sideTip-width:Math.max(visible.left,Math.min(centerX-width/2,visible.right-width));
-        int y=opensLeft?Math.max(visible.top,Math.min(centerY-height/2,visible.bottom-height)):
-            opensAbove?location[1]+dp(3)-height:location[1]+anchor.getHeight()-dp(3);
-        int tangent=opensLeft?centerY-y:centerX-x;
-
-        FrameLayout bubble=new FrameLayout(this);
-        bubble.setOutlineProvider(new ViewOutlineProvider(){
-            @Override public void getOutline(View view,android.graphics.Outline outline){
-                outline.setRoundRect(0,opensLeft||opensAbove?0:caret,
-                    view.getWidth()-(opensLeft?caret:0),view.getHeight()-(opensAbove?caret:0),dp(18));
-            }
-        });
-        bubble.setElevation(dp(4));
-        View surface=new ModeInfoSurface(opensLeft,opensAbove,tangent,caret);
-        bubble.addView(surface,new FrameLayout.LayoutParams(-1,-1));
-        ScrollView scroll=new ScrollView(this);
-        scroll.setFillViewport(true);
-        // Scroll is only a fallback for small windows or large accessibility fonts.
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.addView(card,new ScrollView.LayoutParams(-1,-2));
-        FrameLayout.LayoutParams scrollParams=new FrameLayout.LayoutParams(-1,-1);
-        scrollParams.setMargins(0,opensLeft||opensAbove?0:caret,opensLeft?caret:0,opensAbove?caret:0);
-        bubble.addView(scroll,scrollParams);
-
-        PopupWindow popup=new PopupWindow(bubble,width,height,false);
-        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        popup.setAnimationStyle(0);
-        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
-        // The Activity receives outside touches normally, including the anchor's second tap.
-        popup.setOutsideTouchable(false);
-        popup.setOnDismissListener(()->{
-            if(modeInfoPopup==popup){modeInfoPopup=null;modeInfoAnchor=null;}
-        });
-        modeInfoPopup=popup;
-        modeInfoAnchor=anchor;
-        boolean animate=ValueAnimator.areAnimatorsEnabled();
-        bubble.setPivotX(opensLeft?width:tangent);
-        bubble.setPivotY(opensLeft?tangent:opensAbove?height:0);
-        if(animate){bubble.setAlpha(0f);bubble.setScaleX(.9f);bubble.setScaleY(.9f);}
-        popup.showAsDropDown(anchor,x-location[0],y-location[1]-anchor.getHeight(),Gravity.LEFT);
-        if(animate)bubble.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(175)
-            .setInterpolator(new DecelerateInterpolator()).start();
-    }
-
-    /** Draw the rounded panel and its caret as a single outlined surface. */
-    private final class ModeInfoSurface extends View {
-        private final boolean left,above;
-        private final int tangent,caret;
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path outline=new Path();
-
-        ModeInfoSurface(boolean left,boolean above,int tangent,int caret){
-            super(MainActivity.this);
-            this.left=left;this.above=above;this.tangent=tangent;this.caret=caret;
-            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        }
-
-        @Override protected void onSizeChanged(int width,int height,int oldWidth,int oldHeight){
-            float top=left||above?1:caret;
-            float right=left?width-caret:width-1;
-            float bottom=above?height-caret:height-1;
-            outline.rewind();
-            outline.addRoundRect(1,top,right,bottom,dp(18),dp(18),Path.Direction.CW);
-            Path arrow=new Path();
-            float base=Math.max(dp(14),Math.min(tangent,(left?height:width)-dp(14)));
-            if(left){
-                arrow.moveTo(right-1,base-caret);arrow.lineTo(width-1,tangent);
-                arrow.lineTo(right-1,base+caret);
-            }else{
-                float edge=above?bottom-1:top+1;
-                arrow.moveTo(base-caret,edge);arrow.lineTo(tangent,above?height-1:1);
-                arrow.lineTo(base+caret,edge);
-            }
-            arrow.close();
-            outline.op(arrow,Path.Op.UNION);
-        }
-
-        @Override protected void onDraw(Canvas canvas){
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(CARD);
-            canvas.drawPath(outline,paint);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(1));
-            paint.setColor(BORDER);
-            canvas.drawPath(outline,paint);
-        }
     }
 
     private void openCollectionToAdd(LocalStore.UnifiedCollection u){
@@ -7020,30 +6415,30 @@ public final class MainActivity extends Activity {
     }
     private void renderUnifiedCollections(){
         // Prominent full-width search field: accent border, magnifier, larger input.
-        LinearLayout searchBar=row();searchBar.setGravity(Gravity.CENTER_VERTICAL);
-        searchBar.setPadding(dp(14),dp(3),dp(8),dp(3));
-        searchBar.setMinimumHeight(dp(58));
-        GradientDrawable searchFrame=shape(0xFFFFFDF9,17);
-        searchFrame.setStroke(dp(2),0xFFCE9072);
+        LinearLayout searchBar=ui.row();searchBar.setGravity(Gravity.CENTER_VERTICAL);
+        searchBar.setPadding(ui.dp(14),ui.dp(3),ui.dp(8),ui.dp(3));
+        searchBar.setMinimumHeight(ui.dp(58));
+        GradientDrawable searchFrame=ui.shape(0xFFFFFDF9,17);
+        searchFrame.setStroke(ui.dp(2),0xFFCE9072);
         searchBar.setBackground(searchFrame);
-        searchBar.setElevation(dp(2));
-        NavigationGlyph magnifier=new NavigationGlyph("search",GREEN);
-        searchBar.addView(magnifier,new LinearLayout.LayoutParams(dp(29),dp(29)));
-        EditText search=input("Поиск по коллекциям",false);
+        searchBar.setElevation(ui.dp(2));
+        NavigationGlyph magnifier=new NavigationGlyph(this,"search",GREEN);
+        searchBar.addView(magnifier,new LinearLayout.LayoutParams(ui.dp(29),ui.dp(29)));
+        EditText search=ui.input("Поиск по коллекциям",false);
         search.setTextSize(17);
         search.setSingleLine(true);
-        search.setPadding(dp(12),dp(9),dp(5),dp(9));
+        search.setPadding(ui.dp(12),ui.dp(9),ui.dp(5),ui.dp(9));
         search.setBackgroundColor(Color.TRANSPARENT);
         search.setContentDescription("Найти коллекцию по названию");
         searchBar.addView(search,new LinearLayout.LayoutParams(0,-2,1));
-        TextView clear=txt("×",24,MUTED,false);
+        TextView clear=ui.txt("×",24,MUTED,false);
         clear.setGravity(Gravity.CENTER);
         clear.setVisibility(View.GONE);
         clear.setContentDescription("Очистить поиск коллекций");
-        searchBar.addView(clear,new LinearLayout.LayoutParams(dp(41),dp(44)));
+        searchBar.addView(clear,new LinearLayout.LayoutParams(ui.dp(41),ui.dp(44)));
         clear.setOnClickListener(v->search.setText(""));
-        add(content,searchBar,2);
-        LinearLayout results=column();add(content,results,12);
+        ui.add(content,searchBar,2);
+        LinearLayout results=ui.column();ui.add(content,results,12);
         List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
         CollectionProgressSnapshot snapshot=collections.isEmpty()?null:store.collectionProgress();
         renderUnifiedCollectionRows(results,"",collections,snapshot);
@@ -7058,48 +6453,48 @@ public final class MainActivity extends Activity {
     }
     /** Keep settings in the same warm-card style as the existing collection screens. */
     private void renderSettings(){
-        TextView heading=displayText("Настройки",28);
+        TextView heading=ui.displayText("Настройки",28);
         heading.setGravity(Gravity.CENTER);
-        add(content,heading,18);
+        ui.add(content,heading,18);
 
-        LinearLayout backup=column();
-        backup.setPadding(dp(18),dp(18),dp(18),dp(18));
+        LinearLayout backup=ui.column();
+        backup.setPadding(ui.dp(18),ui.dp(18),ui.dp(18),ui.dp(18));
         backup.setBackground(homeSurface());
-        backup.setElevation(dp(2));
-        add(backup,displayText("Резервная копия",20),0);
-        TextView backupHint=txt(
+        backup.setElevation(ui.dp(2));
+        ui.add(backup,ui.displayText("Резервная копия",20),0);
+        TextView backupHint=ui.txt(
             "Сохраните коллекции, собственные тексты, карточки, прогресс и "+
             "расписание повторений в один файл. Всё работает без интернета.",14,MUTED,false);
-        backupHint.setLineSpacing(dp(3),1.1f);
-        add(backup,backupHint,9);
-        add(backup,button("Создать резервную копию",true,this::exportFile),14);
-        add(backup,button("Восстановить из копии",false,this::importFile),10);
-        TextView warning=txt(
+        backupHint.setLineSpacing(ui.dp(3),1.1f);
+        ui.add(backup,backupHint,9);
+        ui.add(backup,ui.button("Создать резервную копию",true,this::exportFile),14);
+        ui.add(backup,ui.button("Восстановить из копии",false,this::importFile),10);
+        TextView warning=ui.txt(
             "При восстановлении текущие данные заменятся содержимым файла. "+
             "Перед этим рекомендуется сохранить новую копию.",13,MUTED,false);
-        add(backup,warning,12);
-        add(content,backup,14);
+        ui.add(backup,warning,12);
+        ui.add(content,backup,14);
 
-        LinearLayout section=column();
-        section.setPadding(dp(18),dp(18),dp(18),dp(18));
+        LinearLayout section=ui.column();
+        section.setPadding(ui.dp(18),ui.dp(18),ui.dp(18),ui.dp(18));
         section.setBackground(homeSurface());
-        section.setElevation(dp(2));
-        TextView title=displayText("Прогресс изучения",20);
-        add(section,title,9);
-        TextView explanation=txt(
+        section.setElevation(ui.dp(2));
+        TextView title=ui.displayText("Прогресс изучения",20);
+        ui.add(section,title,9);
+        TextView explanation=ui.txt(
             "Сбросить освоение стихов, историю проверок и расписание повторений. "+
             "Коллекции, книги, карточки и сохранённые тексты останутся.",14,MUTED,false);
-        explanation.setLineSpacing(dp(3),1.1f);
-        add(section,explanation,14);
-        TextView reset=button("Сбросить прогресс",false,this::confirmResetProgress);
+        explanation.setLineSpacing(ui.dp(3),1.1f);
+        ui.add(section,explanation,14);
+        TextView reset=ui.button("Сбросить прогресс",false,this::confirmResetProgress);
         reset.setTextColor(0xFFAC523F);
         reset.setContentDescription("Сбросить весь прогресс изучения");
-        add(section,reset,0);
-        add(content,section,16);
+        ui.add(section,reset,0);
+        ui.add(content,section,16);
     }
     private void confirmResetProgress(){
         if(resetInProgress)return;
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Сбросить весь прогресс?")
             .setMessage("Будут безвозвратно удалены отметки об освоении стихов, "+
                 "история проверок, незавершённые уроки и расписание повторений "+
@@ -7113,7 +6508,7 @@ public final class MainActivity extends Activity {
         AlertDialog resetting=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Сброс прогресса").setMessage("Удаляем историю изучения…")
             .setCancelable(false).create();
-        styledDialog(resetting);
+        ui.styledDialog(resetting);
         collectionExecutor.execute(()->{
             // Independent helper survives destruction of this Activity.
             try(LocalStore worker=new LocalStore(getApplicationContext())){
@@ -7162,48 +6557,48 @@ public final class MainActivity extends Activity {
         for(LocalStore.UnifiedCollection u:collections){
             if(!u.title.toLowerCase(Locale.ROOT).contains(search.trim().toLowerCase(Locale.ROOT)))continue;
             found=true;
-            LinearLayout row=row();row.setPadding(dp(13),dp(14),dp(13),dp(14));
+            LinearLayout row=ui.row();row.setPadding(ui.dp(13),ui.dp(14),ui.dp(13),ui.dp(14));
             row.setBackground(homeSurface());
             ImageView thumb=landscapeThumbnail(u.id);
-            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(dp(59),dp(61));
-            imageP.rightMargin=dp(13);row.addView(thumb,imageP);
-            LinearLayout details=column();add(details,displayText(u.title,17),0);
+            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(ui.dp(59),ui.dp(61));
+            imageP.rightMargin=ui.dp(13);row.addView(thumb,imageP);
+            LinearLayout details=ui.column();ui.add(details,ui.displayText(u.title,17),0);
             String passages=countedRussian(u.entries,"отрывок","отрывка","отрывков");
             String verses=countedRussian(snapshot.uniqueVerseCount(u.groupId),"стих","стиха","стихов");
-            add(details,txt(passages+" · "+verses,13,MUTED,false),5);
-            if(u.id==activeUnifiedId)add(details,txt("●  Выбрана на главной",12,GREEN,true),4);
+            ui.add(details,ui.txt(passages+" · "+verses,13,MUTED,false),5);
+            if(u.id==activeUnifiedId)ui.add(details,ui.txt("●  Выбрана на главной",12,GREEN,true),4);
             row.addView(details,new LinearLayout.LayoutParams(0,-2,1));
-            TextView arrow=txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
-            row.addView(arrow,new LinearLayout.LayoutParams(dp(24),dp(48)));
+            TextView arrow=ui.txt("›",22,GREEN,false);arrow.setGravity(Gravity.CENTER);
+            row.addView(arrow,new LinearLayout.LayoutParams(ui.dp(24),ui.dp(48)));
             row.setClickable(true);row.setFocusable(true);
             row.setContentDescription("Открыть коллекцию "+u.title);
             row.setOnClickListener(v->{openUnifiedId=u.id;screen=Screen.COLLECTION_DETAIL;render();});
-            add(into,row,9);
+            ui.add(into,row,9);
         }
-        if(!found)helper(into,search.trim().isEmpty()?"Коллекций пока нет":"Ничего не найдено");
+        if(!found)ui.helper(into,search.trim().isEmpty()?"Коллекций пока нет":"Ничего не найдено");
     }
     /** The one explicit location for collection management, inside its detail screen. */
     private void unifiedSettingRow(LinearLayout settings,String label,String glyph,boolean destructive,Runnable command){
-        LinearLayout item=row();item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(dp(8),dp(7),dp(5),dp(7));
-        MenuGlyph symbol=new MenuGlyph(glyph,destructive?RED:GREEN);
-        LinearLayout.LayoutParams iconP=new LinearLayout.LayoutParams(dp(28),dp(28));
-        iconP.rightMargin=dp(13);item.addView(symbol,iconP);
-        TextView name=txt(label,16,destructive?RED:WHITE,true);
+        LinearLayout item=ui.row();item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setPadding(ui.dp(8),ui.dp(7),ui.dp(5),ui.dp(7));
+        MenuGlyph symbol=new MenuGlyph(this,glyph,destructive?RED:GREEN);
+        LinearLayout.LayoutParams iconP=new LinearLayout.LayoutParams(ui.dp(28),ui.dp(28));
+        iconP.rightMargin=ui.dp(13);item.addView(symbol,iconP);
+        TextView name=ui.txt(label,16,destructive?RED:WHITE,true);
         item.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-        item.setMinimumHeight(dp(51));
+        item.setMinimumHeight(ui.dp(51));
         item.setClickable(true);item.setFocusable(true);
         item.setContentDescription(label);item.setOnClickListener(v->command.run());
         if(settings.getChildCount()>1){
             View divider=new View(this);divider.setBackgroundColor(0xFFECD8CD);
-            settings.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
+            settings.addView(divider,new LinearLayout.LayoutParams(-1,ui.dp(1)));
         }
         settings.addView(item,new LinearLayout.LayoutParams(-1,-2));
     }
     private void showUnifiedCollectionSettings(LocalStore.UnifiedCollection u){
-        LinearLayout settings=column();settings.setBackground(homeSurface());
-        settings.setPadding(dp(14),dp(12),dp(14),dp(11));
-        add(settings,txt("НАСТРОЙКИ КОЛЛЕКЦИИ",12,MUTED,true),0);
+        LinearLayout settings=ui.column();settings.setBackground(homeSurface());
+        settings.setPadding(ui.dp(14),ui.dp(12),ui.dp(14),ui.dp(11));
+        ui.add(settings,ui.txt("НАСТРОЙКИ КОЛЛЕКЦИИ",12,MUTED,true),0);
         unifiedSettingRow(settings,"Переименовать","pencil",false,()->renameUnified(u));
         unifiedSettingRow(settings,"Настроить порядок стихов","shuffle",false,()->{
             if(store.entries(u.groupId).size()<2){
@@ -7214,11 +6609,11 @@ public final class MainActivity extends Activity {
         });
         unifiedSettingRow(settings,"Очистить коллекцию","eraser",true,()->clearUnified(u));
         unifiedSettingRow(settings,"Удалить коллекцию","trash",true,()->deleteUnified(u));
-        add(content,settings,14);
+        ui.add(content,settings,14);
     }
     private void clearUnified(LocalStore.UnifiedCollection u){
         if(u.entries==0&&u.cards==0){toast("Коллекция уже пуста");return;}
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Очистить коллекцию?")
             .setMessage("Все стихи, отрывки и карточки будут убраны из этой коллекции. " +
                 "Саму коллекцию и прежние результаты заучивания сохраним. " +
@@ -7237,19 +6632,19 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("Отмена",null).create());
     }
     private void renameUnified(LocalStore.UnifiedCollection u){
-        EditText name=input("Название коллекции",false);name.setText(u.title);
-        LinearLayout box=column();box.setPadding(dp(18),dp(10),dp(18),dp(8));add(box,name,0);
+        EditText name=ui.input("Название коллекции",false);name.setText(u.title);
+        LinearLayout box=ui.column();box.setPadding(ui.dp(18),ui.dp(10),ui.dp(18),ui.dp(8));ui.add(box,name,0);
         AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Переименовать коллекцию").setView(box)
             .setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
-        styledDialog(dialog);
+        ui.styledDialog(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
             if(value(name).isEmpty()){name.setError("Укажи название");name.requestFocus();return;}
             store.renameUnifiedCollection(u.id,value(name));dialog.dismiss();render();
         });
     }
     private void deleteUnified(LocalStore.UnifiedCollection u){
-        styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить коллекцию из списка?")
             .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
             .setPositiveButton("Удалить",(d,w)->{
@@ -7277,9 +6672,9 @@ public final class MainActivity extends Activity {
         LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
         if(u==null){screen=Screen.COLLECTIONS;render();return;}
         selectedGroup=u.groupId;selectedDeck=u.deckId;
-        TextView heading=displayText(u.title,25);
+        TextView heading=ui.displayText(u.title,25);
         heading.setGravity(Gravity.CENTER);heading.setMaxLines(2);
-        add(content,heading,5);
+        ui.add(content,heading,5);
         showUnifiedCollectionSettings(u);
         final LinearLayout target=content;
         final long generation=collectionGeneration;
@@ -7309,12 +6704,12 @@ public final class MainActivity extends Activity {
     }
     private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionProgressSnapshot snapshot,
             SortedMap<Integer,SortedMap<Integer,Long>> books,List<LocalStore.Entry> entries,long generation,int restoreScroll){
-        helper(content,"Освоено: "+studyProgressFor(u.groupId,snapshot));
+        ui.helper(content,"Освоено: "+studyProgressFor(u.groupId,snapshot));
         try{
             JSONArray history=new JSONArray(getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE)
                 .getString("run_history_"+u.id,"[]"));
             if(history.length()>0){JSONObject last=history.getJSONObject(0);
-                helper(content,"Последняя проверка памяти: "+last.optInt("correct")+
+                ui.helper(content,"Последняя проверка памяти: "+last.optInt("correct")+
                     " из "+last.optInt("total")+" без ошибок");}
         }catch(JSONException ignored){}
         for(Map.Entry<Integer,SortedMap<Integer,Long>> book:books.entrySet()){
@@ -7327,7 +6722,7 @@ public final class MainActivity extends Activity {
                 screen=Screen.COLLECTION_BOOK;render();
             });
         }
-        if(entries.isEmpty()&&books.isEmpty())helper(content,"Добавь первый стих или отрывок.");
+        if(entries.isEmpty()&&books.isEmpty())ui.helper(content,"Добавь первый стих или отрывок.");
         appendCollectionEntries(entries,snapshot,0,generation,restoreScroll);
     }
     private void appendCollectionEntries(List<LocalStore.Entry> entries,CollectionProgressSnapshot snapshot,
@@ -7347,15 +6742,15 @@ public final class MainActivity extends Activity {
     }
 
     private void collectionBookRow(String title,String description,Runnable open){
-        LinearLayout frame=card(content);
+        LinearLayout frame=ui.card(content);
         frame.setBackground(homeSurface());
-        LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout labels=column();
-        add(labels,displayText(title,17),0);
-        add(labels,txt(description,13,MUTED,false),6);
+        LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout labels=ui.column();
+        ui.add(labels,ui.displayText(title,17),0);
+        ui.add(labels,ui.txt(description,13,MUTED,false),6);
         line.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-        line.addView(txt("›",22,GREEN,false),new LinearLayout.LayoutParams(dp(24),-2));
-        add(frame,line,0);
+        line.addView(ui.txt("›",22,GREEN,false),new LinearLayout.LayoutParams(ui.dp(24),-2));
+        ui.add(frame,line,0);
         frame.setFocusable(true);
         frame.setOnClickListener(v->open.run());
     }
@@ -7376,8 +6771,8 @@ public final class MainActivity extends Activity {
     private void renderCollectionChapter(){
         long id=openedCollectionBook.get(openedCollectionChapter);
         title(openedBookName+" "+openedCollectionChapter,null);
-        action(content,"Изучать главу",true,()->openTraining(id));
-        action(content,"Добавить стих / отрывок после главы",false,()->{
+        ui.action(content,"Изучать главу",true,()->openTraining(id));
+        ui.action(content,"Добавить стих / отрывок после главы",false,()->{
             clearInsertionContext();
             insertAfterEntryId=id;
             studyInsertionTrail.add(id);
@@ -7386,35 +6781,35 @@ public final class MainActivity extends Activity {
         List<Bible.Verse> lines=openedBookProgress.verses(id);
         for(int i=0;i<lines.size();i++){
             Bible.Verse verse=lines.get(i);
-            LinearLayout item=card(content);
+            LinearLayout item=ui.card(content);
             String status=openedBookProgress.verseConsolidated(id,i)?"закреплён":
                 openedBookProgress.mastered(id,i)?"предварительно освоен":"не изучен";
-            add(item,txt(verse.ref+" · "+status,14,GREEN,true),0);
-            add(item,prose(verse.text,19),8);
+            ui.add(item,ui.txt(verse.ref+" · "+status,14,GREEN,true),0);
+            ui.add(item,ui.prose(verse.text,19),8);
         }
     }
 
     /** Fixed bottom actions, independent of the scrolling collection list. */
     private void addUnifiedCollectionFooter(){
-        LinearLayout footer=column();
-        footer.setPadding(dp(19),dp(9),dp(19),dp(10));
+        LinearLayout footer=ui.column();
+        footer.setPadding(ui.dp(19),ui.dp(9),ui.dp(19),ui.dp(10));
         footer.setBackgroundColor(BG);
         if(screen==Screen.COLLECTIONS||screen==Screen.CARDS){
-            TextView addCollection=button("＋  Добавить коллекцию",true,()->newUnifiedCollection(null));
-            footer.addView(addCollection,new LinearLayout.LayoutParams(-1,dp(52)));
+            TextView addCollection=ui.button("＋  Добавить коллекцию",true,()->newUnifiedCollection(null));
+            footer.addView(addCollection,new LinearLayout.LayoutParams(-1,ui.dp(52)));
         }else if(screen==Screen.COLLECTION_DETAIL){
             final LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
             if(u==null)return;
-            TextView addBible=button("＋  Добавить из Библии",true,()->{
+            TextView addBible=ui.button("＋  Добавить из Библии",true,()->{
                 clearInsertionContext();
                 openBiblePicker(BibleTarget.STUDY_GROUP,u.groupId,Screen.COLLECTION_DETAIL);
             });
-            footer.addView(addBible,new LinearLayout.LayoutParams(-1,dp(51)));
-            TextView own=button("＋  Добавить свой текст",false,()->{
+            footer.addView(addBible,new LinearLayout.LayoutParams(-1,ui.dp(51)));
+            TextView own=ui.button("＋  Добавить свой текст",false,()->{
                 customTargetGroupId=u.groupId;screen=Screen.CUSTOM;render();
             });
-            LinearLayout.LayoutParams ownP=new LinearLayout.LayoutParams(-1,dp(49));
-            ownP.topMargin=dp(8);footer.addView(own,ownP);
+            LinearLayout.LayoutParams ownP=new LinearLayout.LayoutParams(-1,ui.dp(49));
+            ownP.topMargin=ui.dp(8);footer.addView(own,ownP);
         }else return;
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
     }
@@ -7449,7 +6844,7 @@ public final class MainActivity extends Activity {
         buildRunLines(u);
         if(runLines.isEmpty()){
             if(store.entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
-            styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Пока нет стихов для проверки памяти")
                 .setMessage("Сначала изучи стихи и закрепи их отложенным повторением.")
                 .setPositiveButton("Изучение стихов",(d,w)->startActiveStudy())
@@ -7470,7 +6865,7 @@ public final class MainActivity extends Activity {
         boolean active=p.getBoolean(key+"active",false);
         if(active&&SessionIntegrityLogic.canResumeRun(p.getString(key+"fingerprint",""),
                 runMaterialFingerprint,p.getInt(key+"cursor",-1),p.getInt(key+"correct",-1),runLines.size())){
-            styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Незавершённая проверка памяти")
                 .setMessage("Продолжить с сохранённого стиха или начать проверку заново?")
                 .setPositiveButton("Продолжить",(d,w)->{restoreRunSession();screen=Screen.RUN;render();})
@@ -7549,30 +6944,30 @@ public final class MainActivity extends Activity {
         if(runLines.isEmpty()){screen=Screen.HOME;render();return;}
         runCursor=Math.min(runCursor,runLines.size()-1);
         RunLine line=runLines.get(runCursor);
-        root=column();root.setBackground(pageBackground());
+        root=ui.column();root.setBackground(ui.pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        LinearLayout top=row();top.setPadding(dp(17),dp(12),dp(17),dp(7));
-        TextView exit=txt("×",30,WHITE,false);exit.setGravity(Gravity.CENTER);
+        LinearLayout top=ui.row();top.setPadding(ui.dp(17),ui.dp(12),ui.dp(17),ui.dp(7));
+        TextView exit=ui.txt("×",30,WHITE,false);exit.setGravity(Gravity.CENTER);
         exit.setContentDescription("Сохранить проверку памяти и выйти");
         exit.setOnClickListener(v->onBackPressed());
-        top.addView(exit,new LinearLayout.LayoutParams(dp(43),dp(46)));
-        TextView count=txt((runCursor+1)+" из "+runLines.size(),15,MUTED,true);
+        top.addView(exit,new LinearLayout.LayoutParams(ui.dp(43),ui.dp(46)));
+        TextView count=ui.txt((runCursor+1)+" из "+runLines.size(),15,MUTED,true);
         count.setGravity(Gravity.CENTER);
-        top.addView(count,new LinearLayout.LayoutParams(0,dp(45),1));
+        top.addView(count,new LinearLayout.LayoutParams(0,ui.dp(45),1));
         root.addView(top,new LinearLayout.LayoutParams(-1,-2));
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
-        content=column();content.setPadding(dp(21),dp(18),dp(21),dp(24));scroll.addView(content);
+        content=ui.column();content.setPadding(ui.dp(21),ui.dp(18),ui.dp(21),ui.dp(24));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        progress(content,runCursor,runLines.size());
-        TextView heading=displayText(line.reference,24);heading.setGravity(Gravity.CENTER);
-        add(content,heading,20);
-        TextView instruction=txt(runChecked?
+        ui.progress(content,runCursor,runLines.size());
+        TextView heading=ui.displayText(line.reference,24);heading.setGravity(Gravity.CENTER);
+        ui.add(content,heading,20);
+        TextView instruction=ui.txt(runChecked?
             runPassed?"Нажми «Следующий стих», чтобы продолжить.":
                 "Сравни ответ с правильным текстом и перейди к следующему стиху.":
             "Напиши стих по памяти и нажми «Проверить». Если стих не вспоминается, нажми «Пропустить стих».",16,MUTED,false);
-        instruction.setGravity(Gravity.CENTER);add(content,instruction,12);
-        EditText write=input("Начни писать стих…",true);
-        forbidKeyboardHints(write,true);write.setMinLines(5);
+        instruction.setGravity(Gravity.CENTER);ui.add(content,instruction,12);
+        EditText write=ui.input("Начни писать стих…",true);
+        ui.forbidKeyboardHints(write,true);write.setMinLines(5);
         write.setText(runDraft);write.setSelection(write.length());
         write.setEnabled(!runChecked);
         write.addTextChangedListener(new TextWatcher(){
@@ -7582,45 +6977,45 @@ public final class MainActivity extends Activity {
             }
             public void afterTextChanged(Editable e){}
         });
-        add(content,write,22);
+        ui.add(content,write,22);
         if(runChecked){
-            add(content,txt(runPassed?"✓ Без ошибок":"Обнаружены ошибки",20,
+            ui.add(content,ui.txt(runPassed?"✓ Без ошибок":"Обнаружены ошибки",20,
                 runPassed?SUCCESS:RED,true),16);
             if(!runPassed){
-                add(content,typedFeedback(AcceptedTextLogic.bestExpected(
+                ui.add(content,typedFeedback(AcceptedTextLogic.bestExpected(
                     line.text,runDraft,AcceptedTextLogic.matthew513Verse(line.reference)),runDraft),9);
-                label(content,"Правильный текст");add(content,prose(line.text,17),8);
+                ui.label(content,"Правильный текст");ui.add(content,ui.prose(line.text,17),8);
             }
         }
-        LinearLayout footer=column();footer.setPadding(dp(20),dp(10),dp(20),dp(20));
-        TextView go=button(runChecked?"Следующий стих": "Проверить",true,()->{
+        LinearLayout footer=ui.column();footer.setPadding(ui.dp(20),ui.dp(10),ui.dp(20),ui.dp(20));
+        TextView go=ui.button(runChecked?"Следующий стих": "Проверить",true,()->{
             if(runChecked){finishRunLine();return;}
             if(runDraft.trim().isEmpty()){toast("Введи стих или выбери «Пропустить»");return;}
             runPassed=AcceptedTextLogic.exact(line.text,runDraft,
                 AcceptedTextLogic.matthew513Verse(line.reference));
             runChecked=true;saveRunSession();render();
         });
-        animateLessonPress(go);
-        footer.addView(go,new LinearLayout.LayoutParams(-1,dp(55)));
+        ui.animateLessonPress(go);
+        footer.addView(go,new LinearLayout.LayoutParams(-1,ui.dp(55)));
         if(!runChecked){
-            TextView skip=button("Пропустить стих",false,this::finishRunLine);
-            animateLessonPress(skip);
-            footer.addView(skip,new LinearLayout.LayoutParams(-1,dp(47)));
+            TextView skip=ui.button("Пропустить стих",false,this::finishRunLine);
+            ui.animateLessonPress(skip);
+            footer.addView(skip,new LinearLayout.LayoutParams(-1,ui.dp(47)));
         }
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         setContentView(root);lastRenderedScreen=screen;
     }
     private void renderRunSummary(){
         title("Проверка памяти завершена",null);
-        LinearLayout report=headerCard(content);
-        add(report,txt(runCorrect+" из "+runLines.size()+" стихов без ошибок",22,WHITE,true),0);
-        progress(report,runCorrect,runLines.size());
+        LinearLayout report=ui.headerCard(content);
+        ui.add(report,ui.txt(runCorrect+" из "+runLines.size()+" стихов без ошибок",22,WHITE,true),0);
+        ui.progress(report,runCorrect,runLines.size());
         if(!runMistakes.isEmpty()){
-            label(content,"Требуют внимания");
-            for(String ref:runMistakes)add(content,txt("• "+ref,16,RED,false),7);
-        }else helper(content,"Все стихи воспроизведены без ошибок!");
-        helper(content,"Итог сохранён в истории коллекции. Статусы освоения и расписание повторений остаются прежними.");
-        action(content,"На главную",true,()->{screen=Screen.HOME;render();});
+            ui.label(content,"Требуют внимания");
+            for(String ref:runMistakes)ui.add(content,ui.txt("• "+ref,16,RED,false),7);
+        }else ui.helper(content,"Все стихи воспроизведены без ошибок!");
+        ui.helper(content,"Итог сохранён в истории коллекции. Статусы освоения и расписание повторений остаются прежними.");
+        ui.action(content,"На главную",true,()->{screen=Screen.HOME;render();});
     }
 
     /** Android system picker: the app never requests access to other storage. */
@@ -7647,7 +7042,7 @@ public final class MainActivity extends Activity {
         Uri uri=data.getData();
         if(request==EXPORT)runBackupTask(uri,false);
         else if(request==IMPORT){
-            styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+            ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Восстановить резервную копию?")
                 .setMessage("Все текущие коллекции, стихи, карточки, прогресс "+
                     "и незавершённые уроки будут заменены данными из выбранного "+
@@ -7673,7 +7068,7 @@ public final class MainActivity extends Activity {
             .setTitle(export?"Резервное копирование":"Восстановление")
             .setMessage(export?"Сохраняем коллекции, карточки и прогресс…":"Восстанавливаем данные…")
             .setCancelable(false).create();
-        styledDialog(backupDialog);
+        ui.styledDialog(backupDialog);
         if(!ownsData)return;
         // Flush the same drafts as onPause before retiring this generation of views.
         if(screen==Screen.TRAIN)saveTrainingSession();
@@ -7716,7 +7111,7 @@ public final class MainActivity extends Activity {
                 // Probe the journal again before allowing even a read of session data.
                 openData();
             }).setNegativeButton("Закрыть",(d,w)->finish()).create();
-        styledDialog(backupDialog);
+        ui.styledDialog(backupDialog);
     }
 
     @Override protected void onDestroy(){
@@ -7736,7 +7131,7 @@ public final class MainActivity extends Activity {
             finally{if(ownsData)BackupCoordinator.releasedFromWorker();}
         });
         collectionExecutor.shutdown();
-        dismissModeInfo(false);
+        modeInfo.dismiss(false);
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();

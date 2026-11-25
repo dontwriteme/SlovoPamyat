@@ -484,7 +484,7 @@ public class PickerIntegrationTest {
             home.offsetDescendantRectToMyCoords(anchor,position);
             home.scrollTo(0,Math.max(0,position.top-home.getHeight()/2));
             anchor.performClick();
-            android.widget.PopupWindow popup=(android.widget.PopupWindow)field("modeInfoPopup");
+            android.widget.PopupWindow popup=(android.widget.PopupWindow)popoverField("modeInfoPopup");
             android.graphics.Rect frame=new android.graphics.Rect();
             anchor.getWindowVisibleDisplayFrame(frame);
             assertNotNull("Popover for "+names[i]+" in "+frame,popup);assertFalse(popup.isFocusable());
@@ -493,19 +493,25 @@ public class PickerIntegrationTest {
             assertTrue(textContains(popup.getContentView(),descriptions[i]));
             assertEquals("HOME",field("screen").toString());
         }
-        View anchor=(View)field("modeInfoAnchor");anchor.performClick();
+        View anchor=(View)popoverField("modeInfoAnchor");anchor.performClick();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
-        assertNull(field("modeInfoPopup"));
+        assertNull(popoverField("modeInfoPopup"));
         TextView summary=text(root,"0 стихов · 0 предварительно освоено");
         assertNotNull(summary);
         ((android.view.ViewGroup)summary.getParent()).getChildAt(1).performClick();
-        android.widget.PopupWindow progress=(android.widget.PopupWindow)field("modeInfoPopup");
+        android.widget.PopupWindow progress=(android.widget.PopupWindow)popoverField("modeInfoPopup");
         assertNotNull(progress);
         assertTrue(textContains(progress.getContentView(),"24 часов"));
         activity.onBackPressed();
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
-        assertNull(field("modeInfoPopup"));
+        assertNull(popoverField("modeInfoPopup"));
         assertEquals("HOME",field("screen").toString());
+    }
+
+    private Object popoverField(String name)throws Exception{
+        Field member=ModeInfoPopover.class.getDeclaredField(name);
+        member.setAccessible(true);
+        return member.get(field("modeInfo"));
     }
 
     private boolean textContains(View view,String snippet){
