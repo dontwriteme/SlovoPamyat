@@ -161,14 +161,14 @@ public class LessonHotbarIntegrationTest {
     }
 
     @Test public void everyHideLevelLeavesIntroCurrentAndPreservesPassageView()throws Exception{
-        View root=(View)get("root"),passage=(View)get("activePassage"),strip=root.findViewWithTag("lesson-progress-strip");
+        View root=(View)get("root"),passage=root.findViewWithTag("lesson-reading-passage"),strip=root.findViewWithTag("lesson-progress-strip");
         TextView hide=text(root,"Скрыть 25% слов");assertNotNull(hide);
         for(int expected:new int[]{0,25,50,75,100,0}){
             if(expected!=0||(int)get("mask")==100)hide.performClick();
             assertEquals(expected,get("mask"));LessonHotbarLogic.Model m=model(LessonCurriculumLogic.Phase.INTRO);
             assertEquals(1,m.totals[0]);assertEquals(0,m.completedCount);assertEquals(1,m.currentNumber);
             assertEquals(LessonHotbarLogic.CURRENT,m.visual(0,0));assertEquals(0,store.exerciseDone(id,0));
-            assertSame(passage,get("activePassage"));assertSame(strip,((View)get("root")).findViewWithTag("lesson-progress-strip"));
+            assertSame(passage,((View)get("root")).findViewWithTag("lesson-reading-passage"));assertSame(strip,((View)get("root")).findViewWithTag("lesson-progress-strip"));
         }
     }
     @Test @Config(qualifiers="w320dp-h560dp")

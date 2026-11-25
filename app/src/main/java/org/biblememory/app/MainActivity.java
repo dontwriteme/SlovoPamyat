@@ -5,8 +5,6 @@ import android.os.*;
 import android.content.*;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.BlurMaskFilter;
-import android.text.style.MaskFilterSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.SpannableString;
 import android.text.style.ReplacementSpan;
@@ -39,6 +37,7 @@ import static org.biblememory.app.ScreenUi.*;
 /** Bright, entirely native Android UI with zero runtime dependencies. */
 public final class MainActivity extends Activity {
     private final ScreenUi ui = new ScreenUi(this);
+    private final LessonReadingView readingView=new LessonReadingView(this,ui);
     private final ScreenMenus menus = new ScreenMenus(ui);
     private final ModeInfoPopover modeInfo = new ModeInfoPopover(ui);
     private final ScreenArtwork artwork=new ScreenArtwork(this,ui);
@@ -83,8 +82,6 @@ public final class MainActivity extends Activity {
     private final LessonWritingState lessonWriting=new LessonWritingState();
     private int lastAccuracy=-1;
     private LinearLayout content,root;
-    private LinearLayout activeTextArea;
-    private TextView activePassage;
     private static final String SESSION_PREFS="study_session";
     private LocalStore.Entry activeEntry;
     private StudyPlanLogic.Step activeStep;
@@ -97,7 +94,6 @@ public final class MainActivity extends Activity {
     private long lessonSeed=new Random().nextLong();
     private final LessonAssemblyState lessonAssembly=new LessonAssemblyState();
     private boolean lessonPracticeAgain=false;
-    private Runnable revealCleanup=()->{};
     private TextView lessonBuildAction;
     private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
     private static final int BUILD_INK=0xFF553722;
@@ -574,7 +570,7 @@ public final class MainActivity extends Activity {
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
-        revealCleanup.run();
+        readingView.releaseReveal();
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
         if(screen==Screen.RUN)knowledgeCheck.save();
@@ -682,6 +678,7 @@ public final class MainActivity extends Activity {
     }
     private void render() {
         cancelWritingCheck();
+        readingView.clear();
         if(backupInProgress)return;
         if(screen!=Screen.HOME)lessonWaitingForBible=null;
         boolean collectionWasLoading=collectionDetailLoading;
@@ -3334,77 +3331,6 @@ public final class MainActivity extends Activity {
         for(Bible.Verse v:lines) {if(sb.length()>0)sb.append(' ');sb.append(v.text);}
         return sb.toString();
     }
-    private void updateBlurText() {
-        if(activePassage==null || activeEntry==null || activeStep==null)return;
-        List<Bible.Verse> all=activeEntry.lines();
-        android.text.SpannableStringBuilder text=new android.text.SpannableStringBuilder();
-        int percentage=trainingMode==TrainingMode.HIDE?mask:0;
-        try {
-            for(Bible.Verse verse:all.subList(activeStep.start,activeStep.end)) {
-                if(text.length()>0)text.append("\n\n");
-                text.append(verse.ref+"   ");int offset=text.length();
-                text.append(verse.text);
-                for(int[] range:ReviewLogic.blurRanges(verse.text,percentage,verse.ref.hashCode()^blurSeed)) {
-                    text.setSpan(new MaskFilterSpan(new BlurMaskFilter(ui.dp(9),BlurMaskFilter.Blur.NORMAL)),
-                        offset+range[0],offset+range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                }
-            }
-            activePassage.setLayerType(percentage>0?View.LAYER_TYPE_SOFTWARE:View.LAYER_TYPE_NONE,null);
-            activePassage.setText(text,TextView.BufferType.SPANNABLE);
-            installTemporaryReveal(activePassage);
-        } catch(RuntimeException unsupported) {
-            // Unsupported device graphics must never crash the study activity.
-            StringBuilder fallback=new StringBuilder();
-            for(Bible.Verse verse:all.subList(activeStep.start,activeStep.end)) {
-                if(fallback.length()>0)fallback.append("\n\n");
-                fallback.append(verse.ref).append("   ")
-                    .append(ReviewLogic.masked(verse.text,percentage,verse.ref.hashCode()^blurSeed));
-            }
-            activePassage.setLayerType(View.LAYER_TYPE_NONE,null);
-            activePassage.setText(fallback.toString());
-        }
-        activePassage.setContentDescription(percentage>0?
-            "Скрыто "+percentage+" процентов слов. Попробуйте их вспомнить.":text.toString());
-    }
-    /** Immediate reveal held until the ORIGINAL finger lifts, even when it moves away. */
-    private void installTemporaryReveal(TextView view) {
-        final MaskFilterSpan[] selected={null};
-        final int[] begin={-1},end={-1},pointer={-1};
-        final android.text.Spannable[] activeText={null};
-        Runnable close=()->{
-            if(selected[0]!=null && activeText[0]!=null && begin[0]>=0 &&
-                end[0]<=activeText[0].length() && activeText[0].getSpanStart(selected[0])<0)
-                activeText[0].setSpan(selected[0],begin[0],end[0],
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            selected[0]=null;activeText[0]=null;begin[0]=-1;end[0]=-1;pointer[0]=-1;
-            view.invalidate();
-            if(view.getParent()!=null)view.getParent().requestDisallowInterceptTouchEvent(false);
-        };
-        revealCleanup=close;
-        view.setOnTouchListener((v,event)->{
-            int action=event.getActionMasked();
-            if(action==MotionEvent.ACTION_DOWN){
-                close.run();
-                if(!(view.getText() instanceof android.text.Spannable))return false;
-                android.text.Spannable span=(android.text.Spannable)view.getText();
-                int at=Math.max(0,Math.min(span.length(),view.getOffsetForPosition(event.getX(),event.getY())));
-                MaskFilterSpan[] hits=span.getSpans(at,Math.min(span.length(),at+1),MaskFilterSpan.class);
-                if(hits.length==0)return false;
-                selected[0]=hits[0];begin[0]=span.getSpanStart(hits[0]);end[0]=span.getSpanEnd(hits[0]);
-                if(begin[0]<0){close.run();return false;}
-                activeText[0]=span;pointer[0]=event.getPointerId(0);
-                span.removeSpan(selected[0]);view.invalidate();
-                if(view.getParent()!=null)view.getParent().requestDisallowInterceptTouchEvent(true);
-                return true;
-            }
-            if(selected[0]==null)return false;
-            if(action==MotionEvent.ACTION_UP || action==MotionEvent.ACTION_CANCEL){close.run();return true;}
-            if(action==MotionEvent.ACTION_POINTER_UP &&
-                event.getPointerId(event.getActionIndex())==pointer[0]){close.run();return true;}
-            // MOVE and a second finger never switch or prematurely dismiss the selected word.
-            return true;
-        });
-    }
     /** Lightweight wrapping container for word tiles; uses Android SDK only. */
     private static final class WrapLayout extends ViewGroup {
         private final int spacing;
@@ -3502,7 +3428,6 @@ public final class MainActivity extends Activity {
         root=ui.column();root.setBackground(ui.pageBackground());
         root.setPadding(ui.dp(22),ui.dp(24),ui.dp(22),ui.dp(24));
         currentScroller=null;
-        activeTextArea=null;activePassage=null;
         LinearLayout panel=ui.card(root);
         ui.add(panel,ui.displayText("Текст требует исправления",22),0);
         ui.helper(panel,CustomStudyText.message(invalidLine)+". Исправь строку, чтобы продолжить обучение.");
@@ -3920,72 +3845,10 @@ public final class MainActivity extends Activity {
     }
 
     private void renderLessonIntro(){
-        activeTextArea=content;
-        activePassage=ui.prose("",22);
-        activePassage.setLineSpacing(ui.dp(7),1.18f);
-        activePassage.setTextIsSelectable(false);
-        ui.add(content,activePassage,19);
-        // Both hints are measured at the actual content width, including font scale.
-        LessonIntroHint hint=new LessonIntroHint();
-        ui.add(content,hint,15);
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
-        hint.show(mask>0,false);
-        updateBlurText();
-        TextView hide=ui.button(mask==100?"Показать все слова":
-            "Скрыть "+(mask+25)+"% слов",false,()->{});
-        hide.setOnClickListener(v->{
-            mask=mask>=100?0:mask+25;
-            trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
-            updateBlurText();
-            hint.show(mask>0,true);
-            refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry);
-            hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
-            saveTrainingSession();
-        });
-        ui.animateLessonPress(hide);
-        ui.add(content,hide,27);
-        // No extra instructional caption: gesture behavior remains unchanged.
-    }
-    /** The taller of the two hints determines the height at every screen width.
-     * INVISIBLE children still participate in measurement, unlike GONE children. */
-    private final class LessonIntroHint extends FrameLayout {
-        private final TextView readHint,holdHint;
-        private boolean hidden;
-
-        LessonIntroHint(){
-            super(MainActivity.this);
-            setTag("lesson-intro-hint");
-            setMeasureAllChildren(true);
-            readHint=ui.txt(LearningHelp.INTRO_READ,14,MUTED,false);
-            holdHint=ui.txt(LearningHelp.INTRO_HOLD,14,MUTED,false);
-            addView(readHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            addView(holdHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            holdHint.setVisibility(View.INVISIBLE);
-        }
-
-        void show(boolean wordsHidden,boolean animate){
-            if(wordsHidden==hidden)return;
-            hidden=wordsHidden;
-            TextView outgoing=hidden?readHint:holdHint;
-            TextView incoming=hidden?holdHint:readHint;
-            outgoing.animate().cancel();
-            incoming.animate().cancel();
-            outgoing.setVisibility(View.INVISIBLE);
-            outgoing.setAlpha(1f);
-            boolean fade=animate&&ValueAnimator.areAnimatorsEnabled();
-            incoming.setAlpha(fade?0f:1f);
-            incoming.setVisibility(View.VISIBLE);
-            if(fade)incoming.animate().alpha(1f).setDuration(150)
-                .setInterpolator(new DecelerateInterpolator()).start();
-        }
-
-        @Override protected void onDetachedFromWindow(){
-            readHint.animate().cancel();
-            holdHint.animate().cancel();
-            readHint.setAlpha(1f);
-            holdHint.setAlpha(1f);
-            super.onDetachedFromWindow();
-        }
+        readingView.render(content,activeEntry.lines().subList(activeStep.start,activeStep.end),mask,blurSeed,()->mask,
+            next->{mask=next;trainingMode=next>0?TrainingMode.HIDE:TrainingMode.READ;},
+            ()->refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry),this::saveTrainingSession);
     }
     private void resetLessonTiles(){
         lessonAssembly.reset();lessonSeed=new Random().nextLong();
@@ -5141,6 +5004,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy(){
         cancelWritingCheck();
+        readingView.clear();
         writingExecutor.shutdownNow();
         BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
