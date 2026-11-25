@@ -258,7 +258,12 @@ public class LessonHotbarIntegrationTest {
         set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$Screen"),"RUN"));
         invoke("render");
         assertSeamlessFooter();
-        run.edit("Слово истины живо");assertTrue(run.check());invoke("render");
+        run.edit("Ошибка");
+        assertTrue(run.check());assertFalse(run.task().passed());invoke("render");
+        assertSeamlessFooter();
+        run.restart();
+        run.edit("Слово истины живо");
+        assertTrue(run.check());assertTrue(run.task().passed());invoke("render");
         assertSeamlessFooter();
     }
 

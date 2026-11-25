@@ -107,8 +107,8 @@ public final class R0PickerCheck extends Instrumentation {
                 input().setText("бог");
             });
             await(()->input()!=null&&field("currentScroller")==null
-                &&!((Boolean)field("bibleSearchLoading"))&&
-                !((java.util.List<?>)field("bibleSearchHits")).isEmpty(),"virtualized result layout");
+                &&!((BibleSearchSession)field("bibleSearch")).loading()&&
+                !((BibleSearchSession)field("bibleSearch")).hits().isEmpty(),"virtualized result layout");
             runOnMainSync(()->input().setText(""));
             await(()->text("Бытие")!=null&&field("currentScroller") instanceof ScrollView&&
                 ((ScrollView)field("currentScroller")).getScrollY()==16,"catalog scroll restored");

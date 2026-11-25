@@ -50,10 +50,16 @@ final class ActivityTestWorkers {
     }
 
     static void awaitDestroyed(MainActivity activity)throws Exception{
-        for(String name:new String[]{"collectionExecutor","bibleSearchExecutor","writingExecutor"}){
+        for(String name:new String[]{"collectionExecutor","writingExecutor"}){
             assertTrue(name+" did not finish during teardown",
                 executor(activity,name).awaitTermination(30,TimeUnit.SECONDS));
         }
+        Field search=MainActivity.class.getDeclaredField("bibleSearch");
+        search.setAccessible(true);
+        Field worker=BibleSearchSession.class.getDeclaredField("executor");
+        worker.setAccessible(true);
+        ExecutorService executor=(ExecutorService)worker.get(search.get(activity));
+        assertTrue("Bible search did not finish during teardown",executor.awaitTermination(30,TimeUnit.SECONDS));
         Shadows.shadowOf(Looper.getMainLooper()).idle();
     }
 }

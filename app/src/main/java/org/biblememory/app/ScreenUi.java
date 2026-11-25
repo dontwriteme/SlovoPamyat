@@ -200,4 +200,10 @@ final class ScreenUi {
         });
         d.show();
     }
+    int bookInk(int book){
+        int hue=BookColorLogic.color(book);
+        return Color.rgb((Color.red(hue)*2+Color.red(WHITE))/4,
+            (Color.green(hue)*2+Color.green(WHITE))/4,
+            (Color.blue(hue)*2+Color.blue(WHITE))/4);
+    }
 }
