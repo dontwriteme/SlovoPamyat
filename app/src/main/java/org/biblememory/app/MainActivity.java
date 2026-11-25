@@ -3,8 +3,6 @@ package org.biblememory.app;
 import android.app.*;
 import android.os.*;
 import android.content.*;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.BlurMaskFilter;
@@ -43,6 +41,7 @@ public final class MainActivity extends Activity {
     private final ScreenUi ui = new ScreenUi(this);
     private final ScreenMenus menus = new ScreenMenus(ui);
     private final ModeInfoPopover modeInfo = new ModeInfoPopover(ui);
+    private final ScreenArtwork artwork=new ScreenArtwork(this,ui);
     // The warm landscape-based interface is shared by every screen, not just the home hero.
     private static final int EXPORT=10,IMPORT=11;
     private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY}
@@ -56,6 +55,9 @@ public final class MainActivity extends Activity {
 
     private LocalStore store;
     private final Bible bible=Bible.shared();
+    private final HomePage home=new HomePage(this,ui,artwork,this.bible,modeInfo,()->{
+        if(this.screen==Screen.HOME)render();
+    });
     private final PassagePicker passagePicker=new PassagePicker(this,ui,bible);
     private final BibleReader bibleReader=new BibleReader(this,ui,bible);
     private java.util.concurrent.CompletableFuture<Void> bibleStartup;
@@ -72,21 +74,11 @@ public final class MainActivity extends Activity {
     private boolean testAssisted=false;
     private ScrollView currentScroller;
     // The Home page is a single scroll surface; its expansion and scroll position survive navigation.
-    private static final String HOME_UI_PREFS="home_ui";
-    private boolean homeCollectionsExpanded=false;
-    private int homeScrollY=0;
-    private boolean homeScrollRestored=false;
     private Screen lastRenderedScreen=null;
-    private ValueAnimator collectionAnimator;
-
     private String lastExpected="";
     private final LessonWritingState lessonWriting=new LessonWritingState();
-    private int homeIndex=0;
-    private static final int[][] HOME_REFS={{19,118,11},{40,5,14},{43,14,6},{45,12,21},{50,4,13},{40,6,33}};
     private int lastAccuracy=-1;
     private LinearLayout content,root;
-    private final Handler homeHandler=new Handler(Looper.getMainLooper());
-    private final Runnable homeTicker=()->{refreshHomeIndex(true);scheduleHomeRefresh();};
     private LinearLayout activeTextArea;
     private TextView activePassage;
     private static final String SESSION_PREFS="study_session";
@@ -289,7 +281,7 @@ public final class MainActivity extends Activity {
             readyTabs.put(
                     destination,
                     new ReadyTab(
-                            root, content, currentScroller, homeIndex
+                            root, content, currentScroller, home.index()
                     )
             );
 
@@ -459,10 +451,7 @@ public final class MainActivity extends Activity {
         activeUnifiedId=getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE).getLong("active",-1);
         ensureActiveUnified();
         restoreCollectionQueue();
-        android.content.SharedPreferences homeUi=getSharedPreferences(HOME_UI_PREFS,MODE_PRIVATE);
-        homeCollectionsExpanded=homeUi.getBoolean("collections_expanded",false);
-        homeScrollY=Math.max(0,homeUi.getInt("scroll_y",0));
-        refreshHomeIndex(false);
+        home.open();
         restorePickerState(savedInstanceState);
         Bundle lesson=savedInstanceState==null?null:savedInstanceState.getBundle("active_lesson");
         if(lesson!=null&&lesson.containsKey("review_group")&&!bible.isReady())
@@ -470,7 +459,7 @@ public final class MainActivity extends Activity {
         else restoreActiveLesson(lesson);
         render();
         // The worker owns collectionStore until its queued close in onDestroy.
-        if(resumed)scheduleHomeRefresh();
+        if(resumed)home.schedule();
         bibleStartup=loadBibleForScreen(bible,getApplicationContext(),this);
     }
 
@@ -575,7 +564,7 @@ public final class MainActivity extends Activity {
         settleBibleIcons();
         settleHomeIcons();
         settleCollectionsIcons();
-        if(store!=null && root!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
+        if(store!=null && root!=null){home.refresh(true);home.schedule();}
     }
     @Override protected void onPause() {
         cancelWritingCheck();
@@ -590,33 +579,8 @@ public final class MainActivity extends Activity {
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
         if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
-        homeHandler.removeCallbacks(homeTicker);
+        home.pause();
         super.onPause();
-    }
-    private void scheduleHomeRefresh() {
-        homeHandler.removeCallbacks(homeTicker);
-        if(store==null)return;
-        long last=getSharedPreferences("home_verse",MODE_PRIVATE)
-            .getLong("last_switch",System.currentTimeMillis());
-        homeHandler.postDelayed(homeTicker,HomeVerseLogic.nextDelay(last,System.currentTimeMillis())+80L);
-    }
-    private void refreshHomeIndex(boolean rerender) {
-        android.content.SharedPreferences prefs=getSharedPreferences("home_verse",MODE_PRIVATE);
-        long previous=prefs.getLong("last_switch",0L),now=System.currentTimeMillis();
-        int old=homeIndex;
-        homeIndex=prefs.getInt("index",0);
-        if(previous<=0 || previous>now) {
-            // Also recover cleanly from an incorrectly adjusted system clock.
-            prefs.edit().putLong("last_switch",now).putInt("index",homeIndex).apply();
-        } else {
-            long steps=HomeVerseLogic.elapsedIntervals(previous,now,HomeVerseLogic.ROTATE_MS);
-            if(steps>0) {
-                homeIndex=HomeVerseLogic.advance(homeIndex,HOME_REFS.length,steps);
-                prefs.edit().putLong("last_switch",previous+steps*HomeVerseLogic.ROTATE_MS)
-                    .putInt("index",homeIndex).apply();
-            }
-        }
-        if(rerender&&screen==Screen.HOME&&homeIndex!=old)render();
     }
     @Override public void onBackPressed() {
         if(resetInProgress||backupInProgress)return;
@@ -679,7 +643,7 @@ public final class MainActivity extends Activity {
         FrameLayout art=new FrameLayout(this);
         art.setBackground(ui.outlined(CARD,22,BORDER));art.setClipToOutline(true);
         ImageView landscape=new ImageView(this);
-        landscape.setImageResource(landscapeFor(scene));
+        landscape.setImageResource(artwork.landscapeFor(scene));
         landscape.setScaleType(ImageView.ScaleType.CENTER_CROP);
         landscape.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         art.addView(landscape,new FrameLayout.LayoutParams(-1,-1));
@@ -696,255 +660,6 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,ui.dp(height));
         p.topMargin=ui.dp(12);into.addView(art,p);
     }
-    /** Six original bundled landscapes; no runtime network access or per-verse downloads. */
-    private int landscapeFor(long key){
-        switch((int)Math.floorMod(key,6L)){
-            case 0:return R.drawable.hero_sunrise;
-            case 1:return R.drawable.hero_lake;
-            case 2:return R.drawable.hero_autumn;
-            case 3:return R.drawable.hero_forest;
-            case 4:return R.drawable.hero_evening;
-            default:return R.drawable.hero_valley;
-        }
-    }
-    /** Warm pine-toned card surface, visually coherent with the new landscape artwork. */
-    private GradientDrawable homeSurface(){
-        GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            new int[]{0xFFFFFCF8,0xFFFFF5EF,0xFFFBE9DD});
-        d.setCornerRadius(ui.dp(22));d.setStroke(ui.dp(1),HOME_BORDER);return d;
-    }
-    private static final int MAX_LANDSCAPE_THUMBNAIL_DP=96;
-    // The six bundled landscape resources are shared only by thumbnails in this Activity.
-    private final android.util.SparseArray<Bitmap> landscapeThumbnails=new android.util.SparseArray<>(6);
-
-    /** A small decorative scenic preview; accessible names remain the collection labels. */
-    private ImageView landscapeThumbnail(long index){
-        ImageView thumb=new ImageView(this);
-        int resource=landscapeFor(index);
-        Bitmap bitmap=landscapeThumbnails.get(resource);
-        if(bitmap==null){
-            BitmapFactory.Options options=new BitmapFactory.Options();
-            options.inScaled=false;
-            options.inJustDecodeBounds=true;
-            BitmapFactory.decodeResource(getResources(),resource,options);
-            int side=Math.min(options.outWidth,options.outHeight);
-            int minimum=ui.dp(MAX_LANDSCAPE_THUMBNAIL_DP);
-            options.inSampleSize=1;
-            // CENTER_CROP still receives enough source pixels for the largest thumbnail.
-            while(side/(options.inSampleSize*2)>=minimum)options.inSampleSize*=2;
-            options.inJustDecodeBounds=false;
-            bitmap=BitmapFactory.decodeResource(getResources(),resource,options);
-            if(bitmap!=null)landscapeThumbnails.put(resource,bitmap);
-        }
-        if(bitmap!=null)thumb.setImageBitmap(bitmap);
-        else thumb.setImageResource(resource);
-        thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        thumb.setBackground(ui.shape(CARD_ALT,14));
-        thumb.setClipToOutline(true);
-        thumb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        return thumb;
-    }
-    /** Restored verse-of-the-day hierarchy, over a light, readable scenic backdrop. */
-
-
-
-    private void homeVerseHero(
-            int scene,
-            String reference,
-            String verseText) {
-
-        // Карточка имеет высоту по содержимому.
-        FrameLayout hero = new FrameLayout(this);
-
-        final android.graphics.drawable.Drawable landscape =
-                getResources().getDrawable(
-                        landscapeFor(scene),
-                        getTheme()
-                );
-
-        // Сохраняем оригинальный светлый градиент.
-        final GradientDrawable scrim =
-                new GradientDrawable(
-                        GradientDrawable.Orientation.TOP_BOTTOM,
-                        new int[]{
-                                0xFAFFF5E8,
-                                0xE8FFF3E5,
-                                0x70FFF1DF,
-                                0x10FFF1DF
-                        }
-                );
-
-        // Рисуем пейзаж непосредственно в фоне.
-        // Он больше НЕ влияет на высоту карточки.
-        hero.setBackground(
-                new android.graphics.drawable.Drawable() {
-
-                    @Override
-                    public void draw(Canvas canvas) {
-                        android.graphics.Rect bounds = getBounds();
-
-                        int iw = Math.max(
-                                1, landscape.getIntrinsicWidth()
-                        );
-
-                        int ih = Math.max(
-                                1, landscape.getIntrinsicHeight()
-                        );
-
-                        float scale = Math.max(
-                                (float) bounds.width() / iw,
-                                (float) bounds.height() / ih
-                        );
-
-                        int saved = canvas.save();
-
-                        // Поведение как CENTER_CROP.
-                        canvas.clipRect(bounds);
-                        canvas.translate(
-                                bounds.exactCenterX(),
-                                bounds.exactCenterY()
-                        );
-
-                        canvas.scale(scale, scale);
-
-                        landscape.setBounds(
-                                -iw / 2,
-                                -ih / 2,
-                                iw - iw / 2,
-                                ih - ih / 2
-                        );
-
-                        landscape.draw(canvas);
-
-                        canvas.restoreToCount(saved);
-
-                        // Градиент поверх изображения.
-                        scrim.setBounds(bounds);
-                        scrim.draw(canvas);
-                    }
-
-                    @Override
-                    public void setAlpha(int alpha) {
-                        landscape.setAlpha(alpha);
-                    }
-
-                    @Override
-                    public void setColorFilter(
-                            android.graphics.ColorFilter filter) {
-                        landscape.setColorFilter(filter);
-                    }
-
-                    @Override
-                    public int getOpacity() {
-                        return android.graphics.PixelFormat.TRANSLUCENT;
-                    }
-                }
-        );
-
-        // Скругление всей карточки, включая изображение.
-        hero.setOutlineProvider(
-                new ViewOutlineProvider() {
-                    @Override
-                    public void getOutline(
-                            View view,
-                            android.graphics.Outline outline) {
-
-                        outline.setRoundRect(
-                                0,
-                                0,
-                                view.getWidth(),
-                                view.getHeight(),
-                                ui.dp(24)
-                        );
-                    }
-                }
-        );
-
-        hero.setClipToOutline(true);
-        hero.setElevation(ui.dp(3));
-
-        // Содержимое определяет реальную высоту.
-        LinearLayout body = ui.column();
-
-        body.setGravity(
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL
-        );
-
-        body.setPadding(
-                ui.dp(22),
-                ui.dp(14),
-                ui.dp(22),
-                ui.dp(18)
-        );
-
-        // Оригинальная плашка.
-        TextView heading = ui.txt(
-                "Стих дня",
-                15,
-                GREEN,
-                true
-        );
-
-        heading.setGravity(Gravity.CENTER);
-
-        heading.setPadding(
-                ui.dp(19),
-                ui.dp(8),
-                ui.dp(19),
-                ui.dp(8)
-        );
-
-        heading.setBackground(
-                ui.shape(0xE9FFE4D3, 25)
-        );
-
-        LinearLayout.LayoutParams headingParams =
-                new LinearLayout.LayoutParams(-2, -2);
-
-        headingParams.gravity = Gravity.CENTER_HORIZONTAL;
-
-        body.addView(heading, headingParams);
-
-        // Текст стиха полностью сохраняется.
-        TextView verse = ui.prose(
-                "«" + verseText + "»",
-                22
-        );
-
-        verse.setGravity(Gravity.CENTER);
-
-        ui.add(body, verse, 12);
-
-        // Ссылка на стих.
-        TextView source = ui.displayText(reference, 17);
-
-        source.setGravity(Gravity.CENTER);
-        source.setTextColor(0xFF83503E);
-
-        ui.add(body, source, 10);
-
-        hero.addView(
-                body,
-                new FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-        );
-
-        // Никакой фиксированной высоты и MATCH_PARENT по высоте.
-        LinearLayout.LayoutParams heroParams =
-                new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                );
-
-        heroParams.topMargin = ui.dp(12);
-
-        content.addView(hero, heroParams);
-    }
-
-
-
     private int number(EditText e){try{return Integer.parseInt(e.getText().toString().trim());}catch(Exception x){return -1;}}
     private String value(EditText e){return e.getText().toString().trim();}
     private void toast(String message){Toast.makeText(this,message,Toast.LENGTH_LONG).show();}
@@ -964,10 +679,7 @@ public final class MainActivity extends Activity {
         ui.gap(content,6);
     }
     private void rememberHomeScroll(){
-        if(lastRenderedScreen==Screen.HOME && homeScrollRestored && currentScroller!=null){
-            homeScrollY=Math.max(0,currentScroller.getScrollY());
-            getSharedPreferences(HOME_UI_PREFS,MODE_PRIVATE).edit().putInt("scroll_y",homeScrollY).apply();
-        }
+        if(lastRenderedScreen==Screen.HOME)home.rememberScroll(currentScroller);
     }
     private void render() {
         cancelWritingCheck();
@@ -992,7 +704,7 @@ public final class MainActivity extends Activity {
             && !(lastRenderedScreen==Screen.COLLECTION_DETAIL&&collectionWasLoading)){
             savedScrollY.put(lastRenderedScreen,currentScroller.getScrollY());
         }
-        if(collectionAnimator!=null){collectionAnimator.cancel();collectionAnimator=null;}
+        home.cancelAnimation();
         if(screen==Screen.TRAIN){lastRenderedScreen=screen;renderFullscreenLesson();return;}
         if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();return;}
         if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
@@ -1072,7 +784,7 @@ public final class MainActivity extends Activity {
                             root,
                             content,
                             currentScroller,
-                            homeIndex
+                            home.index()
                     )
             );
 
@@ -1094,14 +806,7 @@ public final class MainActivity extends Activity {
             else scroll.post(restore);
         }
         if(screen==Screen.HOME){
-            homeScrollRestored=false;
-            final int destination=homeScrollY;
-            scroll.post(()->{
-                if(screen==Screen.HOME && currentScroller==scroll){
-                    scroll.scrollTo(0,destination);
-                    homeScrollRestored=true;
-                }
-            });
+            home.restoreScroll(scroll,()->screen==Screen.HOME&&currentScroller==scroll,true);
         }
     }
     private boolean isBibleSearchScreen(){
@@ -1431,7 +1136,7 @@ public final class MainActivity extends Activity {
         // Домашний стих мог обновиться автоматически.
         if (destination == Screen.HOME
                 && cached != null
-                && cached.homeVerseIndex != homeIndex) {
+                && cached.homeVerseIndex != home.index()) {
 
             readyTabs.remove(destination);
             cached = null;
@@ -1456,12 +1161,7 @@ public final class MainActivity extends Activity {
             if (destination == Screen.HOME) {
                 final ScrollView active = currentScroller;
 
-                active.post(() -> {
-                    if (currentScroller == active) {
-                        active.scrollTo(0, homeScrollY);
-                        homeScrollRestored = true;
-                    }
-                });
+                home.restoreScroll(active,()->currentScroller==active,false);
 
             } else if (currentScroller!=null && savedScrollY.containsKey(destination)) {
 
@@ -1493,7 +1193,7 @@ public final class MainActivity extends Activity {
                                 leaving,
                                 leavingBody,
                                 leavingScroller,
-                                homeIndex
+                                home.index()
                         )
                 );
             }
@@ -1775,10 +1475,10 @@ public final class MainActivity extends Activity {
         ui.action(content,"＋  Создать подборку",true,()->newCardDeck(null));
         for(LocalStore.CardDeck deck:store.cardDecks()){
             LinearLayout panel=ui.card(content);panel.setPadding(ui.dp(11),ui.dp(11),ui.dp(9),ui.dp(11));
-            panel.setBackground(homeSurface());
+            panel.setBackground(artwork.homeSurface());
             LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
-            ImageView illustration=landscapeThumbnail(deck.id);
-            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(ui.dp(79),ui.dp(MAX_LANDSCAPE_THUMBNAIL_DP));
+            ImageView illustration=artwork.landscapeThumbnail(deck.id);
+            LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(ui.dp(79),ui.dp(ScreenArtwork.MAX_LANDSCAPE_THUMBNAIL_DP));
             imageP.rightMargin=ui.dp(12);line.addView(illustration,imageP);
             LinearLayout details=ui.column();
             TextView name=ui.displayText(deck.title,18);name.setMaxLines(2);
@@ -1848,7 +1548,7 @@ public final class MainActivity extends Activity {
         List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
         if(cards.isEmpty())ui.helper(content,"Здесь пока нет карточек.");
         for(LocalStore.Flashcard card:cards){
-            LinearLayout c=ui.card(content);c.setBackground(homeSurface());
+            LinearLayout c=ui.card(content);c.setBackground(artwork.homeSurface());
             LinearLayout head=ui.row();
             TextView ref=ui.displayText(card.reference,18);
             head.addView(ref,new LinearLayout.LayoutParams(0,-2,1));
@@ -2454,56 +2154,19 @@ public final class MainActivity extends Activity {
         leaveCardSession();
     }
 
-    private void renderHome() {
-        tabWordmark();
-        int[] vr=HOME_REFS[Math.floorMod(homeIndex,HOME_REFS.length)];
-        List<Bible.Verse> homeLines=bible.isReady()?bible.chapter(vr[0],vr[1]):Collections.emptyList();
-        String verseText=homeIndex==0?"В сердце моем сокрыл я слово Твое, чтобы не грешить пред Тобою.":"Загружаем стих…";
-        if(!homeLines.isEmpty())for(Bible.Verse line:homeLines){
-            if(line.ref.equals(vr[1]+":"+vr[2])){verseText=line.text;break;}
-        }
-        homeVerseHero(homeIndex,Bible.NAMES[vr[0]-1]+" "+vr[1]+":"+vr[2],verseText);
-        renderUnifiedHomePanel();
+    private void renderHome(){
+        LocalStore.UnifiedCollection active=activeUnified();
+        home.render(content,active,active==null?null:store.collectionProgress(),this::bookForEntry,
+            new HomePage.Actions(()->newUnifiedCollection(null),this::showUnifiedSelector,this::startActiveStudy,
+                this::startActiveCards,()->startActiveReview(false),this::startActiveRun,()->startActiveReview(true)));
     }
 
-    private final class ChevronView extends View{
-        private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
-        ChevronView(boolean open){super(MainActivity.this);
-            p.setColor(MUTED);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(ui.dp(2.5f));
-            p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);
-            setRotation(open?180f:0f);
-            setContentDescription(open?"Свернуть":"Развернуть");
-        }
-        @Override protected void onDraw(Canvas canvas){
-            super.onDraw(canvas);
-            float x=getWidth()/2f,y=getHeight()/2f;
-            Path path=new Path();path.moveTo(x-ui.dp(7),y-ui.dp(3));
-            path.lineTo(x,y+ui.dp(4));path.lineTo(x+ui.dp(7),y-ui.dp(3));
-            canvas.drawPath(path,p);
-        }
-        void setOpen(boolean open){
-            setContentDescription(open?"Свернуть":"Развернуть");
-            if(ValueAnimator.areAnimatorsEnabled())animate().rotation(open?180f:0f)
-                .setDuration(240L).setInterpolator(new DecelerateInterpolator()).start();
-            else setRotation(open?180f:0f);
-        }
-    }
-
-    /** Creates a collection on Home, showing the list but never forcing a scroll jump. */
-    private void createHomeCollection(){
-        newGroup(groupId->{
-            homeCollectionsExpanded=true;
-            getSharedPreferences(HOME_UI_PREFS,MODE_PRIVATE).edit()
-                .putBoolean("collections_expanded",true).apply();
-            screen=Screen.HOME;render();
-        });
-    }
     private FrameLayout collectionTile(LocalStore.Group group){
         FrameLayout tile=new FrameLayout(this);
         tile.setBackground(ui.outlined(CARD,22,BORDER));tile.setClipToOutline(true);
         tile.setElevation(ui.dp(2));
         ImageView scene=new ImageView(this);
-        scene.setImageResource(landscapeFor(group.id));
+        scene.setImageResource(artwork.landscapeFor(group.id));
         scene.setScaleType(ImageView.ScaleType.CENTER_CROP);
         scene.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         tile.addView(scene,new FrameLayout.LayoutParams(-1,-1));
@@ -2515,110 +2178,11 @@ public final class MainActivity extends Activity {
         TextView name=ui.displayText(group.title,17);name.setMaxLines(2);
         name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         ui.add(caption,name,0);
-        ui.add(caption,ui.txt(group.count+" "+collectionCountNoun(group.count),12,MUTED,false),5);
+        ui.add(caption,ui.txt(group.count+" "+HomePage.collectionCountNoun(group.count),12,MUTED,false),5);
         tile.addView(caption,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-        tile.setContentDescription(group.title+", "+group.count+" "+collectionCountNoun(group.count));
+        tile.setContentDescription(group.title+", "+group.count+" "+HomePage.collectionCountNoun(group.count));
         tile.setClickable(true);tile.setFocusable(true);
         return tile;
-    }
-    private void renderHomeCollections(){
-        LinearLayout section=ui.column();ui.add(content,section,13);
-        LinearLayout controls=ui.row();ui.add(section,controls,0);
-        LinearLayout heading=ui.row();heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.setPadding(ui.dp(12),ui.dp(5),ui.dp(9),ui.dp(5));
-        heading.setBackground(homeSurface());
-        heading.setElevation(ui.dp(1));
-        NavigationGlyph folder=new NavigationGlyph(this,"cards",0xFFAC684C);
-        LinearLayout.LayoutParams iconP=new LinearLayout.LayoutParams(ui.dp(30),ui.dp(30));
-        iconP.rightMargin=ui.dp(10);heading.addView(folder,iconP);
-        TextView label=ui.displayText("Мои коллекции",20);
-        label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        heading.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        ChevronView arrow=new ChevronView(homeCollectionsExpanded);
-        heading.addView(arrow,new LinearLayout.LayoutParams(ui.dp(30),ui.dp(38)));
-        LinearLayout.LayoutParams headingP=new LinearLayout.LayoutParams(0,ui.dp(55),1);
-        headingP.rightMargin=ui.dp(9);controls.addView(heading,headingP);
-        TextView plus=ui.txt("+",28,0xFFB7553D,false);
-        plus.setGravity(Gravity.CENTER);
-        plus.setBackground(ui.outlined(0xFFFFE7D9,18,BORDER));
-        plus.setClickable(true);plus.setFocusable(true);
-        plus.setContentDescription("Создать коллекцию");
-        plus.setOnClickListener(v->createHomeCollection());
-        controls.addView(plus,new LinearLayout.LayoutParams(ui.dp(55),ui.dp(55)));
-        FrameLayout clip=new FrameLayout(this);clip.setClipChildren(true);
-        LinearLayout collectionList=ui.column();collectionList.setPadding(0,0,0,ui.dp(4));
-        // One readable compact list, part of the main page's single scroll surface.
-        for(LocalStore.Group group:store.groups()){
-            LinearLayout tile=ui.row();tile.setPadding(ui.dp(9),ui.dp(8),ui.dp(8),ui.dp(8));
-            tile.setGravity(Gravity.CENTER_VERTICAL);
-            tile.setMinimumHeight(ui.dp(72));
-            tile.setBackground(homeSurface());
-            ImageView thumb=landscapeThumbnail(group.id);
-            LinearLayout.LayoutParams thumbP=new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48));
-            thumbP.rightMargin=ui.dp(12);tile.addView(thumb,thumbP);
-            LinearLayout caption=ui.column();
-            TextView collectionName=ui.displayText(group.title,16);
-            collectionName.setMaxLines(2);
-            collectionName.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            ui.add(caption,collectionName,0);
-            ui.add(caption,ui.txt(group.count+" "+collectionCountNoun(group.count),12,MUTED,false),3);
-            tile.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
-            tile.setClickable(true);tile.setFocusable(true);
-            tile.setOnClickListener(v->{selectedGroup=group.id;screen=Screen.ENTRIES;render();});
-            ui.add(collectionList,tile,7);
-        }
-        clip.addView(collectionList,new FrameLayout.LayoutParams(-1,-2));
-        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,
-            homeCollectionsExpanded?-2:0);cp.topMargin=ui.dp(2);section.addView(clip,cp);
-        heading.setClickable(true);heading.setFocusable(true);
-        heading.setContentDescription("Мои коллекции, "+(homeCollectionsExpanded?"свернуть":"раскрыть"));
-        heading.setOnClickListener(v->{
-            if(collectionAnimator!=null){collectionAnimator.cancel();collectionAnimator=null;}
-            homeCollectionsExpanded=!homeCollectionsExpanded;
-            arrow.setOpen(homeCollectionsExpanded);
-            heading.setContentDescription("Мои коллекции, "+(homeCollectionsExpanded?"свернуть":"раскрыть"));
-            getSharedPreferences(HOME_UI_PREFS,MODE_PRIVATE).edit()
-                .putBoolean("collections_expanded",homeCollectionsExpanded).apply();
-            animateHomeCollections(clip,collectionList,homeCollectionsExpanded);
-        });
-    }
-
-    private static String collectionCountNoun(int count){
-        int mod=count%100,unit=count%10;
-        return mod>=11&&mod<=14?"отрывков":unit==1?"отрывок":
-            unit>=2&&unit<=4?"отрывка":"отрывков";
-    }
-    /** Animates only the collection container, never recreating/scrolling Home. */
-    private void animateHomeCollections(FrameLayout clip,LinearLayout items,boolean expand){
-        int availableWidth=clip.getWidth();
-        if(availableWidth<=0)availableWidth=Math.max(ui.dp(200),
-            getResources().getDisplayMetrics().widthPixels-ui.dp(38));
-        items.measure(View.MeasureSpec.makeMeasureSpec(availableWidth,View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-        int desired=items.getMeasuredHeight();
-        int from=Math.max(0,clip.getHeight()),to=expand?desired:0;
-        if(!ValueAnimator.areAnimatorsEnabled() || from==to){
-            LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)clip.getLayoutParams();
-            p.height=expand?-2:0;clip.setLayoutParams(p);return;
-        }
-        final boolean expanding=expand;
-        ValueAnimator animation=ValueAnimator.ofInt(from,to);
-        collectionAnimator=animation;
-        animation.setDuration(240L);animation.setInterpolator(new DecelerateInterpolator());
-        animation.addUpdateListener(a->{
-            if(collectionAnimator!=animation)return;
-            LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)clip.getLayoutParams();
-            p.height=(Integer)a.getAnimatedValue();clip.setLayoutParams(p);
-        });
-        animation.addListener(new android.animation.AnimatorListenerAdapter(){
-            @Override public void onAnimationEnd(android.animation.Animator a){
-                if(collectionAnimator!=animation)return;
-                LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)clip.getLayoutParams();
-                p.height=expanding?-2:0;clip.setLayoutParams(p);
-                collectionAnimator=null;
-            }
-        });
-        animation.start();
     }
     private void stat(LinearLayout row,String number,String desc) {
         LinearLayout col=ui.column();col.addView(ui.txt(number,25,WHITE,true));col.addView(ui.txt(desc,11,0xFFE1FFFA,false));
@@ -3380,7 +2944,7 @@ public final class MainActivity extends Activity {
         int established=snapshot.consolidatedCount(source);
         String progress=established+" закреплено · "+Math.max(0,learned-established)+" предварительно освоено";
         String detail=e.reference+" · "+progress+" · Связок: "+snapshot.linkedCount(source);
-        LinearLayout c=ui.card(content);c.setBackground(homeSurface());
+        LinearLayout c=ui.card(content);c.setBackground(artwork.homeSurface());
         LinearLayout row=ui.row();
         LinearLayout body=ui.column();
         ui.add(body,ui.displayText(e.title,17),0);
@@ -4166,7 +3730,7 @@ public final class MainActivity extends Activity {
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         FrameLayout scenery=new FrameLayout(this);
         ImageView image=new ImageView(this);
-        image.setImageResource(landscapeFor(e.id));
+        image.setImageResource(artwork.landscapeFor(e.id));
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         scenery.addView(image,new FrameLayout.LayoutParams(-1,-1));
@@ -5341,96 +4905,6 @@ public final class MainActivity extends Activity {
         dialog.setCanceledOnTouchOutside(true);
         ui.styledDialog(dialog);
     }
-    private void renderUnifiedHomePanel(){
-        LinearLayout panel=ui.card(content);panel.setBackground(homeSurface());
-        LocalStore.UnifiedCollection active=activeUnified();
-        if(active==null){
-            ui.add(panel,ui.displayText("Пока нет коллекций",22),0);
-            ui.action(panel,"＋ Создать первую коллекцию",true,()->newUnifiedCollection(null));
-            return;
-        }
-        // Compact collection switcher: two curved circular arrows, no chevron.
-        LinearLayout chooser=ui.row();chooser.setGravity(Gravity.CENTER_VERTICAL);
-        chooser.setPadding(ui.dp(12),ui.dp(7),ui.dp(10),ui.dp(7));
-        chooser.setBackground(ui.outlined(CARD_ALT,13,BORDER));
-        LinearLayout names=ui.column();
-        ui.add(names,ui.txt("ВЫБРАННАЯ КОЛЛЕКЦИЯ",10,MUTED,true),0);
-        TextView title=ui.txt(active.title,17,WHITE,true);
-        title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        ui.add(names,title,3);
-        chooser.addView(names,new LinearLayout.LayoutParams(0,-2,1));
-        NavigationGlyph cycle=new NavigationGlyph(this,"refresh",GREEN);
-        cycle.setContentDescription("Сменить коллекцию");
-        LinearLayout.LayoutParams cycleP=new LinearLayout.LayoutParams(ui.dp(30),ui.dp(30));
-        cycleP.leftMargin=ui.dp(10);chooser.addView(cycle,cycleP);
-        chooser.setContentDescription("Выбранная коллекция: "+active.title+". Нажми, чтобы сменить.");
-        chooser.setClickable(true);chooser.setFocusable(true);
-        chooser.setOnClickListener(v->showUnifiedSelector());
-        ui.add(panel,chooser,0);
-        int verses=0,learned=0;
-        CollectionProgressSnapshot snapshot=store.collectionProgress();
-        Set<List<String>> seenVerses=new HashSet<>();
-        for(LocalStore.Entry e:snapshot.entries(active.groupId)){
-            List<Bible.Verse> lines=snapshot.verses(e.id);
-            int book=bookForEntry(e);
-            for(int i=0;i<lines.size();i++){
-                if(!seenVerses.add(KnowledgeCheckMaterial.identity(e,book,i,lines.get(i))))continue;
-                verses++;
-                if(snapshot.exerciseDone(e.id,i)>=5)learned++;
-            }
-        }
-        addHelpLabel(panel,ui.txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
-            LearningHelp.PROGRESS,8);
-        if(verses>0)ui.progress(panel,learned,verses);
-        unifiedModeRow(panel,LearningHelp.STUDY,"mode-book",this::startActiveStudy);
-        unifiedModeRow(panel,LearningHelp.CARDS,"mode-cards",this::startActiveCards);
-        unifiedModeRow(panel,LearningHelp.REVIEW,"mode-brain",()->startActiveReview(false));
-        unifiedModeRow(panel,LearningHelp.MEMORY,"mode-check",this::startActiveRun);
-        unifiedModeRow(panel,LearningHelp.ALL_REVIEWS,"mode-repeat",()->startActiveReview(true));
-    }
-
-    private void addHelpLabel(LinearLayout parent,TextView label,LearningHelp help,int margin){
-        LinearLayout line=ui.row();
-        line.setGravity(Gravity.CENTER_VERTICAL);
-        line.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        line.addView(helpIcon(help,"Подсказка «"+help.title+"»"),new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
-        ui.add(parent,line,margin);
-    }
-
-    private void unifiedModeRow(LinearLayout panel,LearningHelp help,String icon,Runnable run){
-        String name=help.title;
-        LinearLayout item=ui.row();
-        item.setGravity(Gravity.CENTER_VERTICAL);
-        item.setPadding(ui.dp(12),0,0,0);
-        item.setBackground(ui.outlined(CARD,14,BORDER));
-
-        LinearLayout launch=ui.row();
-        launch.setGravity(Gravity.CENTER_VERTICAL);
-        launch.setMinimumHeight(ui.dp(48));
-        launch.setContentDescription(name);
-        launch.setFocusable(true);
-        launch.setOnClickListener(v->run.run());
-        LinearLayout.LayoutParams iconParams=new LinearLayout.LayoutParams(ui.dp(22),ui.dp(24));
-        iconParams.rightMargin=ui.dp(13);
-        launch.addView(new NavigationGlyph(this,icon,WHITE),iconParams);
-        launch.addView(ui.txt(name,16,WHITE,true),new LinearLayout.LayoutParams(0,-2,1));
-        item.addView(launch,new LinearLayout.LayoutParams(0,-2,1));
-
-        item.addView(helpIcon(help,"О режиме «"+name+"»"),new LinearLayout.LayoutParams(ui.dp(48),ui.dp(48)));
-        ui.add(panel,item,9);
-    }
-
-    private View helpIcon(LearningHelp help,String description){
-        View info=new NavigationGlyph(this,"info",0xFF1976D2);
-        info.setContentDescription(description);
-        info.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        info.setFocusable(true);
-        info.setBackground(new android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x241976D2),null,ui.shape(Color.WHITE,24)));
-        info.setOnClickListener(v->modeInfo.show(v,help));
-        return info;
-    }
-
     private void openCollectionToAdd(LocalStore.UnifiedCollection u){
         openUnifiedId=u.id;selectedGroup=u.groupId;selectedDeck=u.deckId;
         screen=Screen.COLLECTION_DETAIL;render();
@@ -5505,7 +4979,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout backup=ui.column();
         backup.setPadding(ui.dp(18),ui.dp(18),ui.dp(18),ui.dp(18));
-        backup.setBackground(homeSurface());
+        backup.setBackground(artwork.homeSurface());
         backup.setElevation(ui.dp(2));
         ui.add(backup,ui.displayText("Резервная копия",20),0);
         TextView backupHint=ui.txt(
@@ -5523,7 +4997,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout section=ui.column();
         section.setPadding(ui.dp(18),ui.dp(18),ui.dp(18),ui.dp(18));
-        section.setBackground(homeSurface());
+        section.setBackground(artwork.homeSurface());
         section.setElevation(ui.dp(2));
         TextView title=ui.displayText("Прогресс изучения",20);
         ui.add(section,title,9);
@@ -5602,8 +5076,8 @@ public final class MainActivity extends Activity {
             if(!u.title.toLowerCase(Locale.ROOT).contains(search.trim().toLowerCase(Locale.ROOT)))continue;
             found=true;
             LinearLayout row=ui.row();row.setPadding(ui.dp(13),ui.dp(14),ui.dp(13),ui.dp(14));
-            row.setBackground(homeSurface());
-            ImageView thumb=landscapeThumbnail(u.id);
+            row.setBackground(artwork.homeSurface());
+            ImageView thumb=artwork.landscapeThumbnail(u.id);
             LinearLayout.LayoutParams imageP=new LinearLayout.LayoutParams(ui.dp(59),ui.dp(61));
             imageP.rightMargin=ui.dp(13);row.addView(thumb,imageP);
             LinearLayout details=ui.column();ui.add(details,ui.displayText(u.title,17),0);
@@ -5640,7 +5114,7 @@ public final class MainActivity extends Activity {
         settings.addView(item,new LinearLayout.LayoutParams(-1,-2));
     }
     private void showUnifiedCollectionSettings(LocalStore.UnifiedCollection u){
-        LinearLayout settings=ui.column();settings.setBackground(homeSurface());
+        LinearLayout settings=ui.column();settings.setBackground(artwork.homeSurface());
         settings.setPadding(ui.dp(14),ui.dp(12),ui.dp(14),ui.dp(11));
         ui.add(settings,ui.txt("НАСТРОЙКИ КОЛЛЕКЦИИ",12,MUTED,true),0);
         unifiedSettingRow(settings,"Переименовать","pencil",false,()->renameUnified(u));
@@ -5781,7 +5255,7 @@ public final class MainActivity extends Activity {
 
     private void collectionBookRow(String title,String description,Runnable open){
         LinearLayout frame=ui.card(content);
-        frame.setBackground(homeSurface());
+        frame.setBackground(artwork.homeSurface());
         LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout labels=ui.column();
         ui.add(labels,ui.displayText(title,17),0);
@@ -5966,7 +5440,7 @@ public final class MainActivity extends Activity {
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
         if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
-        homeHandler.removeCallbacks(homeTicker);
+        home.pause();
         tabWarmGeneration++;
         bibleSearch.cancel();
         // Earlier writes may post a queue/preference update back to the main looper.
@@ -6027,6 +5501,6 @@ public final class MainActivity extends Activity {
         settleHomeIcons();
         settleCollectionsIcons();
         bibleSearch.close();
-        homeHandler.removeCallbacks(homeTicker);super.onDestroy();if(store!=null)store.close();
+        home.pause();super.onDestroy();if(store!=null)store.close();
     }
 }
