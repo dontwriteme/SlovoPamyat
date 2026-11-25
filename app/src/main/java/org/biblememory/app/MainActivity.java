@@ -6157,20 +6157,17 @@ public final class MainActivity extends Activity {
             for(int[] range:ReviewLogic.blurRanges(token,100,0))
                 hidden.setSpan(new ForegroundColorSpan(Color.TRANSPARENT),range[0],range[1],
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            setTextSize(18);
-            setTypeface(Typeface.create("serif",Typeface.BOLD));
-            setTextColor(BUILD_INK);
-            setPadding(dp(10),dp(8),dp(10),dp(8));
-            setGravity(Gravity.CENTER);
-            setMinWidth(dp(56));
-            setMinHeight(dp(43));
+            styleVerseWord(this);
+            setPadding(dp(5),dp(6),dp(5),dp(6));
+            setMinWidth(dp(28));
+            setLayoutParams(new ViewGroup.LayoutParams(verseBlankWidth(this,token),-2));
             showWord(false);
         }
 
         void showWord(boolean filled){
             this.filled=filled;
             setText(filled?token:hidden);
-            GradientDrawable frame=shape(filled?0xFFE9EDDA:0x44FFF9EF,12);
+            GradientDrawable frame=shape(filled?0xFFE9EDDA:0x44FFF9EF,6);
             if(filled)frame.setStroke(dp(1),0xFFCCD6B5);
             else frame.setStroke(dp(1),0xFFBEB0A0,dp(5),dp(4));
             setBackground(frame);
@@ -6484,23 +6481,18 @@ public final class MainActivity extends Activity {
         if(!SessionIntegrityLogic.validAssemblyPrefix(tokens,missing,lessonPicked,lessonUsedTiles)){
             lessonPicked=0;lessonUsedTiles.clear();lessonWrongTile=-1;
         }
-        WrapLayout prompt=new WrapLayout(this,dp(7),true);
+        VerseFlowLayout prompt=new VerseFlowLayout(this,dp(5),dp(6));
         prompt.setPadding(dp(14),dp(16),dp(14),dp(16));
         prompt.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
         prompt.setElevation(dp(2));
         prompt.setTag("assembly-answer");
         for(int i=0;i<tokens.length;i++){
             if(Arrays.binarySearch(missing,i)>=0){
-                BuildSlot slot=new BuildSlot(tokens[i]);
+                BuildSlot slot=new BuildSlot(InlineGapLogic.core(tokens[i]));
                 lessonBuildSlots.add(slot);
-                prompt.addView(slot);
+                addVerseToken(prompt,tokens,i,slot,true);
             }else{
-                TextView word=displayText(tokens[i],18);
-                word.setTextColor(BUILD_INK);
-                word.setGravity(Gravity.CENTER);
-                word.setMinHeight(dp(43));
-                word.setPadding(dp(4),dp(8),dp(4),dp(8));
-                prompt.addView(word);
+                addVerseToken(prompt,tokens,i,verseWord(tokens[i]),false);
             }
         }
         add(content,prompt,10);
@@ -6660,53 +6652,37 @@ public final class MainActivity extends Activity {
         panel.setTag("writing-gap-panel");
         panel.setPadding(dp(14),dp(16),dp(14),dp(16));
         panel.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
-        WrapLayout inline=new WrapLayout(this,dp(6),true);
+        VerseFlowLayout inline=new VerseFlowLayout(this,dp(5),dp(6));
         inline.setTag("writing-gap-inputs");
-        inline.constrainToRow=true;
-        // Initial width is a screen-based estimate; WrapLayout clamps it to the actual row.
-        inline.setPadding(0,dp(6),0,dp(2));
-        int maxWidth=Math.max(dp(40),getResources().getDisplayMetrics().widthPixels-dp(68));
         inlineFields.clear();inlineExpected.clear();
         List<EditText> fields=inlineFields;
         for(int i=0;i<tokens.length;i++){
             String token=tokens[i];
             int match=Arrays.binarySearch(missing,i);
             if(match<0){
-                TextView item=writingGapWord(token);
-                item.setPadding(dp(2),dp(8),dp(2),dp(8));inline.addView(item);
+                addVerseToken(inline,tokens,i,verseWord(token),false);
                 continue;
             }
             final int gapIndex=match;
             final String expected=InlineGapLogic.core(token);
             inlineExpected.add(expected);
-            String prefix=InlineGapLogic.prefix(token);
-            if(!prefix.isEmpty()){
-                TextView punctuation=writingGapWord(prefix);
-                punctuation.setPadding(0,dp(8),0,dp(8));inline.addView(punctuation);
-            }
             EditText field=new EditText(this);
-            field.setTextColor(BUILD_INK);field.setHintTextColor(MUTED);field.setTextSize(18);
             field.setSingleLine(true);forbidKeyboardHints(field,false);
-            field.setTypeface(Typeface.create("serif",Typeface.BOLD));
-            field.setLetterSpacing(0.005f);
-            field.setPadding(dp(7),dp(6),dp(7),dp(6));
-            field.setGravity(Gravity.CENTER);
+            styleVerseWord(field);
+            field.setHintTextColor(MUTED);
+            field.setHorizontallyScrolling(true);
+            field.setPadding(dp(5),dp(6),dp(5),dp(6));
             field.setBackgroundTintList(null);
             field.setBackground(writingGapFrame(false));
             field.setOnFocusChangeListener((v,focused)->field.setBackground(writingGapFrame(focused)));
             field.setHint(" ");
             field.setText(inlineDrafts[gapIndex]);
             field.setSelectAllOnFocus(false);
-            int baseline=writingGapWidth(field,expected,field.getText().toString(),maxWidth);
-            field.setMinHeight(dp(43));
-            field.setLayoutParams(new ViewGroup.LayoutParams(baseline,-2));
+            field.setLayoutParams(new ViewGroup.LayoutParams(verseBlankWidth(field,expected),
+                verseLineHeight(field)));
             field.setContentDescription("Пропущенное слово "+(gapIndex+1));
-            fields.add(field);inline.addView(field);
-            String suffix=InlineGapLogic.suffix(token);
-            if(!suffix.isEmpty()){
-                TextView punctuation=writingGapWord(suffix);
-                punctuation.setPadding(0,dp(8),0,dp(8));inline.addView(punctuation);
-            }
+            fields.add(field);
+            addVerseToken(inline,tokens,i,field,true);
         }
         List<String> refsForBlanks=new ArrayList<>();
         for(Bible.Verse line:activeEntry.lines().subList(activeStep.start,activeStep.end))
@@ -6744,10 +6720,6 @@ public final class MainActivity extends Activity {
                     cancelWritingCheck();
                     inlineDrafts[gapIndex]=value;
                     draft=InlineGapLogic.serialize(inlineDrafts);
-                    int available=inline.getWidth()>0?Math.min(maxWidth,inline.getWidth()):maxWidth;
-                    int width=writingGapWidth(field,inlineExpected.get(gapIndex),value,available);
-                    ViewGroup.LayoutParams lp=field.getLayoutParams();
-                    if(lp.width!=width){lp.width=width;field.setLayoutParams(lp);}
                     lastAccuracy=-1;saveTrainingSession();
                 }
                 @Override public void afterTextChanged(Editable x){}
@@ -6757,24 +6729,54 @@ public final class MainActivity extends Activity {
         add(content,panel,10);
     }
 
-    private TextView writingGapWord(String token){
-        TextView word=displayText(token,18);
+    /** Shared typography for visible words, assembly slots and editable blanks. */
+    private void styleVerseWord(TextView word){
+        word.setTextSize(18);
+        word.setTypeface(Typeface.create("serif",Typeface.BOLD));
+        word.setLetterSpacing(0.005f);
         word.setTextColor(BUILD_INK);
-        word.setMinHeight(dp(43));
+        word.setIncludeFontPadding(false);
+        word.setLineSpacing(0,1f);
+        if(android.os.Build.VERSION.SDK_INT>=28)word.setFallbackLineSpacing(false);
         word.setGravity(Gravity.CENTER);
+        word.setPadding(0,dp(6),0,dp(6));
+        word.setMinHeight(verseLineHeight(word));
+    }
+
+    private int verseLineHeight(TextView word){
+        Paint.FontMetricsInt fm=word.getPaint().getFontMetricsInt();
+        return Math.max(dp(40),fm.descent-fm.ascent+dp(12));
+    }
+
+    private TextView verseWord(String token){
+        TextView word=new TextView(this);
+        styleVerseWord(word);
+        word.setText(token);
         return word;
     }
 
+    private int verseBlankWidth(TextView word,String expected){
+        return Math.max(dp(28),(int)Math.ceil(android.text.Layout.getDesiredWidth(expected,word.getPaint()))+dp(10));
+    }
+
+    private void addVerseToken(VerseFlowLayout flow,String[] tokens,int i,TextView word,boolean blank){
+        String token=tokens[i];
+        boolean join=VerseFlowLayout.keepWithPrevious(tokens,i);
+        boolean tight=VerseFlowLayout.tightBefore(tokens,i);
+        if(!blank){flow.addToken(join,tight,word);return;}
+        ArrayList<View> parts=new ArrayList<>();
+        String prefix=InlineGapLogic.prefix(token),suffix=InlineGapLogic.suffix(token);
+        if(!prefix.isEmpty())parts.add(verseWord(prefix));
+        parts.add(word);
+        if(!suffix.isEmpty())parts.add(verseWord(suffix));
+        flow.addToken(join,tight,parts.toArray(new View[0]));
+    }
+
     private GradientDrawable writingGapFrame(boolean focused){
-        GradientDrawable frame=shape(0x44FFF9EF,12);
+        GradientDrawable frame=shape(0x44FFF9EF,6);
         if(focused)frame.setStroke(dp(2),0xFF648C3C);
         else frame.setStroke(dp(1),0xFFBEB0A0,dp(5),dp(4));
         return frame;
-    }
-
-    private int writingGapWidth(EditText field,String expected,String actual,int limit){
-        float desired=Math.max(field.getPaint().measureText(expected),field.getPaint().measureText(actual));
-        return Math.max(1,Math.min(limit,Math.max(dp(36),(int)Math.ceil(desired)+dp(18))));
     }
 
     private static final class AnswerReview {
