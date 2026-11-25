@@ -5299,6 +5299,7 @@ public final class MainActivity extends Activity {
     private static final class WrapLayout extends ViewGroup {
         private final int spacing;
         private final boolean centered;
+        private boolean constrainToRow;
         WrapLayout(Context context,int spacing){this(context,spacing,false);}
         WrapLayout(Context context,int spacing,boolean centered){
             super(context);this.spacing=spacing;this.centered=centered;
@@ -5309,6 +5310,11 @@ public final class MainActivity extends Activity {
             for(int i=0;i<getChildCount();i++) {
                 View child=getChildAt(i);if(child.getVisibility()==GONE)continue;
                 measureChild(child,ws,hs);
+                if(constrainToRow&&child.getMeasuredWidth()>available){
+                    ViewGroup.LayoutParams lp=child.getLayoutParams();
+                    child.measure(MeasureSpec.makeMeasureSpec(available,MeasureSpec.EXACTLY),
+                        getChildMeasureSpec(hs,getPaddingTop()+getPaddingBottom(),lp.height));
+                }
                 int cw=child.getMeasuredWidth(),ch=child.getMeasuredHeight();
                 if(x>0 && x+cw>available){y+=lineHeight+spacing;x=0;lineHeight=0;}
                 x+=cw+spacing;lineHeight=Math.max(lineHeight,ch);
@@ -6509,7 +6515,8 @@ public final class MainActivity extends Activity {
         add(panel,instruction,0);
         WrapLayout inline=new WrapLayout(this,dp(6),true);
         inline.setTag("writing-gap-inputs");
-        // Use the current available card width rather than assuming a full-screen window.
+        inline.constrainToRow=true;
+        // Initial width is a screen-based estimate; WrapLayout clamps it to the actual row.
         inline.setPadding(0,dp(6),0,dp(2));
         int maxWidth=Math.max(dp(40),getResources().getDisplayMetrics().widthPixels-dp(68));
         inlineFields.clear();inlineExpected.clear();
