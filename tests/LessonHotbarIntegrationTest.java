@@ -456,6 +456,74 @@ public class LessonHotbarIntegrationTest {
         assertSeamlessFooter();
     }
 
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void writingFooterReleasesSpaceWithoutChangingDraftOrSelection()throws Exception{
+        openWritingFixture();
+        ViewGroup root=(ViewGroup)get("root");
+        View footer=root.findViewWithTag(KeyboardAwareFooter.TAG);
+        assertNotNull(footer);
+        EditText answer=edit(root);
+        answer.setText("Слово истины");
+        answer.setSelection(5);
+        ScrollView scroll=(ScrollView)get("currentScroller");
+        KeyboardAwareFooter controller=new KeyboardAwareFooter(root,footer);
+        controller.updateVisibility(false,false);
+        layoutIntro(root,320);
+        int before=scroll.getHeight();
+        int footerHeight=footer.getHeight();
+        assertTrue(footerHeight>0);
+        controller.updateVisibility(true,false);
+        layoutIntro(root,320);
+        assertEquals(View.GONE,footer.getVisibility());
+        assertEquals(before+footerHeight,scroll.getHeight());
+        assertEquals("Слово истины",answer.getText().toString());
+        assertEquals(5,answer.getSelectionStart());
+        assertEquals("Слово истины",get("draft"));
+        assertEquals(3,store.exerciseDone(id,0));
+        controller.updateVisibility(false,false);
+        layoutIntro(root,320);
+        assertEquals(View.VISIBLE,footer.getVisibility());
+        assertEquals(before,scroll.getHeight());
+        assertEquals(5,answer.getSelectionStart());
+        assertEquals(3,store.exerciseDone(id,0));
+        submit("а");
+        assertNull(((View)get("root")).findViewWithTag(KeyboardAwareFooter.TAG));
+        assertNotNull(text((View)get("root"),"Написать ещё раз"));
+    }
+
+    @SuppressWarnings({"rawtypes","unchecked"})
+    @Test public void memoryCheckHidesBothActionsOnlyBeforeChecking()throws Exception{
+        Class<?> lineType=Class.forName("org.biblememory.app.MainActivity$RunLine");
+        Constructor<?> ctor=lineType.getDeclaredConstructor(long.class,int.class,String.class,String.class);
+        ctor.setAccessible(true);
+        ((List)get("runLines")).add(ctor.newInstance(id,0,"Бытие 1:1","Слово истины живо"));
+        set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.MainActivity$Screen"),"RUN"));
+        invoke("render");
+        View root=(View)get("root");
+        ViewGroup footer=root.findViewWithTag(KeyboardAwareFooter.TAG);
+        assertNotNull(footer);
+        assertNotNull(text(footer,"Проверить"));
+        assertNotNull(text(footer,"Пропустить стих"));
+        KeyboardAwareFooter controller=new KeyboardAwareFooter(root,footer);
+        controller.updateVisibility(true,false);
+        assertEquals(View.GONE,footer.getVisibility());
+        assertEquals(false,get("runChecked"));
+        controller.updateVisibility(false,false);
+        assertEquals(View.VISIBLE,footer.getVisibility());
+        edit(root).setText("Слово истины живо");
+        text(footer,"Проверить").performClick();
+        assertEquals(true,get("runChecked"));
+        assertNull(((View)get("root")).findViewWithTag(KeyboardAwareFooter.TAG));
+        assertNotNull(text((View)get("root"),"Следующий стих"));
+    }
+
+    @Test public void legacyKeyboardDetectionIgnoresNavigationInsets(){
+        assertFalse(KeyboardAwareFooter.legacyKeyboardVisible(48,48,100));
+        assertFalse(KeyboardAwareFooter.legacyKeyboardVisible(0,48,100));
+        assertFalse(KeyboardAwareFooter.legacyKeyboardVisible(148,48,100));
+        assertTrue(KeyboardAwareFooter.legacyKeyboardVisible(300,48,100));
+    }
+
     private void assertSeamlessFooter()throws Exception{
         ViewGroup root=(ViewGroup)get("root");
         View footer=root.getChildAt(root.getChildCount()-1);
