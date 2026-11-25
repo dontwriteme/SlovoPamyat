@@ -5794,38 +5794,42 @@ public final class MainActivity extends Activity {
         FrameLayout scenery=new FrameLayout(this);
         scenery.setTag("lesson-landscape:"+landscape);
         scenery.setBackground(StableLessonBackground.forWindow(this,assemblyBackground(landscape)));
-        LinearLayout central=column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
-        central.setPadding(dp(16),dp(16),dp(16),dp(12));
-        if(collection){
-            ScrollView scroll=new ScrollView(this);
-            scroll.setFillViewport(true);
-            scroll.setClipToPadding(false);
-            scroll.addView(central,new ScrollView.LayoutParams(-1,-2));
-            root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-            currentScroller=scroll;
-        }else root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
-        TextView crown=txt("👑",34,GOLD,true);crown.setGravity(Gravity.CENTER);
-        central.addView(crown,new LinearLayout.LayoutParams(dp(75),dp(65)));
-        TextView reference=displayText(referenceText,21);
-        reference.setGravity(Gravity.CENTER);reference.setPadding(dp(14),dp(6),dp(14),dp(6));
-        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,-2);
-        rp.topMargin=dp(12);central.addView(reference,rp);
-        TextView heading=displayText(headingText,collection?30:38);
-        heading.setGravity(Gravity.CENTER);heading.setTextColor(0xFF35452E);
+        ScrollView scroll=new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout central=column();
+        central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
+        central.setPadding(dp(20),dp(12),dp(20),dp(16));
+        scroll.addView(central,new ScrollView.LayoutParams(-1,-2));
+        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        currentScroller=scroll;
+
+        SuccessLampView lamp=new SuccessLampView(this);
+        int availableArt=Math.min(270,Math.max(155,
+            Math.round(getResources().getDisplayMetrics().heightPixels/
+                getResources().getDisplayMetrics().density)-(collection?365:300)));
+        central.addView(lamp,new LinearLayout.LayoutParams(-1,dp(availableArt)));
+        TextView heading=displayText(headingText,collection?30:36);
+        heading.setGravity(Gravity.CENTER);
+        heading.setTextColor(0xFF35452E);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
-        hp.topMargin=dp(14);central.addView(heading,hp);
-        SuccessArt art=new SuccessArt();
-        int availableArt=Math.min(270,Math.max(140,
-            Math.round(getResources().getDisplayMetrics().heightPixels /
-                getResources().getDisplayMetrics().density)-410));
-        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(availableArt));
-        ap.topMargin=dp(10);central.addView(art,ap);
+        hp.topMargin=dp(6);central.addView(heading,hp);
+        TextView reference=displayText(referenceText,21);
+        reference.setTypeface(Typeface.create("serif",Typeface.NORMAL));
+        reference.setTextColor(0xFF71604E);
+        reference.setGravity(Gravity.CENTER);
+        reference.setPadding(dp(10),0,dp(10),0);
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);
+        rp.topMargin=dp(10);central.addView(reference,rp);
+        TextView count=null,detail=null;
         if(collection){
-            TextView count=displayText(countText,24);
+            count=displayText(countText,24);
             count.setGravity(Gravity.CENTER);
             count.setTextColor(0xFF35452E);
-            central.addView(count,new LinearLayout.LayoutParams(-1,-2));
-            TextView detail=txt("Все учебные упражнения пройдены",14,0xFF35452E,false);
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);
+            cp.topMargin=dp(20);central.addView(count,cp);
+            detail=txt("Все учебные упражнения пройдены",14,0xFF35452E,false);
             detail.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams detailParams=new LinearLayout.LayoutParams(-1,-2);
             detailParams.topMargin=dp(8);central.addView(detail,detailParams);
@@ -5838,53 +5842,19 @@ public final class MainActivity extends Activity {
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         scenery.addView(root,new FrameLayout.LayoutParams(-1,-1));
         setContentView(scenery);
-        reference.setAlpha(0f);heading.setAlpha(0f);
-        if(ValueAnimator.areAnimatorsEnabled()){
-            reference.animate().alpha(1f).setDuration(170).start();
-            heading.animate().alpha(1f).setStartDelay(140).setDuration(180).start();
-            art.start();
-        }else{reference.setAlpha(1f);heading.setAlpha(1f);art.setFinished();}
+        // The action remains available throughout the animation.
+        fadeSuccessText(heading,660L);
+        fadeSuccessText(reference,840L);
+        if(count!=null)fadeSuccessText(count,960L);
+        if(detail!=null)fadeSuccessText(detail,1060L);
     }
-    private final class SuccessArt extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float reveal=0f;
-        SuccessArt(){super(MainActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
-        void start(){ValueAnimator animator=ValueAnimator.ofFloat(0f,1f);
-            animator.setStartDelay(270);animator.setDuration(670);
-            animator.addUpdateListener(a->{reveal=(float)a.getAnimatedValue();invalidate();});animator.start();}
-        void setFinished(){reveal=1f;invalidate();}
-        @Override protected void onDraw(Canvas c){
-            super.onDraw(c);float scale=Math.min(getWidth()/350f,getHeight()/300f);
-            float cx=getWidth()/2f,cy=getHeight()/2f;
-            c.save();c.translate(cx,cy);c.scale(scale,scale);
-            paint.setShader(new RadialGradient(0,0,145,new int[]{0xAA6BB37B,0x5567A86E,0x00FFF0E5},null,Shader.TileMode.CLAMP));
-            c.drawCircle(0,0,145,paint);paint.setShader(null);
-            paint.setColor(0x444ED383);c.drawCircle(0,0,105,paint);
-            paint.setShader(new LinearGradient(-84,-90,80,94,0xFFB9D47A,0xFF4E9464,Shader.TileMode.CLAMP));
-            c.drawCircle(0,0,91,paint);paint.setShader(null);
-            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(2.3f);
-            paint.setColor(0xFFB1FAC7);c.drawCircle(0,0,90,paint);
-            paint.setStrokeWidth(13f);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setColor(Color.WHITE);
-            Path tick=new Path();tick.moveTo(-36,0);tick.lineTo(-10,25);tick.lineTo(44,-33);
-            Path partial=new Path();PathMeasure pm=new PathMeasure(tick,false);
-            pm.getSegment(0,pm.getLength()*Math.max(0,reveal),partial,true);c.drawPath(partial,paint);
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFFFFD565);
-            sparkle(c,-113,-85,13);sparkle(c,116,78,12);sparkle(c,-139,-36,7);
-            paint.setColor(0xFF7CF3AB);
-            for(int i=0;i<3;i++){
-                c.save();c.rotate(-22+i*20,-130,60);c.drawRoundRect(-133,45+i*15,-128,60+i*15,2,2,paint);c.restore();
-                c.save();c.rotate(-15+i*20,120,-70);c.drawRoundRect(118,-104+i*17,123,-86+i*17,2,2,paint);c.restore();
-            }
-            c.restore();
-        }
-        private void sparkle(Canvas c,float x,float y,float r){
-            Path p=new Path();p.moveTo(x,y-r);p.quadTo(x+r*.18f,y-r*.2f,x+r,y);
-            p.quadTo(x+r*.2f,y+r*.18f,x,y+r);p.quadTo(x-r*.18f,y+r*.18f,x-r,y);
-            p.quadTo(x-r*.2f,y-r*.2f,x,y-r);c.drawPath(p,paint);
-        }
+
+    private void fadeSuccessText(TextView view,long delay){
+        if(!ValueAnimator.areAnimatorsEnabled())return;
+        view.setAlpha(0f);view.setTranslationY(dp(5));
+        view.animate().alpha(1f).translationY(0f).setStartDelay(delay).setDuration(380L).start();
     }
+
     private void advanceAfterSuccess(LocalStore.Entry e){
         final GroupLearningLogic.Candidate pending=!reviewMode&&!groupMode?
             pendingAfterCurrent(e,activeStep.start):null;
