@@ -18,7 +18,13 @@ import static org.junit.Assert.*;
 @LooperMode(LooperMode.Mode.PAUSED)
 public class LessonHotbarIntegrationTest {
     ActivityController<MainActivity> lifecycle;MainActivity activity;LocalStore store;long id;
-    Object get(String name)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
+    Object get(String name)throws Exception{
+        if(name.startsWith("lessonBuild")){
+            Object assembly=get("assemblyView");
+            Field field=assembly.getClass().getDeclaredField(name);field.setAccessible(true);
+            return field.get(assembly);
+        }
+        Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
     void set(String name,Object value)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
     Object call(String name,Class<?>[] types,Object... args)throws Exception{Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);}
     void invoke(String name)throws Exception{call(name,new Class<?>[0]);}
@@ -138,7 +144,7 @@ public class LessonHotbarIntegrationTest {
         assertNull(text((View)get("root"),"Восстанови пропущенные слова в правильном порядке."));
         // Advance through the first short verse to the longer second fragment of the same group.
         Field picked=LessonAssemblyState.class.getDeclaredField("picked");picked.setAccessible(true);
-        picked.setInt(get("lessonAssembly"),(Integer)get("lessonBuildRequired"));invoke("updateLessonBuildView");
+        picked.setInt(get("lessonAssembly"),(Integer)get("lessonBuildRequired"));refreshAssembly();
         ((TextView)get("lessonBuildAction")).performClick();
         ViewGroup root=(ViewGroup)get("root");
         ViewGroup bank=root.findViewWithTag("assembly-word-bank");
@@ -265,6 +271,12 @@ public class LessonHotbarIntegrationTest {
         run.edit("Слово истины живо");
         assertTrue(run.check());assertTrue(run.task().passed());invoke("render");
         assertSeamlessFooter();
+    }
+
+    private void refreshAssembly()throws Exception{
+        Object assembly=get("assemblyView");
+        Method update=assembly.getClass().getDeclaredMethod("updateLessonBuildView");
+        update.setAccessible(true);update.invoke(assembly);
     }
 
     private void assertSeamlessFooter()throws Exception{

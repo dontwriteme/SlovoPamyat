@@ -309,7 +309,10 @@ public final class R51LessonCheck extends Instrumentation {
     }
     private LocalStore store(){return (LocalStore)get("store");}
     private Object get(String name){
-        try{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
+        try{
+            Object owner=name.startsWith("lessonBuild")?get("assemblyView"):activity;
+            Field f=owner.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(owner);
+        }
         catch(ReflectiveOperationException e){throw new AssertionError(e);}
     }
     private void set(String name,Object value){

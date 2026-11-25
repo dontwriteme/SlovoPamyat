@@ -352,8 +352,8 @@ public final class R456Profile extends Instrumentation {
     private Field declared(String name)throws Exception{
         Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f;
     }
-    private Object field(String name)throws Exception{return declared(name).get(activity);}
-    private int number(String name)throws Exception{return declared(name).getInt(activity);}
+    private Object field(String name)throws Exception{Object owner=name.startsWith("lessonBuild")?field("assemblyView"):activity; Field member=owner.getClass().getDeclaredField(name); member.setAccessible(true); return member.get(owner);}
+    private int number(String name)throws Exception{return (Integer)field(name);}
     private void set(String name,Object value)throws Exception{declared(name).set(activity,value);}
     private void call(String name,Class<?>[] types,Object... args)throws Exception{
         Method method=MainActivity.class.getDeclaredMethod(name,types);method.setAccessible(true);method.invoke(activity,args);

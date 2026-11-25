@@ -93,17 +93,11 @@ public final class MainActivity extends Activity {
     private int lessonVariant=0,lessonChunk=0;
     private long lessonSeed=new Random().nextLong();
     private final LessonAssemblyState lessonAssembly=new LessonAssemblyState();
+    private final LessonAssemblyView assemblyView=new LessonAssemblyView(this,ui,lessonAssembly);
+    private final LessonAssemblyLayout assemblyLayout=new LessonAssemblyLayout(this);
     private boolean lessonPracticeAgain=false;
-    private TextView lessonBuildAction;
-    private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
-    private static final int BUILD_INK=0xFF553722;
-    private final List<TextView> lessonBuildTiles=new ArrayList<>();
-    private int lessonBuildRequired=0;
     // Cache one active passage's variant-specific fragments. Esther 8:9 is long:
     // recomputing all three layouts on each tile tap stalls the UI thread.
-    private final EnumMap<LessonCurriculumLogic.Variant,List<String[]>> lessonChunkCache=
-        new EnumMap<>(LessonCurriculumLogic.Variant.class);
-    private String lessonChunkCacheKey="";
     private String savedAssemblyFingerprint="";
     // Presentation only: one adaptive strip, independent of text/answer Views.
     private LessonSegmentedBar lessonHotbarStrip;
@@ -679,6 +673,7 @@ public final class MainActivity extends Activity {
     private void render() {
         cancelWritingCheck();
         readingView.clear();
+        assemblyView.clear();
         if(backupInProgress)return;
         if(screen!=Screen.HOME)lessonWaitingForBible=null;
         boolean collectionWasLoading=collectionDetailLoading;
@@ -3331,61 +3326,6 @@ public final class MainActivity extends Activity {
         for(Bible.Verse v:lines) {if(sb.length()>0)sb.append(' ');sb.append(v.text);}
         return sb.toString();
     }
-    /** Lightweight wrapping container for word tiles; uses Android SDK only. */
-    private static final class WrapLayout extends ViewGroup {
-        private final int spacing;
-        private final boolean centered;
-        WrapLayout(Context context,int spacing){this(context,spacing,false);}
-        WrapLayout(Context context,int spacing,boolean centered){
-            super(context);this.spacing=spacing;this.centered=centered;
-        }
-        @Override protected void onMeasure(int ws,int hs) {
-            int width=MeasureSpec.getSize(ws),available=Math.max(1,width-getPaddingLeft()-getPaddingRight());
-            int x=0,y=0,lineHeight=0;
-            for(int i=0;i<getChildCount();i++) {
-                View child=getChildAt(i);if(child.getVisibility()==GONE)continue;
-                measureChild(child,ws,hs);
-                int cw=child.getMeasuredWidth(),ch=child.getMeasuredHeight();
-                if(x>0 && x+cw>available){y+=lineHeight+spacing;x=0;lineHeight=0;}
-                x+=cw+spacing;lineHeight=Math.max(lineHeight,ch);
-            }
-            setMeasuredDimension(resolveSize(width,ws),resolveSize(y+lineHeight+getPaddingTop()+getPaddingBottom(),hs));
-        }
-        @Override protected void onLayout(boolean changed,int left,int top,int right,int bottom) {
-            int available=Math.max(1,right-left-getPaddingLeft()-getPaddingRight());
-            int y=getPaddingTop();
-            for(int start=0;start<getChildCount();){
-                int end=start,rowWidth=0,rowHeight=0;
-                while(end<getChildCount()){
-                    View child=getChildAt(end);
-                    if(child.getVisibility()==GONE){end++;continue;}
-                    int width=child.getMeasuredWidth();
-                    int nextWidth=rowWidth==0?width:rowWidth+spacing+width;
-                    if(rowWidth>0&&nextWidth>available)break;
-                    rowWidth=nextWidth;
-                    rowHeight=Math.max(rowHeight,child.getMeasuredHeight());
-                    end++;
-                }
-                int x=getPaddingLeft()+(centered?Math.max(0,(available-rowWidth)/2):0);
-                for(int i=start;i<end;i++){
-                    View child=getChildAt(i);
-                    if(child.getVisibility()==GONE)continue;
-                    int width=child.getMeasuredWidth();
-                    child.layout(x,y,x+width,y+child.getMeasuredHeight());
-                    x+=width+spacing;
-                }
-                y+=rowHeight+spacing;
-                start=end;
-            }
-        }
-    }
-    private TextView wordTile(String word,int bg,int color,int stroke,Runnable tapped) {
-        TextView tv=ui.txt(word,16,color,true);
-        tv.setMinHeight(ui.dp(43));tv.setGravity(Gravity.CENTER);
-        tv.setPadding(ui.dp(12),ui.dp(8),ui.dp(12),ui.dp(8));tv.setBackground(ui.outlined(bg,12,stroke));
-        if(tapped!=null){tv.setClickable(true);tv.setFocusable(true);tv.setOnClickListener(v->tapped.run());}
-        return tv;
-    }
     private int bookForEntry(LocalStore.Entry e){
         if(e==null||e.reference==null)return -1;
         for(int n=1;n<=66;n++)if(e.reference.startsWith(Bible.NAMES[n-1]+" "))return n;
@@ -3457,7 +3397,7 @@ public final class MainActivity extends Activity {
         int invalidLine=CustomStudyText.firstUnlearnable(e.lines(),activeStep.start,activeStep.end);
         if(invalidLine>=0){renderUnlearnableLine(e,invalidLine);return;}
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
-        root=ui.column();root.setBackground(assembling?assemblyBackground():ui.pageBackground());
+        root=ui.column();root.setBackground(assembling?assemblyView.background():ui.pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=ui.column();top.setPadding(ui.dp(22),ui.dp(15),ui.dp(22),ui.dp(6));
         LinearLayout topRow=ui.row();
@@ -3474,11 +3414,11 @@ public final class MainActivity extends Activity {
         });
         topRow.addView(close,new LinearLayout.LayoutParams(ui.dp(45),ui.dp(45)));
         if(assembling){
-            close.setTextColor(BUILD_INK);
+            close.setTextColor(LessonAssemblyView.BUILD_INK);
             close.setBackground(ui.outlined(0xFFFFF1E2,24,0xFFFFF9F0));
             close.setElevation(ui.dp(2));
             TextView title=ui.displayText("Сборка",27);
-            title.setTextColor(BUILD_INK);
+            title.setTextColor(LessonAssemblyView.BUILD_INK);
             title.setGravity(Gravity.CENTER);
             topRow.setGravity(Gravity.CENTER_VERTICAL);
             topRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
@@ -3517,16 +3457,12 @@ public final class MainActivity extends Activity {
             });
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
             trainingMode=TrainingMode.ORDER;
-            assemblyReference(e);
+            assemblyView.reference(content,lessonFullReference(e));
             boolean complete=renderLessonBuild(e);
             mainAction=ui.button("Продолжить",true,()->{
-                if(lessonAssembly.picked()>=lessonBuildRequired)advanceLessonBuild(e);
+                if(lessonAssembly.picked()>=assemblyView.required())advanceLessonBuild(e);
             });
-            mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
-            mainAction.setTextSize(22);
-            mainAction.setElevation(ui.dp(3));
-            styleAssemblyContinue(mainAction,complete);
-            lessonBuildAction=mainAction;
+            assemblyView.installAction(mainAction,complete);
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
@@ -3713,7 +3649,7 @@ public final class MainActivity extends Activity {
             ReviewLogic.words(texts(passage)).size());
         int buildTotal=0,buildDone=0;
         boolean assembled=phase==LessonCurriculumLogic.Phase.BUILD&&
-            lessonBuildRequired>0&&lessonAssembly.picked()==lessonBuildRequired;
+            assemblyView.required()>0&&lessonAssembly.picked()==assemblyView.required();
         for(int i=0;i<variants.size();i++){
             int count=Math.max(1,lessonChunks(source,variants.get(i)).size());
             buildTotal+=count;
@@ -3853,250 +3789,8 @@ public final class MainActivity extends Activity {
     private void resetLessonTiles(){
         lessonAssembly.reset();lessonSeed=new Random().nextLong();
     }
-    private final class BuildSlot extends TextView {
-        private final String token;
-        private final SpannableString hidden;
-        private boolean filled;
-
-        BuildSlot(String token){
-            super(MainActivity.this);
-            this.token=token;
-            hidden=new SpannableString(token);
-            for(int[] range:ReviewLogic.blurRanges(token,100,0))
-                hidden.setSpan(new ForegroundColorSpan(Color.TRANSPARENT),range[0],range[1],
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            setTextSize(18);
-            setTypeface(Typeface.create("serif",Typeface.BOLD));
-            setTextColor(BUILD_INK);
-            setPadding(ui.dp(10),ui.dp(8),ui.dp(10),ui.dp(8));
-            setGravity(Gravity.CENTER);
-            setMinWidth(ui.dp(56));
-            setMinHeight(ui.dp(43));
-            showWord(false);
-        }
-
-        void showWord(boolean filled){
-            this.filled=filled;
-            setText(filled?token:hidden);
-            GradientDrawable frame=ui.shape(filled?0xFFE9EDDA:0x44FFF9EF,12);
-            if(filled)frame.setStroke(ui.dp(1),0xFFCCD6B5);
-            else frame.setStroke(ui.dp(1),0xFFBEB0A0,ui.dp(5),ui.dp(4));
-            setBackground(frame);
-            setContentDescription(filled?null:"Пропущенное слово");
-        }
-
-        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info){
-            super.onInitializeAccessibilityNodeInfo(info);
-            if(!filled)info.setText(null);
-        }
-    }
-
-    private void assemblyReference(LocalStore.Entry entry){
-        LinearLayout reference=ui.row();
-        reference.setGravity(Gravity.CENTER);
-        reference.setPadding(ui.dp(15),ui.dp(8),ui.dp(15),ui.dp(8));
-        reference.setBackground(ui.outlined(0xFFFFEBD5,26,0xFFFFF8EF));
-        reference.setElevation(ui.dp(2));
-        reference.addView(new NavigationGlyph(this,"book",BUILD_INK),new LinearLayout.LayoutParams(ui.dp(28),ui.dp(27)));
-        TextView label=ui.displayText(lessonFullReference(entry),18);
-        label.setTextColor(BUILD_INK);
-        label.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams textParams=new LinearLayout.LayoutParams(-2,-2);
-        textParams.leftMargin=ui.dp(8);
-        reference.addView(label,textParams);
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-2,-2);
-        params.gravity=Gravity.CENTER_HORIZONTAL;
-        content.addView(reference,params);
-    }
-
-    private void styleAssemblyContinue(TextView action,boolean enabled){
-        GradientDrawable background=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,enabled?
-            new int[]{0xFF7D9C49,0xFF3E692D}:new int[]{0xFFC3C8A7,0xFFA1AA83});
-        background.setCornerRadius(ui.dp(32));
-        background.setStroke(ui.dp(1),0xFFFFF9EA);
-        action.setBackground(background);
-        action.setTextColor(Color.WHITE);
-        action.setEnabled(enabled);
-    }
-
-    private android.graphics.drawable.Drawable assemblyBackground(){
-        return new android.graphics.drawable.Drawable(){
-            private final android.graphics.drawable.Drawable scenery=getDrawable(R.drawable.hero_sunrise);
-            private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-            private int horizon;
-            private Shader sky,fade;
-            @Override protected void onBoundsChange(Rect bounds){
-                int height=bounds.height(),width=bounds.width();
-                if(height<=0||width<=0)return;
-                horizon=bounds.top+Math.round(height*.52f);
-                int sceneryHeight=bounds.bottom-horizon;
-                float aspect=scenery.getIntrinsicWidth()/(float)scenery.getIntrinsicHeight();
-                int drawWidth=Math.max(width,Math.round(sceneryHeight*aspect));
-                int drawHeight=Math.round(drawWidth/aspect);
-                int left=bounds.centerX()-drawWidth/2;
-                scenery.setBounds(left,bounds.bottom-drawHeight,left+drawWidth,bounds.bottom);
-                sky=new LinearGradient(0,bounds.top,0,bounds.bottom,
-                    new int[]{0xFFF5E7E2,0xFFFFEBD5,0xFFF9D9A7},null,Shader.TileMode.CLAMP);
-                fade=new LinearGradient(0,horizon,0,bounds.bottom,
-                    new int[]{0xFFFFEBD5,0xA8FFEAD1,0x30FFE5BC,0x58FFE0A8},
-                    new float[]{0f,.32f,.72f,1f},Shader.TileMode.CLAMP);
-            }
-            @Override public void draw(Canvas canvas){
-                if(sky==null)return;
-                Rect bounds=getBounds();
-                paint.setShader(sky);
-                canvas.drawRect(bounds,paint);
-                canvas.save();
-                canvas.clipRect(bounds.left,horizon,bounds.right,bounds.bottom);
-                scenery.draw(canvas);
-                paint.setShader(fade);
-                canvas.drawRect(bounds,paint);
-                canvas.restore();
-            }
-            @Override public void setAlpha(int alpha){}
-            @Override public void setColorFilter(android.graphics.ColorFilter filter){}
-            @Override public int getOpacity(){return android.graphics.PixelFormat.OPAQUE;}
-        };
-    }
-
-    /** Allow longer fragments where only a few words must be chosen. The answer
-     * and the entire word bank are estimated together, not by word count alone. */
     private List<String[]> lessonChunks(List<String> lines,LessonCurriculumLogic.Variant kind){
-        android.util.DisplayMetrics d=getResources().getDisplayMetrics();
-        float widthDp=d.widthPixels/d.density;
-        // Use stable screen dimensions; the previous root can still be attached
-        // while a new lesson is rendering, and its height may not be final.
-        float heightDp=d.heightPixels/d.density;
-        float fontScale=Math.max(1f,getResources().getConfiguration().fontScale);
-        String key=selectedEntry+":"+studyStage+":"+
-            (activeStep==null?-1:activeStep.start)+":"+
-            (activeStep==null?-1:activeStep.end)+":"+lines.hashCode()+":"+
-            d.widthPixels+"x"+d.heightPixels+":"+d.scaledDensity+":"+fontScale;
-        if(!key.equals(lessonChunkCacheKey)){
-            lessonChunkCache.clear();
-            lessonChunkCacheKey=key;
-        }
-        List<String[]> cached=lessonChunkCache.get(kind);
-        if(cached!=null)return cached;
-        int maximum=kind==LessonCurriculumLogic.Variant.GAPS?26:
-            kind==LessonCurriculumLogic.Variant.ENDING?22:18;
-        // A short or narrow display needs fewer words; on larger phones keep the
-        // approved caps (26 gaps / 22 partial / 18 full) if the text itself fits.
-        float scale=Math.min(1f,Math.min(widthDp/360f,heightDp/780f))/fontScale;
-        int limit=Math.max(6,Math.min(maximum,Math.round(maximum*scale)));
-        Paint font=new Paint(Paint.ANTI_ALIAS_FLAG);
-        font.setTypeface(Typeface.create("serif",Typeface.BOLD));
-        font.setTextSize(18f*d.scaledDensity);
-        float availableAnswer=Math.max(190f,widthDp-68f);
-        float availableBank=Math.max(190f,widthDp-52f);
-        // Reserve the header, progress, reference, bottom action and safe insets.
-        float availableHeight=Math.max(205f,heightDp-285f);
-        List<String[]> best=null;
-        // Search the usable budget in O(log N) fragment evaluations instead of
-        // measuring every candidate. This matters for long verses like Esther 8:9.
-        int low=6,high=limit;
-        while(low<=high){
-            int budget=(low+high)/2;
-            List<String[]> chunks=WordOrderLogic.chunksForBudget(lines,budget);
-            boolean fits=true;
-            for(String[] chunk:chunks){
-                if(!assemblyChunkFits(chunk,kind,font,d.density,availableAnswer,
-                    availableBank,availableHeight,fontScale)){
-                    fits=false;break;
-                }
-            }
-            if(fits){best=chunks;low=budget+1;}
-            else high=budget-1;
-        }
-        // On very small devices, the existing ScrollView remains the safety net.
-        if(best==null)best=WordOrderLogic.chunksForBudget(lines,6);
-        lessonChunkCache.put(kind,best);
-        return best;
-    }
-    private boolean assemblyChunkFits(String[] words,LessonCurriculumLogic.Variant kind,
-            Paint font,float density,float answerWidth,float bankWidth,
-            float heightBudget,float fontScale){
-        int n=words.length;
-        if(n==0)return true;
-        float[] textWidths=new float[n];
-        for(int i=0;i<n;i++)textWidths[i]=font.measureText(words[i])/density;
-        if(kind==LessonCurriculumLogic.Variant.ENDING){
-            // The seed switches which half is hidden between exercises. Account
-            // for both layouts so the chunk boundaries never depend on that seed.
-            int midpoint=Math.max(1,n/2);
-            boolean[] first=new boolean[n],last=new boolean[n];
-            for(int i=0;i<n;i++){
-                first[i]=i<midpoint;
-                last[i]=i>=midpoint;
-            }
-            return Math.max(assemblyEstimatedHeight(textWidths,first,false,
-                answerWidth,bankWidth,fontScale),
-                assemblyEstimatedHeight(textWidths,last,false,
-                answerWidth,bankWidth,fontScale))<=heightBudget;
-        }
-        boolean[] missing=new boolean[n];
-        if(kind==LessonCurriculumLogic.Variant.FULL){
-            Arrays.fill(missing,true);
-        }else{
-            int selections=Math.max(1,(int)Math.ceil(n*.4));
-            for(int i=0;i<selections;i++)missing[i*n/selections]=true;
-        }
-        return assemblyEstimatedHeight(textWidths,missing,
-            kind==LessonCurriculumLogic.Variant.GAPS,
-            answerWidth,bankWidth,fontScale)<=heightBudget;
-    }
-    private float assemblyEstimatedHeight(float[] textWidths,boolean[] missing,
-            boolean conservativeBank,float answerWidth,float bankWidth,float fontScale){
-        int n=textWidths.length,selections=0;
-        for(boolean gap:missing)if(gap)selections++;
-        float[] answer=new float[n],bank=new float[selections];
-        for(int i=0;i<n;i++)
-            answer[i]=missing[i]?Math.max(56f,textWidths[i]+20f):textWidths[i]+8f;
-        if(conservativeBank){
-            // Gaps rotate; size the bank for the longest plausible selected words.
-            float[] longest=textWidths.clone();
-            Arrays.sort(longest);
-            for(int i=0;i<selections;i++)bank[i]=longest[n-1-i]+24f;
-        }else{
-            int index=0;
-            for(int i=0;i<n;i++)if(missing[i])bank[index++]=textWidths[i]+24f;
-        }
-        float lineHeight=Math.max(43f,24f*fontScale+18f);
-        float answerHeight=assemblyRows(answer,answerWidth,7f)*(lineHeight+7f)+27f;
-        float bankHeight=assemblyRows(bank,bankWidth,8f)*(lineHeight+8f)+6f;
-        // Reserve space for inter-card spacing and slight font metric differences.
-        return answerHeight+bankHeight+32f;
-    }
-    private static int assemblyRows(float[] widths,float available,float gap){
-        int rows=1;float used=0f;
-        for(float width:widths){
-            if(used>0f&&used+gap+width>available){rows++;used=0f;}
-            used+=(used==0f?0f:gap)+width;
-        }
-        return rows;
-    }
-    private void updateLessonBuildView(){
-        for(int i=0;i<lessonBuildSlots.size();i++){
-            BuildSlot slot=lessonBuildSlots.get(i);
-            if(slot.filled!=(i<lessonAssembly.picked()))slot.showWord(i<lessonAssembly.picked());
-        }
-        for(int i=0;i<lessonBuildTiles.size();i++){
-            TextView tile=lessonBuildTiles.get(i);
-            int idx=(Integer)tile.getTag();
-            int visibility=lessonAssembly.used(idx)?View.INVISIBLE:View.VISIBLE;
-            if(tile.getVisibility()!=visibility)tile.setVisibility(visibility);
-            boolean wrong=idx==lessonAssembly.wrongTile();
-            // A wrong tap changes at most two tiles (previous and current).
-            // Avoid allocating new GradientDrawables and invalidating every tile.
-            if(tile.isSelected()!=wrong){
-                tile.setSelected(wrong);
-                tile.setTextColor(wrong?0xFF923C37:BUILD_INK);
-                tile.setBackground(ui.outlined(wrong?0xFFF8DDD4:0xFFFFEEDC,17,
-                    wrong?0xFFE6B4A7:0xFFFFF9F0));
-            }
-        }
-        if(lessonBuildAction!=null&&lessonBuildAction.isEnabled()!=(lessonAssembly.picked()==lessonBuildRequired))
-            styleAssemblyContinue(lessonBuildAction,lessonAssembly.picked()==lessonBuildRequired);
+        return assemblyLayout.chunks(selectedEntry,studyStage,activeStep,lines,kind);
     }
     /** Choose a balanced random mask once per exercise, never once per screen redraw. */
     private int[] lessonMissingPositions(String[] tokens,LessonCurriculumLogic.Variant kind){
@@ -4121,8 +3815,6 @@ public final class MainActivity extends Activity {
         return positions;
     }
     private boolean renderLessonBuild(LocalStore.Entry e){
-        lessonBuildAction=null;lessonBuildRequired=0;
-        lessonBuildTiles.clear();lessonBuildSlots.clear();
         List<String> src=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))src.add(v.text);
         List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
@@ -4130,7 +3822,7 @@ public final class MainActivity extends Activity {
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
         List<String[]> chunks=lessonChunks(src,kind);
-        if(chunks.isEmpty())return true;
+        if(chunks.isEmpty()){assemblyView.clear();return true;}
         String fingerprint=SessionIntegrityLogic.assemblyFingerprint(kind,chunks);
         if(!fingerprint.equals(savedAssemblyFingerprint)||
             lessonChunk<0||lessonChunk>=chunks.size()){
@@ -4144,57 +3836,8 @@ public final class MainActivity extends Activity {
         // The assembly tiles and answer slots show the task directly;
         // do not add an instruction card for any assembly variant.
         int[] missing=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,kind));
-        lessonBuildRequired=missing.length;
-        lessonAssembly.validatePrefix(tokens,missing);
-        WrapLayout prompt=new WrapLayout(this,ui.dp(7),true);
-        prompt.setPadding(ui.dp(14),ui.dp(16),ui.dp(14),ui.dp(16));
-        prompt.setBackground(ui.outlined(0xF9FFF2E1,23,0xFFFFFAF3));
-        prompt.setElevation(ui.dp(2));
-        prompt.setTag("assembly-answer");
-        for(int i=0;i<tokens.length;i++){
-            if(Arrays.binarySearch(missing,i)>=0){
-                BuildSlot slot=new BuildSlot(tokens[i]);
-                lessonBuildSlots.add(slot);
-                prompt.addView(slot);
-            }else{
-                TextView word=ui.displayText(tokens[i],18);
-                word.setTextColor(BUILD_INK);
-                word.setGravity(Gravity.CENTER);
-                word.setMinHeight(ui.dp(43));
-                word.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),ui.dp(8));
-                prompt.addView(word);
-            }
-        }
-        ui.add(content,prompt,10);
-        WrapLayout choices=new WrapLayout(this,ui.dp(8),true);
-        choices.setTag("assembly-word-bank");
-        choices.setPadding(ui.dp(6),ui.dp(4),ui.dp(6),ui.dp(4));
-        choices.setClipChildren(false);
-        choices.setClipToPadding(false);
-        int[] shuffled=WordOrderLogic.shuffledIndices(missing.length,lessonSeed);
-        for(int index:shuffled){
-            final int pressed=index;
-            final int targetPos=missing[index];
-            String caption=tokens[targetPos].replaceAll("[^\\p{L}\\p{N}\\p{M}\\s]", "").trim();
-            TextView tile=wordTile(caption,0xFFFFEEDC,BUILD_INK,0xFFFFF9F0,()->{
-                // The target and bank occupy fixed views. Never call render() on a tile tap.
-                if(lessonAssembly.tap(tokens,missing,pressed)==LessonAssemblyState.Tap.IGNORED)return;
-                updateLessonBuildView();
-                // The progress bar advances per completed exercise, not per word.
-                // Avoid re-querying mastery and recomputing every layout on each tap.
-                if(lessonAssembly.picked()==lessonBuildRequired)
-                    refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e);
-                saveTrainingSession();
-            });
-            tile.setTypeface(Typeface.create("serif",Typeface.BOLD));
-            tile.setTextSize(18);
-            tile.setBackground(ui.outlined(0xFFFFEEDC,17,0xFFFFF9F0));
-            tile.setElevation(ui.dp(2));
-            ui.animateLessonPress(tile);
-            tile.setTag(index);lessonBuildTiles.add(tile);choices.addView(tile);
-        }
-        ui.add(content,choices,14);
-        updateLessonBuildView();
+        assemblyView.render(content,tokens,missing,lessonSeed,
+            ()->refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.BUILD,e),this::saveTrainingSession);
         return lessonAssembly.picked()==missing.length;
     }
     private void advanceLessonBuild(LocalStore.Entry e){
@@ -4263,7 +3906,7 @@ public final class MainActivity extends Activity {
         int[] missing=InlineGapLogic.wordPositions(tokens,originalPositions);
         // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
         lessonWriting.restoreGaps(tokens,originalPositions);
-        WrapLayout inline=new WrapLayout(this,ui.dp(6));
+        LessonWordWrap inline=new LessonWordWrap(this,ui.dp(6));
         inline.setPadding(0,ui.dp(12),0,ui.dp(12));
         int maxWidth=getResources().getDisplayMetrics().widthPixels-ui.dp(58);
         inlineFields.clear();inlineExpected.clear();
@@ -4686,7 +4329,7 @@ public final class MainActivity extends Activity {
                     cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                     reviewSession.clear();
                     knowledgeCheck.clear();
-                    savedAssemblyFingerprint="";lessonChunkCache.clear();lessonChunkCacheKey="";
+                    savedAssemblyFingerprint="";assemblyLayout.clear();
                     lessonWriting.draft="";checked=false;passed=false;answerReview=null;
                     lessonWriting.hadFeedback=false;lessonPracticeAgain=false;
                     readyTabs.clear();savedScrollY.clear();
@@ -5005,6 +4648,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy(){
         cancelWritingCheck();
         readingView.clear();
+        assemblyView.clear();
         writingExecutor.shutdownNow();
         BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
