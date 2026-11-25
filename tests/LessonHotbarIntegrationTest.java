@@ -37,6 +37,64 @@ public class LessonHotbarIntegrationTest {
         call("openTraining",new Class<?>[]{long.class},id);
     }
     @After public void close()throws Exception{waitLoader();if(lifecycle!=null)ActivityTestWorkers.destroy(lifecycle);}
+    @Test public void masteredActiveCollectionShowsSuccessInsteadOfRestarting()throws Exception{
+        long collectionId=store.createUnifiedCollection("Завершённая коллекция");
+        LocalStore.UnifiedCollection collection=store.unifiedCollection(collectionId);
+        long verse=store.add(collection.groupId,"Стих","Свой текст",
+            Collections.singletonList(new Bible.Verse("1:1","Слово истины живо")));
+        call("activateUnified",new Class<?>[]{long.class},collectionId);
+        store.markMastered(verse,0,1,100,"VERSE");
+        invoke("startActiveStudy");
+        assertEquals("COLLECTION_COMPLETE",get("screen").toString());
+        View root=(View)get("root");
+        assertNotNull(text(root,"Завершённая коллекция"));
+        assertNotNull(text(root,"Коллекция освоена!"));
+        assertNotNull(text(root,"1 из 1 стихов"));
+        assertNull(text(root,"Перейти к закреплению"));
+        TextView home=text(root,"На главную");assertNotNull(home);
+        assertMatteLessonAction(home);
+        home.performClick();
+        assertEquals("HOME",get("screen").toString());
+        assertEquals(collectionId,get("activeUnifiedId"));
+        invoke("startActiveStudy");
+        assertEquals("COLLECTION_COMPLETE",get("screen").toString());
+        activity.onBackPressed();
+        assertEquals("HOME",get("screen").toString());
+        long newVerse=store.add(collection.groupId,"Новый стих","Свой текст",
+            Collections.singletonList(new Bible.Verse("1:2","Слово дает свет")));
+        assertFalse(store.isStepMastered(newVerse,"VERSE",0,1));
+        invoke("startActiveStudy");
+        assertEquals("TRAIN",get("screen").toString());
+        assertNull(text((View)get("root"),"Коллекция освоена!"));
+        assertTrue(store.isStepMastered(verse,"VERSE",0,1));
+    }
+
+    @Test public void collectionCompletionRequiresNonemptyCollectionAndFinishedLinks()throws Exception{
+        long group=store.entry(id).groupId;
+        long collectionId=store.unifiedForGroup(group).id;
+        call("activateUnified",new Class<?>[]{long.class},collectionId);
+        store.markMastered(id,0,1,100,"VERSE");
+        store.markMastered(id,1,2,100,"VERSE");
+        int count=(Integer)call("completedVerseCount",
+            new Class<?>[]{long.class,CollectionProgressSnapshot.class},group,store.collectionProgress());
+        assertEquals(0,count);
+        int links=0;
+        while(true){
+            GroupLearningLogic.Candidate next=(GroupLearningLogic.Candidate)call("nextGroup",
+                new Class<?>[]{LocalStore.Entry.class},store.entry(id));
+            if(next==null)break;
+            assertTrue(++links<10);
+            store.markMastered(id,next.start,next.end,100,next.stage);
+        }
+        assertTrue(links>0);
+        invoke("startActiveStudy");
+        assertEquals("COLLECTION_COMPLETE",get("screen").toString());
+        assertNotNull(text((View)get("root"),"2 из 2 стихов"));
+        long empty=store.unifiedCollection(store.createUnifiedCollection("Пустая")).groupId;
+        assertEquals(0,call("completedVerseCount",
+            new Class<?>[]{long.class,CollectionProgressSnapshot.class},empty,store.collectionProgress()));
+    }
+
     @Test public void progressStripRemainsWithoutAnyVisibleCaptions()throws Exception{
         assertOnlyStrip(LessonCurriculumLogic.Phase.INTRO);
         store.finishExercise(id,0,1);invoke("render");
