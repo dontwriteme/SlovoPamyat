@@ -5614,7 +5614,9 @@ public final class MainActivity extends Activity {
         boolean writingInput=phase==LessonCurriculumLogic.Phase.WRITE&&answerReview==null;
         boolean introducing=phase==LessonCurriculumLogic.Phase.INTRO;
         boolean scenicLesson=assembling||writingInput||introducing;
-        root=column();root.setBackground(scenicLesson?assemblyBackground():pageBackground());
+        root=column();
+        android.graphics.drawable.Drawable lessonArt=scenicLesson?assemblyBackground():pageBackground();
+        root.setBackground(writingInput?StableLessonBackground.forWindow(this,lessonArt):lessonArt);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=column();top.setPadding(dp(22),dp(15),dp(22),dp(6));
         LinearLayout topRow=row();
@@ -7912,7 +7914,9 @@ public final class MainActivity extends Activity {
         if(runLines.isEmpty()){screen=Screen.HOME;render();return;}
         runCursor=Math.min(runCursor,runLines.size()-1);
         RunLine line=runLines.get(runCursor);
-        root=column();root.setBackground(pageBackground());
+        root=column();
+        android.graphics.drawable.Drawable runArt=pageBackground();
+        root.setBackground(!runChecked?StableLessonBackground.forWindow(this,runArt):runArt);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=row();top.setPadding(dp(17),dp(12),dp(17),dp(7));
         TextView exit=txt("×",30,WHITE,false);exit.setGravity(Gravity.CENTER);
