@@ -137,7 +137,7 @@ public final class R44WritingCheck extends Instrumentation {
         try{
             runOnMainSync(()->{
                 try{
-                    LocalStore store=(LocalStore)field("store").get(activity);
+                    LocalStore store=(LocalStore)LessonFixtureFields.get(activity,"store");
                     Method open=MainActivity.class.getDeclaredMethod("openReview",LocalStore.DueItem.class);
                     open.setAccessible(true);
                     open.invoke(activity,new LocalStore.DueItem(entry,"VERSE",0,1,0));

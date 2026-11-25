@@ -57,7 +57,7 @@ public final class MainActivity extends Activity {
     private KnowledgeCheckSession knowledgeCheck;
     private final KnowledgeCheckView knowledgeCheckView = new KnowledgeCheckView(ui);
 
-    private LocalStore store;
+    private final ActivityDataLifetime dataLifetime=new ActivityDataLifetime(this);
     private final Bible bible=Bible.shared();
     private final CollectionEntryEditor collectionEditor=new CollectionEntryEditor(this,ui,bible,this::toast);
     private final HomePage home=new HomePage(this,ui,artwork,this.bible,modeInfo,()->{
@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
     });
     private final PassagePicker passagePicker=new PassagePicker(this,ui,bible);
     private final BibleReader bibleReader=new BibleReader(this,ui,bible);
-    private java.util.concurrent.CompletableFuture<Void> bibleStartup;
+    private final BibleStartup bibleStartup=new BibleStartup(this::onBibleLoaded);
     private volatile String bibleError="";
     private int selectedBook=40,selectedChapter=5;
     private int focusVerse=-1;
@@ -191,11 +191,16 @@ public final class MainActivity extends Activity {
     private final CollectionInsertion insertion=new CollectionInsertion();
     private boolean resetInProgress=false;
     private boolean backupInProgress=false;
-    private boolean ownsData,resumed;
+    private boolean resumed;
     private Bundle startupState;
     private Bundle lessonWaitingForBible;
     private String cardStudyMaterial="";
-    private String dataGeneration="";
+    private final BackupCoordinator.Owner backupOwner=new BackupCoordinator.Owner(){
+        @Override public void waitForBackup(BackupCoordinator.Operation operation){beginBackupWait(operation);}
+        @Override public void backupFinished(BackupCoordinator.Operation operation,Exception failure){
+            finishBackup(operation,failure);
+        }
+    };
     private AlertDialog backupDialog;
     private long selectedDeck=-1;
     private FlashcardSession flashcards;
@@ -239,34 +244,24 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         startupState=savedInstanceState;
-        if(BackupCoordinator.attach(this))openData();
+        if(BackupCoordinator.attach(backupOwner))openData();
     }
 
     private void openData(){
-        store=new LocalStore(this,bible);
-        try{
-            if(SvetochBackup.pending(store)){
-                store.close();store=null;
-                BackupCoordinator.request(this,BackupCoordinator.Operation.RECOVER,null);
-                return;
-            }
-        }catch(RuntimeException failure){
-            store.close();store=null;
-            showBackupFailure(failure);
+        ActivityDataLifetime.Open result=dataLifetime.open(bible);
+        if(result.recoveryNeeded()){
+            BackupCoordinator.request(this,BackupCoordinator.Operation.RECOVER,null);
             return;
         }
-        ownsData=true;
-        BackupCoordinator.opened();
-        dataGeneration=SvetochBackup.generation(this);
+        if(result.failure()!=null){showBackupFailure(result.failure());return;}
         Bundle savedInstanceState=startupState;
         startupState=null;
-        if(savedInstanceState!=null&&!dataGeneration.equals(savedInstanceState.getString("data_generation","")))
-            savedInstanceState=null;
+        savedInstanceState=dataLifetime.acceptState(savedInstanceState);
         if(savedInstanceState!=null&&savedInstanceState.getBoolean("backup_return_settings"))
             screen=Screen.SETTINGS;
         collectionIo.open(getApplicationContext());
         try{
-            LearningReset.recover(getApplicationContext(),store);
+            dataLifetime.recoverReset();
         }catch(Exception error){
             android.util.Log.e("LearningReset","Interrupted reset could not be completed",error);
             new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
@@ -288,22 +283,11 @@ public final class MainActivity extends Activity {
         render();
         // The worker owns collectionStore until its queued close in onDestroy.
         if(resumed)home.schedule();
-        bibleStartup=loadBibleForScreen(bible,getApplicationContext(),this);
-    }
-
-    private static java.util.concurrent.CompletableFuture<Void> loadBibleForScreen(
-            Bible bible,Context context,MainActivity activity){
-        java.lang.ref.WeakReference<MainActivity> target=new java.lang.ref.WeakReference<>(activity);
-        Handler main=new Handler(Looper.getMainLooper());
-        return bible.loadInBackground(context).whenComplete((ignored,failure)->
-            main.post(()->{
-                MainActivity current=target.get();
-                if(current!=null)current.onBibleLoaded(failure);
-            }));
+        bibleStartup.load(bible,getApplicationContext());
     }
 
     private void onBibleLoaded(Throwable failure){
-        if(isDestroyed()||isFinishing()||!ownsData||backupInProgress)return;
+        if(isDestroyed()||isFinishing()||!dataLifetime.ownsData()||backupInProgress)return;
         if(failure!=null){
             Throwable cause=failure.getCause()==null?failure:failure.getCause();
             bibleError=cause.getMessage()==null?"Невозможно открыть текст":cause.getMessage();
@@ -345,11 +329,11 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle out){
         super.onSaveInstanceState(out);
-        if(!ownsData){
+        if(!dataLifetime.ownsData()){
             if(startupState!=null)out.putAll(startupState);
             return;
         }
-        out.putString("data_generation",dataGeneration);
+        out.putString("data_generation",dataLifetime.generation());
         if(backupInProgress&&screen==Screen.SETTINGS)out.putBoolean("backup_return_settings",true);
         if(!backupInProgress&&!resetInProgress){
             Bundle lesson=screen==Screen.TRAIN?saveActiveLesson():lessonWaitingForBible;
@@ -388,19 +372,19 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         resumed=true;
-        if(!ownsData||backupInProgress)return;
+        if(!dataLifetime.ownsData()||backupInProgress)return;
         bottomNavigation.settleBibleIcon(root);
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);
         bottomNavigation.settleHomeIcon(root);
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleHomeIcon(tab.page);
         bottomNavigation.settleCollectionsIcon(root);
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleCollectionsIcon(tab.page);
-        if(store!=null && root!=null){home.refresh(true);home.schedule();}
+        if(dataLifetime.store()!=null && root!=null){home.refresh(true);home.schedule();}
     }
     @Override protected void onPause() {
         cancelWritingCheck();
         resumed=false;
-        if(!ownsData||backupInProgress){super.onPause();return;}
+        if(!dataLifetime.ownsData()||backupInProgress){super.onPause();return;}
         modeInfo.dismiss(false);
         bottomNavigation.settleBibleIcon(root);
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);
@@ -453,12 +437,12 @@ public final class MainActivity extends Activity {
             case CHAPTER:screen=bibleReader.fromVerseGrid()?Screen.VERSES:Screen.CHAPTERS;render();break;
             case ENTRIES:screen=Screen.HOME;render();break;
             case REORDER_STUDY:
-                {LocalStore.UnifiedCollection u=store.unifiedForGroup(selectedGroup);
+                {LocalStore.UnifiedCollection u=dataLifetime.store().unifiedForGroup(selectedGroup);
                 screen=u==null?Screen.ENTRIES:Screen.COLLECTION_DETAIL;
                 if(u!=null)openUnifiedId=u.id;render();break;}
             case REORDER_CARDS:screen=Screen.CARD_DECK;render();break;
             case CUSTOM:{
-                LocalStore.UnifiedCollection u=store.unifiedForGroup(customTargetGroupId);
+                LocalStore.UnifiedCollection u=dataLifetime.store().unifiedForGroup(customTargetGroupId);
                 customTargetGroupId=-1;screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
                 if(u!=null)openUnifiedId=u.id;render();break;}
             case TRAIN:
@@ -733,7 +717,7 @@ public final class MainActivity extends Activity {
 
     private int mainTabIndex(){
         return screen.mainTabIndex(isPickerScreen(screen)&&pickerTarget==BibleTarget.STUDY_GROUP
-            &&store.unifiedForGroup(pickerTargetId)==null);
+            &&dataLifetime.store().unifiedForGroup(pickerTargetId)==null);
     }
     /** One continuous two-page slide; the bottom bar is never moved or blanked. */
 
@@ -906,22 +890,22 @@ public final class MainActivity extends Activity {
         return super.dispatchTouchEvent(event);
     }
 
-    private void restoreCollectionQueue(){studyQueue.restore(store);}
+    private void restoreCollectionQueue(){studyQueue.restore(dataLifetime.store());}
     private void clearCollectionQueue(){studyQueue.clear();}
 
     private void startStudyCollection(long groupId){
-        CollectionProgressSnapshot snapshot=store.collectionProgress();
+        CollectionProgressSnapshot snapshot=dataLifetime.store().collectionProgress();
         List<LocalStore.Entry> entries=snapshot.entries(groupId);
         if(entries.isEmpty()){
             if(studyQueue.group()==groupId)studyQueue.clear();
             toast("Коллекция пока пустая");return;
         }
         cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
-        openTraining(studyQueue.start(store,groupId,entries,snapshot,(entry,progress)->nextGroup(entry,progress)!=null));
+        openTraining(studyQueue.start(dataLifetime.store(),groupId,entries,snapshot,(entry,progress)->nextGroup(entry,progress)!=null));
     }
 
     private boolean resumeCollectionTraining(){
-        long id=studyQueue.resume(store);
+        long id=studyQueue.resume(dataLifetime.store());
         if(id<0)return false;
         openTraining(id);return true;
     }
@@ -936,10 +920,10 @@ public final class MainActivity extends Activity {
         openTraining(id);
     }
     private String studyProgressFor(long groupId){
-        return CollectionViews.studyProgress(groupId,store.collectionProgress());
+        return CollectionViews.studyProgress(groupId,dataLifetime.store().collectionProgress());
     }
     private void chooseCardDeck(Pick action){
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
+        List<LocalStore.UnifiedCollection> collections=dataLifetime.store().unifiedCollections();
         String[] options=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)options[i]=collections.get(i).title;
         options[collections.size()]="＋ Новая коллекция";
@@ -982,7 +966,7 @@ public final class MainActivity extends Activity {
     private void renderCardDecks(){
         tabWordmark();
         ui.action(content,"＋  Создать подборку",true,()->newCardDeck(null));
-        for(LocalStore.CardDeck deck:store.cardDecks()){
+        for(LocalStore.CardDeck deck:dataLifetime.store().cardDecks()){
             LinearLayout panel=ui.card(content);panel.setPadding(ui.dp(11),ui.dp(11),ui.dp(9),ui.dp(11));
             panel.setBackground(artwork.homeSurface());
             LinearLayout line=ui.row();line.setGravity(Gravity.CENTER_VERTICAL);
@@ -1024,14 +1008,14 @@ public final class MainActivity extends Activity {
             .setTitle("Переименовать").setView(wrap)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(name).isEmpty()){toast("Укажи название");return;}
-                store.renameCardDeck(deck.id,value(name));render();
+                dataLifetime.store().renameCardDeck(deck.id,value(name));render();
             }).setNegativeButton("Отмена",null).create());
     }
     private void confirmDeleteCardDeck(LocalStore.CardDeck deck){
         ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить подборку?")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteCardDeck(deck.id);flashcards.clearSaved(deck.id);
+                dataLifetime.store().deleteCardDeck(deck.id);flashcards.clearSaved(deck.id);
                 screen=Screen.CARDS;render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -1046,15 +1030,15 @@ public final class MainActivity extends Activity {
                 if(value(reference).isEmpty()||value(verse).isEmpty()){
                     toast("Укажи название и текст");return;
                 }
-                store.addCustomFlashcard(deckId,value(reference),value(verse));
+                dataLifetime.store().addCustomFlashcard(deckId,value(reference),value(verse));
                 if(screen==Screen.CARD_DECK||screen==Screen.CARDS)render();
             }).setNegativeButton("Отмена",null).create());
     }
     private void renderCardDeck(){
-        LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
+        LocalStore.CardDeck deck=dataLifetime.store().cardDeck(selectedDeck);
         if(deck==null){screen=Screen.CARDS;render();return;}
         title(deck.title,null);
-        List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> cards=dataLifetime.store().flashcards(selectedDeck);
         if(cards.isEmpty())ui.helper(content,"Здесь пока нет карточек.");
         for(LocalStore.Flashcard card:cards){
             LinearLayout c=ui.card(content);c.setBackground(artwork.homeSurface());
@@ -1234,7 +1218,7 @@ public final class MainActivity extends Activity {
                 "Начать изучение коллекции " + group.title
         );
 
-        boolean hasEntries = !store.entries(group.id).isEmpty();
+        boolean hasEntries = !dataLifetime.store().entries(group.id).isEmpty();
 
         start.setEnabled(hasEntries);
         start.setAlpha(hasEntries ? 1f : 0.42f);
@@ -1389,7 +1373,7 @@ public final class MainActivity extends Activity {
         boolean study=pickerTarget==BibleTarget.STUDY_GROUP;
         passagePicker.renderVerses(content,book,chapter,targetVerse,scrollToTarget,
             ()->screen==Screen.PICKER_TEXT?currentScroller:null,
-            study?store.entries(pickerTargetId):Collections.emptyList(),
+            study?dataLifetime.store().entries(pickerTargetId):Collections.emptyList(),
             study?number->{
                 if(!togglePickerCollectionVerse(book,chapter,number))return null;
                 return pickerCollectionContainsVerse(book,chapter,number);
@@ -1407,7 +1391,7 @@ public final class MainActivity extends Activity {
     private boolean pickerCollectionContainsVerse(int book,int chapter,int verse){
         if(pickerTarget!=BibleTarget.STUDY_GROUP || pickerTargetId<0)return false;
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
-        for(LocalStore.Entry e:store.entries(pickerTargetId))
+        for(LocalStore.Entry e:dataLifetime.store().entries(pickerTargetId))
             if(ref.equals(e.reference))return true;
         return false;
     }
@@ -1415,15 +1399,15 @@ public final class MainActivity extends Activity {
      * Detaching preserves progress; it never deletes the underlying study row. */
     private boolean togglePickerCollectionVerse(int book,int chapter,int verse){
         if(pickerTarget!=BibleTarget.STUDY_GROUP ||
-            store.unifiedForGroup(pickerTargetId)==null)return false;
+            dataLifetime.store().unifiedForGroup(pickerTargetId)==null)return false;
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
         try{
             if(pickerCollectionContainsVerse(book,chapter,verse)){
-                if(!store.removeUnifiedPassage(pickerTargetId,ref))return false;
+                if(!dataLifetime.store().removeUnifiedPassage(pickerTargetId,ref))return false;
                 toast("Убрано из коллекции: "+ref);
             }else{
                 // Avoid creating duplicate standalone entries inside a saved long range.
-                for(LocalStore.Entry entry:store.entries(pickerTargetId)){
+                for(LocalStore.Entry entry:dataLifetime.store().entries(pickerTargetId)){
                     if(!entry.reference.startsWith(Bible.NAMES[book-1]+" "))continue;
                     if(entry.reference.equals(ref))continue;
                     for(Bible.Verse line:entry.lines())if(line.ref.equals(chapter+":"+verse)){
@@ -1431,7 +1415,7 @@ public final class MainActivity extends Activity {
                         return false;
                     }
                 }
-                store.addPickedPassage(pickerTargetId,ref,
+                dataLifetime.store().addPickedPassage(pickerTargetId,ref,
                     bible.passage(book,chapter,verse,chapter,verse),bible);
                 toast("Добавлено в коллекцию: "+ref);
             }
@@ -1445,7 +1429,7 @@ public final class MainActivity extends Activity {
         LocalStore.UnifiedCollection active=activeUnified();
         if(active==null)return false;
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
-        for(LocalStore.Entry entry:store.entries(active.groupId))
+        for(LocalStore.Entry entry:dataLifetime.store().entries(active.groupId))
             if(ref.equals(entry.reference))return true;
         return false;
     }
@@ -1458,10 +1442,10 @@ public final class MainActivity extends Activity {
         String ref=Bible.reference(book,chapter,verse,chapter,verse);
         try{
             if(quickBibleVerseExists(book,chapter,verse)){
-                if(!store.removeUnifiedPassage(active.groupId,ref))return false;
+                if(!dataLifetime.store().removeUnifiedPassage(active.groupId,ref))return false;
                 toast("Убрано из коллекции: "+ref);
             }else{
-                store.restoreOrAddStudyPassage(active.groupId,ref,
+                dataLifetime.store().restoreOrAddStudyPassage(active.groupId,ref,
                     bible.passage(book,chapter,verse,chapter,verse));
                 toast("Добавлено в «"+active.title+"»: "+ref);
             }
@@ -1472,9 +1456,9 @@ public final class MainActivity extends Activity {
     }
     private boolean pickerHasReference(String ref,int book,int chapter,int verse){
         if(pickerTarget==BibleTarget.STUDY_GROUP){
-            for(LocalStore.Entry e:store.entries(pickerTargetId))if(ref.equals(e.reference))return true;
+            for(LocalStore.Entry e:dataLifetime.store().entries(pickerTargetId))if(ref.equals(e.reference))return true;
         }else{
-            for(LocalStore.Flashcard f:store.flashcards(pickerTargetId))
+            for(LocalStore.Flashcard f:dataLifetime.store().flashcards(pickerTargetId))
                 if(f.bookId==book&&f.firstChapter==chapter&&f.lastChapter==chapter&&
                     f.firstVerse==verse&&f.lastVerse==verse)return true;
         }
@@ -1484,22 +1468,22 @@ public final class MainActivity extends Activity {
         return savePickedPassageFor(selectedBook,sc,sv,ec,ev);
     }
     private boolean savePickedPassageFor(int book,int sc,int sv,int ec,int ev){
-        return CollectionPassages.save(store,bible,insertion,pickerTarget==BibleTarget.STUDY_GROUP,
+        return CollectionPassages.save(dataLifetime.store(),bible,insertion,pickerTarget==BibleTarget.STUDY_GROUP,
             pickerTargetId,book,sc,sv,ec,ev,this::toast);
     }
     private void saveBibleVerseToGroup(long groupId,int book,int chapter,int verse){
         try{
             String ref=Bible.reference(book,chapter,verse,chapter,verse);
-            for(LocalStore.Entry e:store.entries(groupId))if(ref.equals(e.reference)){
+            for(LocalStore.Entry e:dataLifetime.store().entries(groupId))if(ref.equals(e.reference)){
                 toast("Стих уже в подборке");return;
             }
-            store.restoreOrAddStudyPassage(groupId,ref,bible.passage(book,chapter,verse,chapter,verse));
+            dataLifetime.store().restoreOrAddStudyPassage(groupId,ref,bible.passage(book,chapter,verse,chapter,verse));
             toast("Добавлено: "+ref);
         }catch(Exception ex){toast("Не удалось добавить стих");}
     }
     /** Study each card as its own entry; a range retains its internal contiguous links. */
     private void studyCardDeck(){
-        List<LocalStore.Flashcard> cards=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> cards=dataLifetime.store().flashcards(selectedDeck);
         if(cards.isEmpty()){toast("Подборка пуста");return;}
         // Flashcards remain free-form; only starting a memorization lesson requires words.
         for(LocalStore.Flashcard card:cards)if(card.bookId==0&&ExerciseTextLogic.words(card.content).isEmpty()){
@@ -1515,7 +1499,7 @@ public final class MainActivity extends Activity {
                 List<Bible.Verse> verses=card.bookId==0?
                     Collections.singletonList(new Bible.Verse("1",card.content)):
                     bible.passage(card.bookId,card.firstChapter,card.firstVerse,card.lastChapter,card.lastVerse);
-                long id=store.findOrCreateCardStudyEntry(card,verses);
+                long id=dataLifetime.store().findOrCreateCardStudyEntry(card,verses);
                 if(!cardStudyQueue.contains(id))cardStudyQueue.add(id);
             }catch(Exception ex){
                 studyQueue.setExecuting(false);
@@ -1556,13 +1540,13 @@ public final class MainActivity extends Activity {
         try{
             List<Bible.Verse> lines=bible.passage(book,sc,sv,ec,ev);
             String text=VerseText.join(lines);
-            boolean added=store.addFlashcard(deckId,book,sc,sv,ec,ev,Bible.reference(book,sc,sv,ec,ev),text);
+            boolean added=dataLifetime.store().addFlashcard(deckId,book,sc,sv,ec,ev,Bible.reference(book,sc,sv,ec,ev),text);
             toast(added?"Карточка добавлена":"Карточка уже есть в подборке");
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
         }catch(Exception ex){toast(ex.getMessage()==null?"Не удалось добавить карточку":ex.getMessage());}
     }
     private List<LocalStore.Flashcard> eligibleSessionCards(){
-        List<LocalStore.Flashcard> items=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> items=dataLifetime.store().flashcards(selectedDeck);
         if(!cardFromUnified)return items;
         List<LocalStore.Flashcard> singles=new ArrayList<>();
         for(LocalStore.Flashcard card:items)if(card.bookId==0 ||
@@ -1595,9 +1579,9 @@ public final class MainActivity extends Activity {
 
     private void renderCardSession(){
         long currentId=flashcards.currentId();
-        for(LocalStore.Flashcard current:store.flashcards(selectedDeck)){
+        for(LocalStore.Flashcard current:dataLifetime.store().flashcards(selectedDeck)){
             if(current.id!=currentId)continue;
-            LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
+            LocalStore.CardDeck deck=dataLifetime.store().cardDeck(selectedDeck);
             FlashcardSessionView view=new FlashcardSessionView(this,ui,this::nextFlashcard,flashcards::toggleAnswer);
             root=view.create(deck==null?"Карточки":deck.title,current.reference,current.content,
                 flashcards.referenceFirst(),flashcards.revealed());
@@ -1609,7 +1593,7 @@ public final class MainActivity extends Activity {
 
     private void renderHome(){
         LocalStore.UnifiedCollection active=activeUnified();
-        home.render(content,active,active==null?null:store.collectionProgress(),this::bookForEntry,
+        home.render(content,active,active==null?null:dataLifetime.store().collectionProgress(),this::bookForEntry,
             new HomePage.Actions(()->newUnifiedCollection(null),this::showUnifiedSelector,this::startActiveStudy,
                 this::startActiveCards,()->startActiveReview(false),this::startActiveRun,()->startActiveReview(true)));
     }
@@ -1651,7 +1635,7 @@ public final class MainActivity extends Activity {
         if(bibleSearch.active()){bibleSearchView.placeholders(content,bibleSearch);return;}
         if(bibleNotReady())return;
         boolean bulk=screen==Screen.PICKER_BOOKS&&canBulkPick();
-        Set<Integer> addedBooks=bulk?store.collectionBooks(pickerTargetId).keySet():Collections.emptySet();
+        Set<Integer> addedBooks=bulk?dataLifetime.store().collectionBooks(pickerTargetId).keySet():Collections.emptySet();
         if(bulk)passagePicker.beginBookCatalog();
         bibleReader.renderBooks(content,this::openCatalogBook,bulk?book->
             passagePicker.bookAction(pickerTargetId,book,addedBooks.contains(book),this::changeWholeBook):null);
@@ -1791,7 +1775,7 @@ public final class MainActivity extends Activity {
         if(verses.isEmpty()){ui.helper(content,"Нет текста главы.");return;}
         bibleReader.rememberChapter(selectedBook,selectedChapter);
         ui.action(content,"Глава "+selectedChapter+"  ▾",false,this::showChapterJump);
-        Map<Integer,LocalStore.VerseStatus> statuses=store.statusesForChapter(
+        Map<Integer,LocalStore.VerseStatus> statuses=dataLifetime.store().statusesForChapter(
             Bible.NAMES[selectedBook-1],selectedChapter);
         if(bibleReader.renderChapter(content,selectedBook,verses,statuses,focusVerse,
             ()->screen==Screen.CHAPTER?currentScroller:null,this::date))focusVerse=-1;
@@ -2024,10 +2008,10 @@ public final class MainActivity extends Activity {
         catch(IllegalArgumentException ex){toast(ex.getMessage());return;}
         String ref=Bible.reference(selectedBook,rangeStartChapter,rangeStartVerse,ec,ev);
         LocalStore.Entry existing=null;
-        for(LocalStore.Entry e:store.allEntries())if(ref.equals(e.reference)){
+        for(LocalStore.Entry e:dataLifetime.store().allEntries())if(ref.equals(e.reference)){
             existing=e;break;
         }
-        int mastered=existing==null?0:store.masteryCount(existing.id);
+        int mastered=existing==null?0:dataLifetime.store().masteryCount(existing.id);
         String description=ref+"\n"+verses.size()+" стихов · освоено "+mastered;
         AlertDialog.Builder dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Твой отрывок")
             .setMessage(description)
@@ -2038,22 +2022,22 @@ public final class MainActivity extends Activity {
                 selectingPassage=false;openTraining(entryId);
             });
             dialog.setNeutralButton("Добавить в другую подборку",(d,w)->{
-                chooseGroup(groupId->{store.add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
+                chooseGroup(groupId->{dataLifetime.store().add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
             });
         }else{
             dialog.setPositiveButton("Начать изучение",(d,w)->{
-                chooseGroup(groupId->{long id=store.add(groupId,ref,ref,verses);
+                chooseGroup(groupId->{long id=dataLifetime.store().add(groupId,ref,ref,verses);
                     selectingPassage=false;openTraining(id);});
             });
             dialog.setNeutralButton("Добавить в подборку",(d,w)->{
-                chooseGroup(groupId->{store.add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
+                chooseGroup(groupId->{dataLifetime.store().add(groupId,ref,ref,verses);toast("Добавлено в подборку");});
             });
         }
         dialog.show();
     }
     private interface Pick {void apply(long groupId);}
     private void chooseGroup(Pick action) {
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
+        List<LocalStore.UnifiedCollection> collections=dataLifetime.store().unifiedCollections();
         String[] names=new String[collections.size()+1];
         for(int i=0;i<collections.size();i++)names[i]=collections.get(i).title;
         names[collections.size()]="＋ Новая коллекция";
@@ -2087,14 +2071,14 @@ public final class MainActivity extends Activity {
             .setTitle("Удалить коллекцию из списка?")
             .setMessage("Коллекция исчезнет из списка. Стихи и прежний прогресс изучения сохранятся в локальной базе.")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteGroup(group.id);screen=Screen.HOME;render();
+                dataLifetime.store().deleteGroup(group.id);screen=Screen.HOME;render();
             }).setNegativeButton("Отмена",null).create());
     }
 
 
     private void renderEntries() {
 
-        LocalStore.Group group = store.group(selectedGroup);
+        LocalStore.Group group = dataLifetime.store().group(selectedGroup);
 
         if (group == null) {
             screen = Screen.HOME;
@@ -2114,7 +2098,7 @@ public final class MainActivity extends Activity {
         // Все стихи коллекции прокручиваются независимо
         // от нижних кнопок.
         for (LocalStore.Entry entry :
-                store.entries(group.id)) {
+                dataLifetime.store().entries(group.id)) {
 
             entryCard(entry);
         }
@@ -2129,25 +2113,25 @@ public final class MainActivity extends Activity {
         ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать коллекцию").setView(box)
             .setPositiveButton("Сохранить",(d,w)->{
                 if(value(name).isEmpty()){toast("Укажи название");return;}
-                store.renameGroup(group.id,value(name));render();
+                dataLifetime.store().renameGroup(group.id,value(name));render();
             }).setNegativeButton("Отмена",null).create());
     }
     private void clearInsertionContext(){insertion.clear();}
     /** Dedicated drag-to-reorder mode; dragging never starts in normal study lists. */
     private void renderStudyReorder(){
         title("Изменить порядок", "Удерживай строку и перетащи её на новое место");
-        List<LocalStore.Entry> list=store.entries(selectedGroup);
+        List<LocalStore.Entry> list=dataLifetime.store().entries(selectedGroup);
         List<Long> ids=new ArrayList<>();for(LocalStore.Entry e:list)ids.add(e.id);
         for(LocalStore.Entry e:list)renderReorderRow(e.id,e.reference,ids,false);
         ui.action(content,"Готово",true,()->{
-            LocalStore.UnifiedCollection u=store.unifiedForGroup(selectedGroup);
+            LocalStore.UnifiedCollection u=dataLifetime.store().unifiedForGroup(selectedGroup);
             screen=u==null?Screen.ENTRIES:Screen.COLLECTION_DETAIL;
             if(u!=null)openUnifiedId=u.id;render();
         });
     }
     private void renderCardReorder(){
         title("Изменить порядок", "Удерживай строку и перетащи её на новое место");
-        List<LocalStore.Flashcard> list=store.flashcards(selectedDeck);
+        List<LocalStore.Flashcard> list=dataLifetime.store().flashcards(selectedDeck);
         List<Long> ids=new ArrayList<>();for(LocalStore.Flashcard f:list)ids.add(f.id);
         for(LocalStore.Flashcard f:list)renderReorderRow(f.id,f.reference,ids,true);
         ui.action(content,"Готово",true,()->{screen=Screen.CARD_DECK;render();});
@@ -2171,8 +2155,8 @@ public final class MainActivity extends Activity {
                 int a=ids.indexOf(moving),b=ids.indexOf(id);
                 if(a<0||b<0)return false;
                 ids.remove(a);ids.add(b,moving);
-                if(cards)store.reorderCards(selectedDeck,ids);
-                else store.reorderStudy(selectedGroup,ids);
+                if(cards)dataLifetime.store().reorderCards(selectedDeck,ids);
+                else dataLifetime.store().reorderStudy(selectedGroup,ids);
                 render();return true;
             }
             return true;
@@ -2181,11 +2165,11 @@ public final class MainActivity extends Activity {
     }
 
     private void editStudyEntry(LocalStore.Entry entry){
-        collectionEditor.study(store,entry,bookForEntry(entry),this::render);
+        collectionEditor.study(dataLifetime.store(),entry,bookForEntry(entry),this::render);
     }
-    private void editCustomStudyEntry(LocalStore.Entry entry){collectionEditor.custom(store,entry,this::render);}
+    private void editCustomStudyEntry(LocalStore.Entry entry){collectionEditor.custom(dataLifetime.store(),entry,this::render);}
     private void editCardEntry(LocalStore.Flashcard card){
-        collectionEditor.card(store,card,()->selectedDeck,this::render);
+        collectionEditor.card(dataLifetime.store(),card,()->selectedDeck,this::render);
     }
 
     private void showEntryActions(LocalStore.Entry entry,View anchor){
@@ -2202,7 +2186,7 @@ public final class MainActivity extends Activity {
                     ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать отрывок из коллекции?")
                         .setPositiveButton("Убрать",(d,w)->{
-                            store.removeUnifiedPassage(entry.groupId,entry.reference);render();
+                            dataLifetime.store().removeUnifiedPassage(entry.groupId,entry.reference);render();
                         }).setNegativeButton("Отмена",null).create());break;
             }
         });
@@ -2221,7 +2205,7 @@ public final class MainActivity extends Activity {
                     ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Убрать карточку из подборки?")
                         .setPositiveButton("Убрать",(d,w)->{
-                            store.removeFlashcard(selectedDeck,card.id);render();
+                            dataLifetime.store().removeFlashcard(selectedDeck,card.id);render();
                         }).setNegativeButton("Отмена",null).create());break;
             }
         });
@@ -2236,17 +2220,17 @@ public final class MainActivity extends Activity {
                     new AlertDialog.Builder(this,R.style.MemoryDialogTheme).setTitle("Переименовать отрывок").setView(box)
                         .setPositiveButton("Сохранить",(dd,w)->{
                             if(value(name).isEmpty()){toast("Укажи название");return;}
-                            store.renameEntry(entry.id,value(name));render();
+                            dataLifetime.store().renameEntry(entry.id,value(name));render();
                         }).setNegativeButton("Отмена",null).show();
                 } else new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                     .setTitle("Удалить отрывок?")
                     .setMessage("Будут удалены и его результаты обучения.")
-                    .setPositiveButton("Удалить",(dd,w)->{store.deleteEntry(entry.id);render();})
+                    .setPositiveButton("Удалить",(dd,w)->{dataLifetime.store().deleteEntry(entry.id);render();})
                     .setNegativeButton("Отмена",null).show();
             }).show();
     }
     private void entryCard(LocalStore.Entry e) {
-        entryCard(e,store.collectionProgress());
+        entryCard(e,dataLifetime.store().collectionProgress());
     }
     private void entryCard(LocalStore.Entry e,CollectionProgressSnapshot snapshot){
         long source=snapshot.canonicalId(e.id);
@@ -2289,12 +2273,12 @@ public final class MainActivity extends Activity {
             }
             if(customTargetGroupId>0){
                 long groupId=customTargetGroupId;
-                if(store.group(groupId)==null){toast("Коллекция не найдена");return;}
+                if(dataLifetime.store().group(groupId)==null){toast("Коллекция не найдена");return;}
                 customTargetGroupId=-1;
-                long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);
+                long id=dataLifetime.store().add(groupId,t,r.isEmpty()?"Свой текст":r,items);
                 openTraining(id);
             }else{
-                chooseGroup(groupId->{long id=store.add(groupId,t,r.isEmpty()?"Свой текст":r,items);openTraining(id);});
+                chooseGroup(groupId->{long id=dataLifetime.store().add(groupId,t,r.isEmpty()?"Свой текст":r,items);openTraining(id);});
             }
         });
 
@@ -2304,14 +2288,14 @@ public final class MainActivity extends Activity {
         lessonWaitingForBible=null;
         if(!bibleReadyForRecall())return;
         long now=System.currentTimeMillis();
-        ReviewSession.Start start=reviewSession.start(store,getSharedPreferences(SESSION_PREFS,MODE_PRIVATE),group,now);
+        ReviewSession.Start start=reviewSession.start(dataLifetime.store(),getSharedPreferences(SESSION_PREFS,MODE_PRIVATE),group,now);
         LocalStore.DueItem item=start.first();
         while(item!=null){
             if(prepareReview(item)){
                 if(item==start.first())lesson.lessonWriting.draft=start.draft();
                 render();return;
             }
-            item=reviewSession.advance(store,now);
+            item=reviewSession.advance(dataLifetime.store(),now);
         }
         screen=Screen.DUE;render();
     }
@@ -2331,7 +2315,7 @@ public final class MainActivity extends Activity {
     }
     private boolean prepareReview(LocalStore.DueItem item){
         lesson.answerReview=null;
-        LocalStore.Entry entry=store.entry(item.entryId);
+        LocalStore.Entry entry=dataLifetime.store().entry(item.entryId);
         if(!reviewSession.open(entry,item))return false;
         lesson.lessonSourceEntry=entry.id;lesson.lessonSourceGroup=entry.groupId;
         lesson.selectedEntry=entry.id;lesson.lessonPracticeAgain=false;
@@ -2346,7 +2330,7 @@ public final class MainActivity extends Activity {
     private void advanceReviewSession(){
         long now=System.currentTimeMillis();
         LocalStore.DueItem next;
-        while((next=reviewSession.advance(store,now))!=null){
+        while((next=reviewSession.advance(dataLifetime.store(),now))!=null){
             if(openReview(next))return;
         }
         lesson.forcedStep=null;
@@ -2357,7 +2341,7 @@ public final class MainActivity extends Activity {
         JSONArray updated=new JSONArray();updated.put(id);
         int count=1;
         for(Long prev:recentIds()) {
-            if(prev==id || store.entry(prev)==null)continue;
+            if(prev==id || dataLifetime.store().entry(prev)==null)continue;
             updated.put(prev);
             if(++count>=7)break;
         }
@@ -2375,7 +2359,7 @@ public final class MainActivity extends Activity {
     private Bundle saveActiveLesson(){
         if(!lesson.hasActiveMaterial())return null;
         saveTrainingSession();
-        Bundle state=LessonCheckpoint.capture(store,lesson,reviewSession);
+        Bundle state=LessonCheckpoint.capture(dataLifetime.store(),lesson,reviewSession);
         LessonRestoration.saveRoute(state,lesson,reviewSession,studyQueue,cardStudyDeckId,cardStudyCursor,
             cardStudyMaterial,cardStudyQueue);
         return state;
@@ -2383,14 +2367,14 @@ public final class MainActivity extends Activity {
 
     private boolean restoreActiveLesson(Bundle state){
         SharedPreferences pref=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        LessonRestoration.Restored saved=LessonRestoration.validate(store,pref,state,studyQueue);
+        LessonRestoration.Restored saved=LessonRestoration.validate(dataLifetime.store(),pref,state,studyQueue);
         if(saved==null)return false;
         long id=saved.entry().id;
         boolean review=saved.review(),linked=saved.linked(),complete=saved.complete();
         int start=saved.start(),end=saved.end();
         String stage=saved.stage(),key=saved.key();
         if(review){
-            LocalStore.DueItem item=reviewSession.restore(store,pref,state.getLong("review_group",-1),
+            LocalStore.DueItem item=reviewSession.restore(dataLifetime.store(),pref,state.getLong("review_group",-1),
                 System.currentTimeMillis(),saved.entry(),new LocalStore.DueItem(id,stage,start,end,0),complete);
             if(item==null)return false;
             if(!prepareReview(item)){reviewSession.clear();return false;}
@@ -2434,11 +2418,11 @@ public final class MainActivity extends Activity {
         lesson.answerReview=null;
         reviewSession.clear();lesson.groupMode=false;lesson.forcedStep=null;
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
-        LocalStore.Entry entry=LessonLaunch.select(store,lesson,id);
+        LocalStore.Entry entry=LessonLaunch.select(dataLifetime.store(),lesson,id);
         if(entry==null){toast("Отрывок не найден");screen=Screen.HOME;render();return;}
         id=entry.id;
         SharedPreferences saved=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        LessonLaunch.GroupDraft link=LessonLaunch.pendingGroup(store,saved,lesson,entry);
+        LessonLaunch.GroupDraft link=LessonLaunch.pendingGroup(dataLifetime.store(),saved,lesson,entry);
         if(link!=null){
             lesson.returnVerseCursor=link.returnCursor();
             prepareGroup(link.candidate());restoreTrainingSession(id,true);
@@ -2450,12 +2434,12 @@ public final class MainActivity extends Activity {
             List<StudyPlanLogic.Step> steps=studySteps(entry);
             if(!steps.isEmpty()) {
                 StudyPlanLogic.Step current=steps.get(Math.min(lesson.stepCursor,steps.size()-1));
-                lesson.testAssisted=store.isStepMastered(entry.id,lesson.studyStage.name(),current.start,current.end);
+                lesson.testAssisted=dataLifetime.store().isStepMastered(entry.id,lesson.studyStage.name(),current.start,current.end);
             }
         }
         // If an old session points beyond the newly protected lesson boundary, restore safely.
         if(lesson.studyStage==StudyPlanLogic.Stage.VERSE)
-            lesson.stepCursor=Math.min(lesson.stepCursor,store.unlockedPosition(id,entry.lines().size()));
+            lesson.stepCursor=Math.min(lesson.stepCursor,dataLifetime.store().unlockedPosition(id,entry.lines().size()));
         if(studyQueue.executing() && studyQueue.newStep()){
             // Revisit every record even if it was previously mastered. Do not erase progress.
             lesson.studyStage=StudyPlanLogic.Stage.VERSE;
@@ -2468,19 +2452,19 @@ public final class MainActivity extends Activity {
         screen=Screen.TRAIN;render();
     }
     private AdaptiveLearningLogic.Recommendation selectRecommendation(LocalStore.Entry entry){
-        return LessonPlans.recommend(store,lesson,entry,System.currentTimeMillis());
+        return LessonPlans.recommend(dataLifetime.store(),lesson,entry,System.currentTimeMillis());
     }
     private List<StudyPlanLogic.Step> studySteps(LocalStore.Entry entry){
         return LessonPlans.steps(entry,lesson,reviewSession);
     }
-    private void resetTrainingStep(LocalStore.Entry entry){LessonPlans.reset(store,lesson,reviewSession,entry);}
+    private void resetTrainingStep(LocalStore.Entry entry){LessonPlans.reset(dataLifetime.store(),lesson,reviewSession,entry);}
     private int bookForEntry(LocalStore.Entry e){
         if(e==null||e.reference==null)return -1;
         for(int n=1;n<=66;n++)if(e.reference.startsWith(Bible.NAMES[n-1]+" "))return n;
         return -1;
     }
     private GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e){
-        return nextGroup(e,store.collectionProgress());
+        return nextGroup(e,dataLifetime.store().collectionProgress());
     }
     private GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e,CollectionProgressSnapshot snapshot){
         List<String> refs=new ArrayList<>();for(Bible.Verse line:snapshot.verses(e.id))refs.add(line.ref);
@@ -2489,7 +2473,7 @@ public final class MainActivity extends Activity {
     private GroupLearningLogic.Candidate pendingAfterCurrent(LocalStore.Entry e,int current){
         if(current<0||current>=e.lines().size())return null;
         List<String> refs=new ArrayList<>();for(Bible.Verse v:e.lines())refs.add(v.ref);
-        return GroupLearningLogic.afterVerse(refs,store.collectionProgress().groupProgress(e.id),
+        return GroupLearningLogic.afterVerse(refs,dataLifetime.store().collectionProgress().groupProgress(e.id),
             current,LessonPlans.isSermon(e));
     }
     private void openGroup(GroupLearningLogic.Candidate group){
@@ -2498,7 +2482,7 @@ public final class MainActivity extends Activity {
         render();
     }
     private void prepareGroup(GroupLearningLogic.Candidate group){
-        LessonPlans.prepareGroup(store,lesson,reviewSession,group);
+        LessonPlans.prepareGroup(dataLifetime.store(),lesson,reviewSession,group);
         screen=Screen.TRAIN;
     }
     private void renderUnlearnableLine(LocalStore.Entry entry,int invalidLine){
@@ -2511,11 +2495,11 @@ public final class MainActivity extends Activity {
     }
 
     private void renderFullscreenLesson() {
-        LocalStore.Entry e=store.entry(lesson.selectedEntry);
+        LocalStore.Entry e=dataLifetime.store().entry(lesson.selectedEntry);
         if(e==null){screen=Screen.HOME;render();return;}
         List<StudyPlanLogic.Step> steps=studySteps(e);
         if(steps.isEmpty()){
-            LocalStore.UnifiedCollection u=store.unifiedForGroup(e.groupId);
+            LocalStore.UnifiedCollection u=dataLifetime.store().unifiedForGroup(e.groupId);
             screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
             if(u!=null)openUnifiedId=u.id;render();return;
         }
@@ -2539,7 +2523,7 @@ public final class MainActivity extends Activity {
             mainAction=ui.button("Продолжить",true,()->{
                 if(root!=parts.root()||screen!=Screen.TRAIN)return;
                 if(lesson.groupMode)lesson.groupIntroDone=true;
-                else store.finishExercise(e.id,lesson.activeStep.start,1);
+                else dataLifetime.store().finishExercise(e.id,lesson.activeStep.start,1);
                 lesson.lessonVariant=0;lesson.lessonChunk=0;lesson.lessonWriting.variant=0;resetLessonTiles();lesson.mask=0;
                 saveTrainingSession();render();
             });
@@ -2575,7 +2559,7 @@ public final class MainActivity extends Activity {
         int book=bookForEntry(entry);
         DeveloperModeController.open(this,entry,
             chapter->book>0&&bible.isReady()?bible.chapter(book,chapter).size():0,
-            store.masteryCount(entry.id));
+            dataLifetime.store().masteryCount(entry.id));
     }
 
     private String lessonFullReference(LocalStore.Entry e){
@@ -2680,7 +2664,7 @@ public final class MainActivity extends Activity {
         if(lessonProgress.visible())lessonProgress.update(lessonHotbarModel(phase,e));
     }
     private LessonStageFlow.State lessonStageState(LocalStore.Entry e){
-        return new LessonStageFlow.State(lesson.studyStage,lesson.groupMode?0:store.exerciseDone(e.id,lesson.activeStep.start),
+        return new LessonStageFlow.State(lesson.studyStage,lesson.groupMode?0:dataLifetime.store().exerciseDone(e.id,lesson.activeStep.start),
             reviewSession.active(),lesson.groupMode,studyQueue.executing(),lesson.lessonPracticeAgain,lesson.groupIntroDone,lesson.groupBuildDone);
     }
     private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
@@ -2741,7 +2725,7 @@ public final class MainActivity extends Activity {
         LessonStageFlow.BuildTransition next=LessonStageFlow.advanceBuild(
             lesson.lessonVariant,lesson.lessonChunk,kinds.size(),chunkCount,lesson.groupMode);
         if(next.persistedCompletion()>0)
-            store.finishExercise(e.id,lesson.activeStep.start,next.persistedCompletion());
+            dataLifetime.store().finishExercise(e.id,lesson.activeStep.start,next.persistedCompletion());
         if(next.groupCompleted())lesson.groupBuildDone=true;
         lesson.lessonVariant=next.nextVariant();lesson.lessonChunk=next.nextChunk();
         if(next.beginWriting())lesson.lessonWriting.variant=0;
@@ -2813,7 +2797,7 @@ public final class MainActivity extends Activity {
             !check.matches(lesson))return;
         LessonWritingFlow.Transition transition;
         try{
-            transition=LessonWritingSubmission.persist(store,lesson,reviewSession,check,result,System.currentTimeMillis());
+            transition=LessonWritingSubmission.persist(dataLifetime.store(),lesson,reviewSession,check,result,System.currentTimeMillis());
             if(transition==null){toast("Материал изменился. Открой повторение заново.");return;}
         }catch(RuntimeException error){
             showRecallSaveError(error);
@@ -2869,16 +2853,16 @@ public final class MainActivity extends Activity {
     }
 
     // ===== Unified Collections (v0.21) =====
-    private void ensureActiveUnified(){activeCollection.ensure(store);}
-    private LocalStore.UnifiedCollection activeUnified(){return activeCollection.get(store);}
-    private void activateUnified(long id){activeCollection.select(store,id);}
+    private void ensureActiveUnified(){activeCollection.ensure(dataLifetime.store());}
+    private LocalStore.UnifiedCollection activeUnified(){return activeCollection.get(dataLifetime.store());}
+    private void activateUnified(long id){activeCollection.select(dataLifetime.store(),id);}
     private interface UnifiedCreated {void accept(LocalStore.UnifiedCollection collection);}
     private void newUnifiedCollection(UnifiedCreated after){
         collectionDialogs.create(name->{
-            boolean firstCollection=store.unifiedCollections().isEmpty();
-            long id=store.createUnifiedCollection(name);
+            boolean firstCollection=dataLifetime.store().unifiedCollections().isEmpty();
+            long id=dataLifetime.store().createUnifiedCollection(name);
             if(firstCollection)activateUnified(id);
-            LocalStore.UnifiedCollection collection=store.unifiedCollection(id);
+            LocalStore.UnifiedCollection collection=dataLifetime.store().unifiedCollection(id);
             return ()->{
                 if(after!=null)after.accept(collection);
                 else{openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();}
@@ -2886,7 +2870,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void showUnifiedSelector(){
-        collectionDialogs.select(store.unifiedCollections(),activeCollection.id(),id->{activateUnified(id);render();});
+        collectionDialogs.select(dataLifetime.store().unifiedCollections(),activeCollection.id(),id->{activateUnified(id);render();});
     }
     private void openCollectionToAdd(LocalStore.UnifiedCollection u){
         openUnifiedId=u.id;selectedGroup=u.groupId;selectedDeck=u.deckId;
@@ -2894,16 +2878,16 @@ public final class MainActivity extends Activity {
     }
     private void startActiveStudy(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null){newUnifiedCollection(null);return;}
-        if(bible.isReady())store.syncUnifiedCollection(u.id,bible);
-        if(store.entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
+        if(bible.isReady())dataLifetime.store().syncUnifiedCollection(u.id,bible);
+        if(dataLifetime.store().entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
         selectedGroup=u.groupId;startStudyCollection(u.groupId);
     }
     private void startActiveCards(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null)return;
-        if(bible.isReady())store.syncUnifiedCollection(u.id,bible);
+        if(bible.isReady())dataLifetime.store().syncUnifiedCollection(u.id,bible);
         selectedDeck=u.deckId;cardFromUnified=true;
         if(eligibleSessionCards().isEmpty()){
-            if(!bible.isReady()&&!store.entries(u.groupId).isEmpty()){
+            if(!bible.isReady()&&!dataLifetime.store().entries(u.groupId).isEmpty()){
                 toast("Библия ещё загружается");return;
             }
             openCollectionToAdd(u);return;
@@ -2916,8 +2900,8 @@ public final class MainActivity extends Activity {
         startReviewSession(all?-1:u.groupId);
     }
     private void renderUnifiedCollections(){
-        List<LocalStore.UnifiedCollection> collections=store.unifiedCollections();
-        CollectionProgressSnapshot snapshot=collections.isEmpty()?null:store.collectionProgress();
+        List<LocalStore.UnifiedCollection> collections=dataLifetime.store().unifiedCollections();
+        CollectionProgressSnapshot snapshot=collections.isEmpty()?null:dataLifetime.store().collectionProgress();
         collectionViews.list(content,collections,snapshot,activeCollection.id(),id->{
             openUnifiedId=id;screen=Screen.COLLECTION_DETAIL;render();
         });
@@ -2936,13 +2920,10 @@ public final class MainActivity extends Activity {
             .setTitle("Сброс прогресса").setMessage("Удаляем историю изучения…")
             .setCancelable(false).create();
         ui.styledDialog(resetting);
-        collectionIo.execute(()->{
-            // Independent helper survives destruction of this Activity.
-            try(LocalStore worker=new LocalStore(getApplicationContext())){
-                LearningReset.request(getApplicationContext(),worker);
-                runOnUiThread(()->{
-                    if(isDestroyed())return;
-                    resetting.dismiss();
+        dataLifetime.resetProgress(collectionIo,error->{
+            if(isDestroyed())return;
+            resetting.dismiss();
+            if(error==null){
                     studyQueue.reset();
                     cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                     reviewSession.clear();
@@ -2954,19 +2935,13 @@ public final class MainActivity extends Activity {
                     resetInProgress=false;
                     screen=Screen.SETTINGS;render();
                     toast("Прогресс изучения сброшен");
-                });
-            }catch(Exception error){
-                android.util.Log.e("Settings","Unable to reset learning progress",error);
-                runOnUiThread(()->{
-                    if(isDestroyed())return;
-                    resetting.dismiss();
+            }else{
                     // An interrupted operation is still pending. Do not allow a
                     // new lesson to be saved until it has been recovered.
                     new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                         .setTitle("Не удалось завершить сброс")
                         .setMessage("Закрой приложение и открой снова для завершения операции.")
                         .setCancelable(false).setPositiveButton("Закрыть",(d,w)->finish()).show();
-                });
             }
         });
     }
@@ -2975,7 +2950,7 @@ public final class MainActivity extends Activity {
     }
     private void showUnifiedCollectionSettings(LocalStore.UnifiedCollection u){
         collectionViews.settings(content,()->renameUnified(u),()->{
-            if(store.entries(u.groupId).size()<2){
+            if(dataLifetime.store().entries(u.groupId).size()<2){
                 toast("Для изменения порядка нужны хотя бы два отрывка");return;
             }
             selectedGroup=u.groupId;openUnifiedId=u.id;
@@ -2985,14 +2960,14 @@ public final class MainActivity extends Activity {
     private void clearUnified(LocalStore.UnifiedCollection u){
         if(u.entries==0&&u.cards==0){toast("Коллекция уже пуста");return;}
         collectionDialogs.confirmClear(()->{
-            store.clearUnifiedCollection(u.id);
+            dataLifetime.store().clearUnifiedCollection(u.id);
             knowledgeCheck.clearCollection(u.id,true);
             if(studyQueue.group()==u.groupId)clearCollectionQueue();
             render();toast("Коллекция очищена");
         });
     }
     private void renameUnified(LocalStore.UnifiedCollection u){
-        collectionDialogs.rename(u.title,name->store.renameUnifiedCollection(u.id,name),this::render);
+        collectionDialogs.rename(u.title,name->dataLifetime.store().renameUnifiedCollection(u.id,name),this::render);
     }
     private void deleteUnified(LocalStore.UnifiedCollection u){
         collectionDialogs.confirmDelete(()->{
@@ -3016,7 +2991,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void renderUnifiedCollectionDetail(){
-        LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
+        LocalStore.UnifiedCollection u=dataLifetime.store().unifiedCollection(openUnifiedId);
         if(u==null){screen=Screen.COLLECTIONS;render();return;}
         selectedGroup=u.groupId;selectedDeck=u.deckId;
         collectionViews.heading(content,u.title);
@@ -3075,7 +3050,7 @@ public final class MainActivity extends Activity {
         if(screen==Screen.COLLECTIONS||screen==Screen.CARDS){
             collectionViews.listFooter(root,()->newUnifiedCollection(null));
         }else if(screen==Screen.COLLECTION_DETAIL){
-            LocalStore.UnifiedCollection u=store.unifiedCollection(openUnifiedId);
+            LocalStore.UnifiedCollection u=dataLifetime.store().unifiedCollection(openUnifiedId);
             if(u==null)return;
             collectionViews.detailFooter(root,()->{
                 clearInsertionContext();
@@ -3087,9 +3062,9 @@ public final class MainActivity extends Activity {
     private void startActiveRun(){
         LocalStore.UnifiedCollection u=activeUnified();if(u==null)return;
         KnowledgeCheckSession.Availability available=knowledgeCheck.prepare(u.id,
-            KnowledgeCheckMaterial.questions(store.collectionProgress(),u.groupId));
+            KnowledgeCheckMaterial.questions(dataLifetime.store().collectionProgress(),u.groupId));
         if(available==KnowledgeCheckSession.Availability.EMPTY){
-            if(store.entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
+            if(dataLifetime.store().entries(u.groupId).isEmpty()){openCollectionToAdd(u);return;}
             ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
                 .setTitle("Пока нет стихов для проверки памяти")
                 .setMessage("Сначала изучи стихи и закрепи их отложенным повторением.")
@@ -3161,7 +3136,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
-        if(!ownsData||backupInProgress||result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(!dataLifetime.ownsData()||backupInProgress||result!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
         if(request==EXPORT)runBackupTask(uri,false);
         else if(request==IMPORT)settingsView.confirmImport(()->runBackupTask(uri,true));
@@ -3172,7 +3147,7 @@ public final class MainActivity extends Activity {
             BackupCoordinator.Operation.EXPORT,uri);
     }
 
-    void waitForBackup(BackupCoordinator.Operation operation){
+    private void beginBackupWait(BackupCoordinator.Operation operation){
         cancelWritingCheck();
         backupInProgress=true;
         if(isFinishing()||isDestroyed())return;
@@ -3183,7 +3158,7 @@ public final class MainActivity extends Activity {
             .setMessage(export?"Сохраняем коллекции, карточки и прогресс…":"Восстанавливаем данные…")
             .setCancelable(false).create();
         ui.styledDialog(backupDialog);
-        if(!ownsData)return;
+        if(!dataLifetime.ownsData())return;
         // Flush the same drafts as onPause before retiring this generation of views.
         if(screen==Screen.TRAIN)saveTrainingSession();
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
@@ -3197,7 +3172,7 @@ public final class MainActivity extends Activity {
         collectionIo.afterPending(()->{if(!isFinishing()&&!isDestroyed())recreate();});
     }
 
-    void backupFinished(BackupCoordinator.Operation operation,Exception failure){
+    private void finishBackup(BackupCoordinator.Operation operation,Exception failure){
         if(isFinishing()||isDestroyed())return;
         if(backupDialog!=null){backupDialog.dismiss();backupDialog=null;}
         if(failure!=null){
@@ -3207,7 +3182,7 @@ public final class MainActivity extends Activity {
         backupInProgress=false;
         if(operation!=BackupCoordinator.Operation.EXPORT)startupState=null;
         openData();
-        if(ownsData){
+        if(dataLifetime.ownsData()){
             toast(operation==BackupCoordinator.Operation.EXPORT?
                 "Резервная копия создана":"Резервная копия восстановлена");
         }
@@ -3233,13 +3208,13 @@ public final class MainActivity extends Activity {
         writingView.clear();
         lessonProgress.clear();
         writingWorker.close();
-        BackupCoordinator.detach(this);
-        if(bibleStartup!=null)bibleStartup.cancel(false);
+        BackupCoordinator.detach(backupOwner);
+        bibleStartup.close();
         if(backupDialog!=null)backupDialog.dismiss();
         tabCache.cancelWarmup();
         tabTransition.finish();
         collectionDetail.close();
-        collectionIo.close(()->{if(ownsData)BackupCoordinator.releasedFromWorker();});
+        dataLifetime.closeCollectionIo(collectionIo);
         modeInfo.dismiss(false);
         bottomNavigation.settleBibleIcon(root);
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);
@@ -3249,6 +3224,6 @@ public final class MainActivity extends Activity {
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleCollectionsIcon(tab.page);
         tabCache.close();
         bibleSearch.close();
-        home.pause();super.onDestroy();if(store!=null)store.close();
+        home.pause();super.onDestroy();dataLifetime.closeForeground();
     }
 }

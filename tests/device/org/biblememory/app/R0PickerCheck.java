@@ -28,9 +28,7 @@ public final class R0PickerCheck extends Instrumentation {
 
     private Object field(String name){
         try{
-            Field field=MainActivity.class.getDeclaredField(name);
-            field.setAccessible(true);
-            return field.get(activity);
+            return LessonFixtureFields.get(activity,name);
         }catch(ReflectiveOperationException error){throw new AssertionError(error);}
     }
 

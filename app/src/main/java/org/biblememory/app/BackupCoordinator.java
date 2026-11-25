@@ -13,20 +13,25 @@ import java.util.Set;
 final class BackupCoordinator {
     enum Operation { EXPORT, IMPORT, RECOVER }
     private static final Handler MAIN=new Handler(Looper.getMainLooper());
-    private static final Set<MainActivity> screens=new LinkedHashSet<>();
+    interface Owner {
+        void waitForBackup(Operation operation);
+        void backupFinished(Operation operation,Exception failure);
+    }
+
+    private static final Set<Owner> screens=new LinkedHashSet<>();
     private static int owners;
     private static Job job;
 
     private BackupCoordinator(){}
 
-    static boolean attach(MainActivity screen){
+    static boolean attach(Owner screen){
         screens.add(screen);
         if(job==null)return true;
         screen.waitForBackup(job.operation);
         return false;
     }
 
-    static void detach(MainActivity screen){screens.remove(screen);}
+    static void detach(Owner screen){screens.remove(screen);}
     static void opened(){owners++;}
 
     static void releasedFromWorker(){
@@ -39,7 +44,7 @@ final class BackupCoordinator {
     static void request(Context context,Operation operation,Uri uri){
         if(job!=null)return;
         job=new Job(context.getApplicationContext(),operation,uri);
-        for(MainActivity screen:new ArrayList<>(screens))screen.waitForBackup(operation);
+        for(Owner screen:new ArrayList<>(screens))screen.waitForBackup(operation);
         startWhenDrained();
     }
 
@@ -77,7 +82,7 @@ final class BackupCoordinator {
             Exception outcome=failure;
             MAIN.post(()->{
                 job=null;
-                for(MainActivity screen:new ArrayList<>(screens))
+                for(Owner screen:new ArrayList<>(screens))
                     screen.backupFinished(operation,outcome);
             });
         }

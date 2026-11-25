@@ -15,7 +15,8 @@ import static org.junit.Assert.*;
 public class CollectionLoadingTest {
  MainActivity activity;ActivityController<MainActivity> controller;LocalStore store;
  Object field(String name)throws Exception{
-  if(name.startsWith("collection"))return ActivityTestWorkers.collectionField(activity,name);Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
+  if(name.startsWith("collection"))return ActivityTestWorkers.collectionField(activity,name);
+  if("store".equals(name))return ActivityTestWorkers.lessonField(activity,name);Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
  void set(String name,Object value)throws Exception{Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
  Object call(String name,Class<?>[] types,Object... args)throws Exception{Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);}
  @SuppressWarnings({"unchecked","rawtypes"}) void screen(String name)throws Exception{set("screen",Enum.valueOf((Class)Class.forName("org.biblememory.app.Screen"),name));call("render",new Class<?>[0]);}

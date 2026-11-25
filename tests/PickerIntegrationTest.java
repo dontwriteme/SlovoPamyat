@@ -23,7 +23,7 @@ public class PickerIntegrationTest {
     LocalStore store;
     Bible bible;
     long group;
-    Object field(String name)throws Exception {Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
+    Object field(String name)throws Exception {if("store".equals(name))return ActivityTestWorkers.lessonField(activity,name);Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);return f.get(activity);}
     void set(String name,Object value)throws Exception {Field f=MainActivity.class.getDeclaredField(name);f.setAccessible(true);f.set(activity,value);}
     Object call(String name,Class<?>[] types,Object... args)throws Exception {
         Method m=MainActivity.class.getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(activity,args);

@@ -13,6 +13,7 @@ final class ActivityTestWorkers {
     private ActivityTestWorkers() {}
 
     static Object lessonField(MainActivity activity,String name)throws Exception{
+        if("store".equals(name))return ((ActivityDataLifetime)lessonField(activity,"dataLifetime")).store();
         try{
             Field member=MainActivity.class.getDeclaredField(name);
             member.setAccessible(true);
@@ -52,7 +53,9 @@ final class ActivityTestWorkers {
     static void awaitStartup(MainActivity activity)throws Exception{
         Field field=MainActivity.class.getDeclaredField("bibleStartup");
         field.setAccessible(true);
-        ((java.util.concurrent.Future<?>)field.get(activity)).get(30,TimeUnit.SECONDS);
+        Field task=BibleStartup.class.getDeclaredField("task");
+        task.setAccessible(true);
+        ((java.util.concurrent.Future<?>)task.get(field.get(activity))).get(30,TimeUnit.SECONDS);
         Shadows.shadowOf(Looper.getMainLooper()).idle();
         awaitCollectionWork(activity);
     }

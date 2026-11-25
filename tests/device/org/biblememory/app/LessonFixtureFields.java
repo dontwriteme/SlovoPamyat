@@ -7,6 +7,8 @@ final class LessonFixtureFields {
     private LessonFixtureFields(){}
 
     static Object get(MainActivity activity,String name)throws ReflectiveOperationException{
+        if("store".equals(name))return ((ActivityDataLifetime)get(activity,"dataLifetime")).store();
+        if("ownsData".equals(name))return ((ActivityDataLifetime)get(activity,"dataLifetime")).ownsData();
         try{
             Field member=MainActivity.class.getDeclaredField(name);
             member.setAccessible(true);
