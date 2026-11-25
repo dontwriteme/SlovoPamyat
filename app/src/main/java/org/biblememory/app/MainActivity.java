@@ -1165,6 +1165,8 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        revealCleanup.run();
+        revealCleanup=()->{};
         assemblyMotion.settleAll();
         cancelWritingCheck();
         if(backupInProgress)return;
@@ -5147,6 +5149,9 @@ public final class MainActivity extends Activity {
     }
     private void updateBlurText() {
         if(activePassage==null || activeEntry==null || activeStep==null)return;
+        // Restore any held word before replacing its text or changing the mask.
+        revealCleanup.run();
+        boolean scenicIntro="lesson-intro-passage".equals(activePassage.getTag());
         List<Bible.Verse> all=activeEntry.lines();
         android.text.SpannableStringBuilder text=new android.text.SpannableStringBuilder();
         int percentage=trainingMode==TrainingMode.HIDE?mask:0;
@@ -5156,8 +5161,11 @@ public final class MainActivity extends Activity {
                 text.append(verse.ref+"   ");int offset=text.length();
                 text.append(verse.text);
                 for(int[] range:ReviewLogic.blurRanges(verse.text,percentage,verse.ref.hashCode()^blurSeed)) {
-                    text.setSpan(new MaskFilterSpan(new BlurMaskFilter(dp(9),BlurMaskFilter.Blur.NORMAL)),
-                        offset+range[0],offset+range[1],android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    MaskFilterSpan blur=scenicIntro?
+                        new IntroWordBlurSpan(Math.max(dp(10),activePassage.getTextSize()*.52f)):
+                        new MaskFilterSpan(new BlurMaskFilter(dp(9),BlurMaskFilter.Blur.NORMAL));
+                    text.setSpan(blur,offset+range[0],offset+range[1],
+                        android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 }
             }
             activePassage.setLayerType(percentage>0?View.LAYER_TYPE_SOFTWARE:View.LAYER_TYPE_NONE,null);
@@ -5165,6 +5173,8 @@ public final class MainActivity extends Activity {
             installTemporaryReveal(activePassage);
         } catch(RuntimeException unsupported) {
             // Unsupported device graphics must never crash the study activity.
+            revealCleanup=()->{};
+            activePassage.setOnTouchListener(null);
             StringBuilder fallback=new StringBuilder();
             for(Bible.Verse verse:all.subList(activeStep.start,activeStep.end)) {
                 if(fallback.length()>0)fallback.append("\n\n");
@@ -5179,6 +5189,17 @@ public final class MainActivity extends Activity {
         if(activeStatus!=null)activeStatus.setText(percentage==0?
             LearningHelp.INTRO_READ:LearningHelp.INTRO_HOLD);
     }
+    /** Draw the actual glyphs as a warm, diffuse smudge without altering text metrics. */
+    private static final class IntroWordBlurSpan extends MaskFilterSpan {
+        IntroWordBlurSpan(float radius){
+            super(new BlurMaskFilter(radius,BlurMaskFilter.Blur.NORMAL));
+        }
+        @Override public void updateDrawState(android.text.TextPaint paint){
+            super.updateDrawState(paint);
+            paint.setColor(0xFF806B59);
+        }
+    }
+
     /** Immediate reveal held until the ORIGINAL finger lifts, even when it moves away. */
     private void installTemporaryReveal(TextView view) {
         final MaskFilterSpan[] selected={null};
@@ -5591,7 +5612,8 @@ public final class MainActivity extends Activity {
         if(phase==LessonCurriculumLogic.Phase.COMPLETE){renderCompletion(e);return;}
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
         boolean writingInput=phase==LessonCurriculumLogic.Phase.WRITE&&answerReview==null;
-        boolean scenicLesson=assembling||writingInput;
+        boolean introducing=phase==LessonCurriculumLogic.Phase.INTRO;
+        boolean scenicLesson=assembling||writingInput||introducing;
         root=column();root.setBackground(scenicLesson?assemblyBackground():pageBackground());
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=column();top.setPadding(dp(22),dp(15),dp(22),dp(6));
@@ -5612,7 +5634,7 @@ public final class MainActivity extends Activity {
             close.setTextColor(BUILD_INK);
             close.setBackground(outlined(0xFFFFF1E2,24,0xFFFFF9F0));
             close.setElevation(dp(2));
-            TextView title=displayText(assembling?"Сборка":"Написание",27);
+            TextView title=displayText(introducing?"Ознакомление":assembling?"Сборка":"Написание",27);
             title.setTextColor(BUILD_INK);
             title.setGravity(Gravity.CENTER);
             topRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -5642,7 +5664,7 @@ public final class MainActivity extends Activity {
         TextView mainAction;
         int number=stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
-            lessonPhaseHeader("Ознакомление",e);
+            assemblyReference(e);
             renderLessonIntro();
             mainAction=button("Продолжить",true,()->{
                 if(groupMode)groupIntroDone=true;
@@ -5650,6 +5672,10 @@ public final class MainActivity extends Activity {
                 lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();mask=0;
                 saveTrainingSession();render();
             });
+            mainAction.setTypeface(Typeface.create("serif",Typeface.BOLD));
+            mainAction.setTextSize(22);
+            mainAction.setElevation(dp(3));
+            styleAssemblyContinue(mainAction,true);
         } else if(phase==LessonCurriculumLogic.Phase.BUILD){
             trainingMode=TrainingMode.ORDER;
             assemblyReference(e);
@@ -5977,20 +6003,37 @@ public final class MainActivity extends Activity {
 
     private void renderLessonIntro(){
         activeTextArea=content;
+        LinearLayout panel=column();
+        panel.setTag("lesson-intro-panel");
+        panel.setPadding(dp(18),dp(18),dp(18),dp(16));
+        panel.setBackground(outlined(0xF9FFF2E1,23,0xFFFFFAF3));
+        panel.setElevation(dp(2));
         activePassage=prose("",22);
+        activePassage.setTag("lesson-intro-passage");
+        activePassage.setTextColor(BUILD_INK);
         activePassage.setLineSpacing(dp(7),1.18f);
         activePassage.setTextIsSelectable(false);
-        add(content,activePassage,19);
+        add(panel,activePassage,0);
         // Both hints are measured at the actual content width, including font scale.
         // Keep the legacy status TextView separate from the full-screen lesson.
         activeStatus=null;
         LessonIntroHint hint=new LessonIntroHint();
-        add(content,hint,15);
+        add(panel,hint,15);
+        add(content,panel,14);
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
         hint.show(mask>0,false);
         updateBlurText();
         TextView hide=button(mask==100?"Показать все слова":
             "Скрыть "+(mask+25)+"% слов",false,()->{});
+        hide.setTag("lesson-intro-hide");
+        hide.setTextColor(BUILD_INK);
+        hide.setTypeface(Typeface.create("serif",Typeface.BOLD));
+        hide.setTextSize(17);
+        hide.setMinHeight(dp(54));
+        hide.setBackground(outlined(0xFFFFEBD5,24,0xFFFFF8EF));
+        hide.setElevation(dp(2));
+        hide.setCompoundDrawablePadding(dp(8));
+        setIntroHideIcon(hide);
         hide.setOnClickListener(v->{
             mask=mask>=100?0:mask+25;
             trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
@@ -5998,11 +6041,51 @@ public final class MainActivity extends Activity {
             hint.show(mask>0,true);
             refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry);
             hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
+            setIntroHideIcon(hide);
             saveTrainingSession();
         });
         animateLessonPress(hide);
-        add(content,hide,27);
-        // No extra instructional caption: gesture behavior remains unchanged.
+        add(content,hide,16);
+        // The reserved hint height keeps this button stationary throughout the mask cycle.
+    }
+
+    private void setIntroHideIcon(TextView button){
+        final boolean showAll=mask==100;
+        android.graphics.drawable.Drawable eye=new android.graphics.drawable.Drawable(){
+            private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override public void draw(Canvas canvas){
+                Rect b=getBounds();
+                canvas.save();
+                canvas.translate(b.exactCenterX(),b.exactCenterY());
+                canvas.scale(b.width()/24f,b.height()/24f);
+                pen.setColor(BUILD_INK);
+                pen.setStyle(Paint.Style.STROKE);
+                pen.setStrokeWidth(1.7f);
+                pen.setStrokeCap(Paint.Cap.ROUND);
+                pen.setStrokeJoin(Paint.Join.ROUND);
+                Path outline=new Path();
+                outline.moveTo(-10,0);
+                outline.cubicTo(-4,-8,4,-8,10,0);
+                outline.cubicTo(4,8,-4,8,-10,0);
+                outline.close();
+                canvas.drawPath(outline,pen);
+                canvas.drawCircle(0,0,3,pen);
+                if(!showAll){
+                    pen.setColor(0xFFFFEBD5);
+                    pen.setStrokeWidth(4f);
+                    canvas.drawLine(-9,-9,9,9,pen);
+                    pen.setColor(BUILD_INK);
+                    pen.setStrokeWidth(1.7f);
+                    canvas.drawLine(-9,-9,9,9,pen);
+                }
+                canvas.restore();
+            }
+            @Override public void setAlpha(int alpha){pen.setAlpha(alpha);invalidateSelf();}
+            @Override public void setColorFilter(android.graphics.ColorFilter filter){pen.setColorFilter(filter);invalidateSelf();}
+            @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
+        };
+        eye.setBounds(0,0,dp(23),dp(23));
+        button.setCompoundDrawablesRelative(eye,null,null,null);
     }
     /** The taller of the two hints determines the height at every screen width.
      * INVISIBLE children still participate in measurement, unlike GONE children. */
@@ -7999,6 +8082,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        revealCleanup.run();
+        revealCleanup=()->{};
         assemblyMotion.settleAll();
         cancelWritingCheck();
         writingExecutor.shutdownNow();
