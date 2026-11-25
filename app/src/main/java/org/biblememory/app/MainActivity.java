@@ -370,10 +370,7 @@ public final class MainActivity extends Activity {
     private boolean swipeIntercepted=false;
     private int lastNavIndex=0;
     private long selectedDeck=-1;
-    private final List<Long> cardSequence=new ArrayList<>();
-    private int cardIndex=0;
-    private boolean cardShowReference=true,cardRevealed=false;
-    private final Random cardRandom=new Random();
+    private FlashcardSession flashcards;
     private enum BibleTarget { STUDY_GROUP, FLASHCARD_DECK }
     private BibleTarget pickerTarget=BibleTarget.FLASHCARD_DECK;
     private long pickerTargetId=-1;
@@ -425,6 +422,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        flashcards=new FlashcardSession(getSharedPreferences("card_sessions",MODE_PRIVATE),new Random());
         bibleSearch = new BibleSearchSession(getApplicationContext(),bible,new BibleSearchSession.Host(){
             @Override public BibleSearchSession.Scope scope(){return activeSearchScope();}
             @Override public void showSearchUpdate(boolean reuse,String message){
@@ -612,7 +610,7 @@ public final class MainActivity extends Activity {
         settleCollectionsIcons();
         revealCleanup.run();
         if(screen==Screen.TRAIN)saveTrainingSession();
-        if(screen==Screen.CARD_SESSION)saveCardSession();
+        if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
         if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
         homeHandler.removeCallbacks(homeTicker);
@@ -674,7 +672,7 @@ public final class MainActivity extends Activity {
                 screen=passageSelection.active?Screen.BIBLE_PICKER:Screen.PICKER_BOOKS;render();break;
             case PICKER_VERSES:screen=Screen.PICKER_CHAPTERS;render();break;
             case PICKER_TEXT:screen=Screen.PICKER_VERSES;render();break;
-            case CARD_SESSION:saveCardSession();screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();break;
+            case CARD_SESSION:flashcards.save(selectedDeck);screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();break;
             case CHAPTERS:screen=Screen.BOOKS;render();break;
             case VERSES:screen=Screen.CHAPTERS;render();break;
             case CHAPTER:screen=chapterFromVerseGrid?Screen.VERSES:Screen.CHAPTERS;render();break;
@@ -1860,7 +1858,7 @@ public final class MainActivity extends Activity {
         ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
             .setTitle("Удалить подборку?")
             .setPositiveButton("Удалить",(d,w)->{
-                store.deleteCardDeck(deck.id);clearSavedCardSession(deck.id);
+                store.deleteCardDeck(deck.id);flashcards.clearSaved(deck.id);
                 screen=Screen.CARDS;render();
             }).setNegativeButton("Отмена",null).create());
     }
@@ -2547,12 +2545,6 @@ public final class MainActivity extends Activity {
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
         }catch(Exception ex){toast(ex.getMessage()==null?"Не удалось добавить карточку":ex.getMessage());}
     }
-    private void clearSavedCardSession(long deckId){
-        getSharedPreferences("card_sessions",MODE_PRIVATE).edit().remove("deck_"+deckId).apply();
-    }
-    private List<Long> cardIds(List<LocalStore.Flashcard> cards){
-        List<Long> ids=new ArrayList<>();for(LocalStore.Flashcard f:cards)ids.add(f.id);return ids;
-    }
     private List<LocalStore.Flashcard> eligibleSessionCards(){
         List<LocalStore.Flashcard> items=store.flashcards(selectedDeck);
         if(!cardFromUnified)return items;
@@ -2563,202 +2555,40 @@ public final class MainActivity extends Activity {
         return singles;
     }
     private void startCardSession(){
-        List<LocalStore.Flashcard> all=eligibleSessionCards();
-        if(all.isEmpty()){toast("Подборка пуста");return;}
-        List<Long> available=cardIds(all);
-        cardSequence.clear();cardIndex=0;
-        String saved=getSharedPreferences("card_sessions",MODE_PRIVATE).getString("deck_"+selectedDeck,"");
-        if(!saved.isEmpty())try{
-            JSONObject json=new JSONObject(saved);JSONArray a=json.getJSONArray("order");
-            for(int i=0;i<a.length();i++)cardSequence.add(a.getLong(i));
-            cardIndex=Math.max(0,Math.min(cardSequence.size()-1,json.optInt("cursor",0)));
-            cardShowReference=json.optBoolean("reference_first",true);
-        }catch(Exception ignored){cardSequence.clear();}
-        if(cardSequence.size()!=available.size()||
-            !new HashSet<>(cardSequence).equals(new HashSet<>(available))){
-            cardSequence.clear();cardSequence.addAll(FlashcardDeckLogic.shuffled(available,-1,cardRandom));
-            cardIndex=0;cardShowReference=cardRandom.nextBoolean();
+        if(!flashcards.start(selectedDeck,sessionCardIds())){
+            toast("Подборка пуста");return;
         }
-        cardRevealed=false;screen=Screen.CARD_SESSION;saveCardSession();render();
+        screen=Screen.CARD_SESSION;render();
     }
-    private void saveCardSession(){
-        if(selectedDeck<1||cardSequence.isEmpty())return;
-        try{
-            JSONObject json=new JSONObject();json.put("order",new JSONArray(cardSequence));
-            json.put("cursor",cardIndex);json.put("reference_first",cardShowReference);
-            getSharedPreferences("card_sessions",MODE_PRIVATE).edit()
-                .putString("deck_"+selectedDeck,json.toString()).apply();
-        }catch(JSONException ignored){}
+
+    private List<Long> sessionCardIds(){
+        List<Long> ids=new ArrayList<>();
+        for(LocalStore.Flashcard card:eligibleSessionCards())ids.add(card.id);
+        return ids;
     }
+
     private void nextFlashcard(){
         if(backupInProgress)return;
-        if(cardSequence.isEmpty()){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
-        if(cardIndex+1<cardSequence.size())cardIndex++;
-        else{
-            long previous=cardSequence.get(cardSequence.size()-1);
-            List<Long> all=cardIds(eligibleSessionCards());
-            cardSequence.clear();cardSequence.addAll(FlashcardDeckLogic.shuffled(all,previous,cardRandom));
-            cardIndex=0;
-        }
-        cardRevealed=false;cardShowReference=cardRandom.nextBoolean();
-        saveCardSession();renderCardSession();
+        if(!flashcards.advance(selectedDeck,this::sessionCardIds)){leaveCardSession();return;}
+        renderCardSession();
     }
-    private final class SwipeCardLayout extends FrameLayout {
-        private float x0,y0;private boolean handling=false;
-        SwipeCardLayout(){super(MainActivity.this);}
-        @Override public boolean onInterceptTouchEvent(MotionEvent ev){
-            switch(ev.getActionMasked()){
-                case MotionEvent.ACTION_DOWN:
-                    x0=ev.getX();y0=ev.getY();handling=false;return false;
-                case MotionEvent.ACTION_MOVE:
-                    float dx=ev.getX()-x0,dy=ev.getY()-y0;
-                    if(Math.abs(dx)>ui.dp(24)&&Math.abs(dx)>Math.abs(dy)*1.15f){handling=true;return true;}
-                    return false;
-                default:return false;
-            }
-        }
-        @Override public boolean onTouchEvent(MotionEvent ev){
-            if(ev.getActionMasked()==MotionEvent.ACTION_UP){
-                float delta=ev.getX()-x0;
-                if(Math.abs(delta)>ui.dp(55)){
-                    animate().translationX(Math.signum(delta)*Math.max(ui.dp(360),getWidth()))
-                        .alpha(0f).setDuration(175).withEndAction(()->nextFlashcard()).start();
-                } else animate().translationX(0f).alpha(1f).setDuration(120).start();
-                handling=false;return true;
-            }
-            if(ev.getActionMasked()==MotionEvent.ACTION_MOVE&&handling){
-                setTranslationX((ev.getX()-x0)*0.65f);return true;
-            }
-            if(ev.getActionMasked()==MotionEvent.ACTION_CANCEL){
-                animate().translationX(0f).alpha(1f).setDuration(120).start();
-                handling=false;return true;
-            }
-            return true;
-        }
+
+    private void leaveCardSession(){
+        screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();
     }
-    /** Drawn eyelids morph continuously, not a swap between two eye icons. */
-    private final class EyeButton extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float openness=0f;
-        private ValueAnimator eyelidsAnimator;
-        EyeButton(){super(MainActivity.this);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
-        void setOpen(boolean open,boolean animate){
-            if(eyelidsAnimator!=null)eyelidsAnimator.cancel();
-            float target=open?1f:0f;
-            if(!animate||!ValueAnimator.areAnimatorsEnabled()){
-                openness=target;invalidate();return;
-            }
-            eyelidsAnimator=ValueAnimator.ofFloat(openness,target);
-            eyelidsAnimator.setDuration(230L);
-            eyelidsAnimator.setInterpolator(new DecelerateInterpolator());
-            eyelidsAnimator.addUpdateListener(a->{
-                openness=(Float)a.getAnimatedValue();invalidate();
-            });
-            eyelidsAnimator.start();
-        }
-        @Override protected void onDraw(Canvas c){
-            super.onDraw(c);
-            float cx=getWidth()/2f,cy=getHeight()/2f,r=ui.dp(15);
-            float open=Math.max(0f,Math.min(1f,openness));
-            paint.setColor(0xFF9B5E41);paint.setStrokeWidth(ui.dp(2.5f));
-            paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setStyle(Paint.Style.STROKE);
-            // At t=0 the lids meet in one curved closed-eye line;
-            // at t=1 they frame a fully open, almond-shaped eye.
-            float closedArc=ui.dp(3);
-            float arc=closedArc+(r*.82f-closedArc)*open;
-            Path upper=new Path();upper.moveTo(cx-r,cy);
-            upper.cubicTo(cx-r*.55f,cy-arc,cx+r*.55f,cy-arc,cx+r,cy);
-            Path lower=new Path();lower.moveTo(cx-r,cy);
-            lower.cubicTo(cx-r*.55f,cy-closedArc+(arc+closedArc)*open,
-                cx+r*.55f,cy-closedArc+(arc+closedArc)*open,cx+r,cy);
-            c.drawPath(upper,paint);
-            if(open>0.003f)c.drawPath(lower,paint);
-            if(open>0.003f){
-                paint.setStyle(Paint.Style.FILL);
-                paint.setAlpha(Math.round(255f*open));
-                c.drawCircle(cx,cy,ui.dp(4)*open,paint);
-                paint.setAlpha(255);
-            }
-        }
-        @Override protected void onDetachedFromWindow(){
-            if(eyelidsAnimator!=null)eyelidsAnimator.cancel();
-            super.onDetachedFromWindow();
-        }
-    }
+
     private void renderCardSession(){
-        List<LocalStore.Flashcard> items=store.flashcards(selectedDeck);
-        LocalStore.Flashcard current=null;
-        if(!cardSequence.isEmpty())for(LocalStore.Flashcard f:items)
-            if(f.id==cardSequence.get(Math.min(cardIndex,cardSequence.size()-1))){current=f;break;}
-        if(current==null){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
-        root=ui.column();root.setBackground(ui.pageBackground());
-        LinearLayout header=ui.column();header.setPadding(ui.dp(16),ui.dp(16),ui.dp(16),ui.dp(7));
-        LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
-        TextView deckHeading=ui.displayText(deck==null?"Карточки":deck.title,22);
-        deckHeading.setGravity(Gravity.CENTER);
-        header.addView(deckHeading,new LinearLayout.LayoutParams(-1,ui.dp(45)));
-        root.addView(header,new LinearLayout.LayoutParams(-1,-2));
-        SwipeCardLayout swipe=new SwipeCardLayout();
-        swipe.setBackground(ui.outlined(CARD,26,BORDER));
-        swipe.setClipToOutline(true);
-        View readableOverlay=new View(this);
-        readableOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0xFFFFFCF8,0xFFFFFAF5,0xFAFFF6EE,0xDDFFF3E6,0x44FFF3E6}));
-        swipe.addView(readableOverlay,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout.LayoutParams swipeParams=new LinearLayout.LayoutParams(-1,0,1);
-        swipeParams.setMargins(ui.dp(17),ui.dp(16),ui.dp(17),ui.dp(24));root.addView(swipe,swipeParams);
-        ScrollView scrolling=new ScrollView(this);scrolling.setFillViewport(true);
-        swipe.addView(scrolling,new FrameLayout.LayoutParams(-1,-1));
-        LinearLayout vertical=ui.column();vertical.setGravity(Gravity.CENTER);
-        vertical.setPadding(ui.dp(22),ui.dp(22),ui.dp(22),ui.dp(22));scrolling.addView(vertical);
-        TextView initial=ui.txt(cardShowReference?current.reference:current.content,
-            cardShowReference?27:20,0xFF3C422E,cardShowReference);
-        initial.setTypeface(Typeface.create("serif",cardShowReference?Typeface.BOLD:Typeface.NORMAL));
-        initial.setGravity(Gravity.CENTER);ui.add(vertical,initial,0);
-        TextView answer=ui.txt(cardShowReference?current.content:current.reference,
-            cardShowReference?20:25,0xFF694F3F,!cardShowReference);
-        answer.setTypeface(Typeface.create("serif",cardShowReference?Typeface.NORMAL:Typeface.BOLD));
-        // Reserve an answer area so opening the eye never shifts the original citation/text.
-        answer.setGravity(Gravity.CENTER);
-        answer.setAlpha(cardRevealed?1f:0f);
-        answer.setImportantForAccessibility(cardRevealed?
-            View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        // Fit the entire revealed answer into the existing answer area without
-        // a second scroll surface. Normal verses keep their original text size.
-        answer.setMaxLines(Integer.MAX_VALUE);
-        answer.setEllipsize(null);
-        answer.setAutoSizeTextTypeUniformWithConfiguration(
-            cardShowReference?11:14,cardShowReference?20:25,1,
-            android.util.TypedValue.COMPLEX_UNIT_SP);
-        int answerHeight=Math.min(ui.dp(230),Math.max(ui.dp(100),
-            getResources().getDisplayMetrics().heightPixels*32/100));
-        LinearLayout.LayoutParams answerArea=new LinearLayout.LayoutParams(-1,answerHeight);
-        answerArea.topMargin=ui.dp(10);vertical.addView(answer,answerArea);
-        EyeButton eye=new EyeButton();
-        eye.setOpen(cardRevealed,false);
-        eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
-        eye.setBackground(ui.outlined(0xFFF0F2E7,14,0xFFC9D5C4));
-        // Keep the complete eye button (icon and its background) near the card's lower edge.
-        // This reserved space is measured by ScrollView, so the button is not clipped.
-        FrameLayout eyeSlot=new FrameLayout(this);
-        LinearLayout.LayoutParams eyeSlotParams=new LinearLayout.LayoutParams(-1,ui.dp(136));
-        eyeSlotParams.topMargin=ui.dp(56);
-        vertical.addView(eyeSlot,eyeSlotParams);
-        FrameLayout.LayoutParams eyeParams=new FrameLayout.LayoutParams(
-            ui.dp(60),ui.dp(60),Gravity.BOTTOM|Gravity.CENTER_HORIZONTAL);
-        eyeSlot.addView(eye,eyeParams);
-        eye.setOnClickListener(v->{
-            cardRevealed=!cardRevealed;
-            eye.setOpen(cardRevealed,true);
-            answer.animate().cancel();
-            answer.animate().alpha(cardRevealed?1f:0f)
-                .setDuration(ValueAnimator.areAnimatorsEnabled()?250L:0L).start();
-            answer.setImportantForAccessibility(cardRevealed?
-                View.IMPORTANT_FOR_ACCESSIBILITY_AUTO:View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-            eye.setContentDescription(cardRevealed?"Скрыть ответ":"Показать ответ");
-        });
-        setContentView(root);
+        long currentId=flashcards.currentId();
+        for(LocalStore.Flashcard current:store.flashcards(selectedDeck)){
+            if(current.id!=currentId)continue;
+            LocalStore.CardDeck deck=store.cardDeck(selectedDeck);
+            FlashcardSessionView view=new FlashcardSessionView(this,ui,this::nextFlashcard,flashcards::toggleAnswer);
+            root=view.create(deck==null?"Карточки":deck.title,current.reference,current.content,
+                flashcards.referenceFirst(),flashcards.revealed());
+            setContentView(root);
+            return;
+        }
+        leaveCardSession();
     }
 
     private void renderHome() {
@@ -4291,7 +4121,7 @@ public final class MainActivity extends Activity {
         if(screen==Screen.TRAIN)saveTrainingSession();
         answerReview=null;
         reviewMode=false;groupMode=false;forcedStep=null;currentReview=null;
-        if(screen==Screen.CARD_SESSION)saveCardSession();
+        if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
         LocalStore.Entry source=store.entry(id);
         lessonSourceEntry=id;lessonSourceGroup=source==null?-1:source.groupId;
         selectedEntry=store.canonicalStudyEntryId(id);
@@ -6496,7 +6326,7 @@ public final class MainActivity extends Activity {
         if(!ownsData)return;
         // Flush the same drafts as onPause before retiring this generation of views.
         if(screen==Screen.TRAIN)saveTrainingSession();
-        if(screen==Screen.CARD_SESSION)saveCardSession();
+        if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
         if(screen==Screen.RUN)knowledgeCheck.save();
         rememberHomeScroll();
         homeHandler.removeCallbacks(homeTicker);

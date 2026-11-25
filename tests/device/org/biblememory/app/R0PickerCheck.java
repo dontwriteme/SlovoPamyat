@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
@@ -81,6 +83,61 @@ public final class R0PickerCheck extends Instrumentation {
         });
     }
 
+    private void invoke(String name){
+        try{
+            java.lang.reflect.Method method=MainActivity.class.getDeclaredMethod(name);
+            method.setAccessible(true);
+            method.invoke(activity);
+        }catch(ReflectiveOperationException error){throw new AssertionError(error);}
+    }
+
+    private View answerControl(String description){
+        return find((View)field("root"),view->description.contentEquals(
+            view.getContentDescription()==null?"":view.getContentDescription()));
+    }
+
+    private void flashcards()throws InterruptedException{
+        long[] deck=new long[1];
+        long[] first=new long[1];
+        runOnMainSync(()->{
+            LocalStore store=(LocalStore)field("store");
+            deck[0]=store.newCardDeck("Карточная сессия R8");
+            store.addCustomFlashcard(deck[0],"Ссылка А","Текст А");
+            store.addCustomFlashcard(deck[0],"Ссылка Б","Текст Б");
+            try{
+                Field selection=MainActivity.class.getDeclaredField("selectedDeck");
+                selection.setAccessible(true);
+                selection.setLong(activity,deck[0]);
+            }catch(ReflectiveOperationException error){throw new AssertionError(error);}
+            invoke("startCardSession");
+            first[0]=((FlashcardSession)field("flashcards")).currentId();
+            View eye=answerControl("Показать ответ");
+            require(eye!=null&&eye.performClick(),"card reveals answer");
+            require(answerControl("Скрыть ответ")!=null,"revealed control");
+        });
+        runOnMainSync(()->{
+            View swipe=((ViewGroup)field("root")).getChildAt(1);
+            long down=SystemClock.uptimeMillis();
+            float startX=swipe.getWidth()*0.75f,y=swipe.getHeight()*0.4f;
+            for(int action:new int[]{MotionEvent.ACTION_DOWN,MotionEvent.ACTION_MOVE,MotionEvent.ACTION_MOVE,MotionEvent.ACTION_UP}){
+                float x=action==MotionEvent.ACTION_DOWN?startX:startX/2;
+                MotionEvent event=MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,x,y,0);
+                swipe.dispatchTouchEvent(event);
+                event.recycle();
+            }
+        });
+        await(()->((FlashcardSession)field("flashcards")).currentId()!=first[0]
+            &&answerControl("Показать ответ")!=null,"swipe advances and hides answer");
+        runOnMainSync(()->{
+            long second=((FlashcardSession)field("flashcards")).currentId();
+            activity.onBackPressed();
+            invoke("startCardSession");
+            require(((FlashcardSession)field("flashcards")).currentId()==second,"card resumes at saved position");
+            activity.onBackPressed();
+            ((LocalStore)field("store")).deleteCardDeck(deck[0]);
+        });
+    }
+
     @Override public void onStart(){
         Bundle result=new Bundle();
         try{
@@ -132,9 +189,10 @@ public final class R0PickerCheck extends Instrumentation {
                 activity.onBackPressed();
                 activity.onBackPressed();
                 require(text("Бытие")!=null,"catalog restored");
-                activity.finish();
             });
-            result.putString("stream","PASS: input, no match, clear, catalog scroll, Psalm 118:176 and back stack");
+            flashcards();
+            runOnMainSync(activity::finish);
+            result.putString("stream","PASS: input, no match, clear, catalog scroll, Psalm 118:176, back stack, flashcard reveal, swipe and resume");
             finish(Activity.RESULT_OK,result);
         }catch(Throwable error){
             result.putString("stream","FAIL: "+android.util.Log.getStackTraceString(error));
