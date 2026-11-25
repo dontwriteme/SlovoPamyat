@@ -100,7 +100,7 @@ public final class MainActivity extends Activity {
     private final Handler homeHandler=new Handler(Looper.getMainLooper());
     private final Runnable homeTicker=()->{refreshHomeIndex(true);scheduleHomeRefresh();};
     private LinearLayout activeTextArea;
-    private TextView activePassage,activeStatus;
+    private TextView activePassage;
     private static final String SESSION_PREFS="study_session";
     private LocalStore.Entry activeEntry;
     private StudyPlanLogic.Step activeStep;
@@ -3032,7 +3032,8 @@ public final class MainActivity extends Activity {
             int[] b=passageSelection.bounds();
             pickerSelectionLabel.setText(Bible.reference(passageSelection.book,b[0],b[1],b[2],b[3])+" · "+PassageSelection.verses(count));
         }else pickerSelectionLabel.setText(passageSelection.complete()?
-            "Конец раньше начала. Измените начало или конец отрывка.":"Выберите начало и конец отрывка.");
+            "Конец раньше начала. Измените начало или конец отрывка.":"");
+        pickerSelectionLabel.setVisibility(valid||passageSelection.complete()?View.VISIBLE:View.GONE);
         pickerSelectionLabel.setTextColor(passageSelection.complete()&&!valid?RED:WHITE);
         pickerSaveButton.setEnabled(valid&&count>0);pickerSaveButton.setAlpha(pickerSaveButton.isEnabled()?1f:.45f);
     }
@@ -5264,8 +5265,6 @@ public final class MainActivity extends Activity {
         }
         activePassage.setContentDescription(percentage>0?
             "Скрыто "+percentage+" процентов слов. Попробуйте их вспомнить.":text.toString());
-        if(activeStatus!=null)activeStatus.setText(percentage==0?
-            LearningHelp.INTRO_READ:LearningHelp.INTRO_HOLD);
     }
     /** Immediate reveal held until the ORIGINAL finger lifts, even when it moves away. */
     private void installTemporaryReveal(TextView view) {
@@ -5710,42 +5709,36 @@ public final class MainActivity extends Activity {
         return LessonHotbarLogic.calculate(phase.ordinal(),1,buildTotal,writingTotal,
             state.introDone(),buildDone,lessonWriting.variant,state.writingOnly());
     }
-    /** Keep only the original segmented progress bar, without visible captions. */
+    /** Use the same compact phase-based progress strip throughout the lesson. */
     private void renderLessonHotbar(LinearLayout top,LessonCurriculumLogic.Phase phase,
                                      LocalStore.Entry e){
         LessonHotbarLogic.Model model=lessonHotbarModel(phase,e);
         LinearLayout bar=column();bar.setTag("lesson-progress");
-        boolean assembly=phase==LessonCurriculumLogic.Phase.BUILD;
-        lessonHotbarStrip=new LessonSegmentedBar(model,assembly);
+        lessonHotbarStrip=new LessonSegmentedBar(model);
         lessonHotbarStrip.setTag("lesson-progress-strip");
-        LinearLayout.LayoutParams stripP=new LinearLayout.LayoutParams(-1,dp(assembly?9:7));
-        if(assembly){
-            bar.setBackground(shape(0xBFFFF8EE,12));
-            bar.setPadding(dp(4),dp(3),dp(4),dp(3));
-        }else stripP.topMargin=dp(3);
-        bar.addView(lessonHotbarStrip,stripP);
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(assembly?dp(190):-1,-2);
+        bar.setBackground(shape(0xBFFFF8EE,12));
+        bar.setPadding(dp(4),dp(3),dp(4),dp(3));
+        bar.addView(lessonHotbarStrip,new LinearLayout.LayoutParams(-1,dp(9)));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(190),-2);
         lp.gravity=Gravity.CENTER_HORIZONTAL;
-        lp.topMargin=dp(assembly?8:3);
+        lp.topMargin=dp(8);
         top.addView(bar,lp);
     }
 
-    /** All logical tasks remain represented, even when the gaps must shrink. */
+    /** One segment per scheduled phase; each fills according to its completed tasks. */
     private final class LessonSegmentedBar extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
         private LessonHotbarLogic.Model model;
-        private final boolean assembly;
         private final float[] fill=new float[3];
         private ValueAnimator fillAnimator;
-        LessonSegmentedBar(LessonHotbarLogic.Model model,boolean assembly){
+        LessonSegmentedBar(LessonHotbarLogic.Model model){
             super(MainActivity.this);
-            this.assembly=assembly;
             setModel(model);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
         void setModel(LessonHotbarLogic.Model value){
-            if(assembly&&(model==null||!Arrays.equals(value.finished,model.finished)||
-                    !Arrays.equals(value.totals,model.totals))){
+            if(model==null||!Arrays.equals(value.finished,model.finished)||
+                    !Arrays.equals(value.totals,model.totals)){
                 if(fillAnimator!=null)fillAnimator.cancel();
                 float[] target=new float[3];
                 for(int i=0;i<3;i++)if(value.totals[i]>0)target[i]=value.finished[i]/(float)value.totals[i];
@@ -5771,20 +5764,9 @@ public final class MainActivity extends Activity {
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
             if(model.total<=0||getWidth()<=0)return;
-            if(assembly){
-                drawAssemblyPhases(canvas);
-                return;
-            }
-            float gap=Math.min(dp(3),getWidth()/(float)model.total/4f);
-            float width=(getWidth()-gap*(model.total-1))/model.total;
-            int index=0;
-            for(int group=0;group<3;group++)for(int task=0;task<model.totals[group];task++){
-                float left=index*(width+gap);
-                paintLessonHotbarCell(canvas,paint,model.visual(group,task),left,
-                    Math.min(getWidth(),left+width),getHeight());index++;
-            }
+            drawLessonPhases(canvas);
         }
-        private void drawAssemblyPhases(Canvas canvas){
+        private void drawLessonPhases(Canvas canvas){
             int groups=0;
             for(int total:model.totals)if(total>0)groups++;
             if(groups==0)return;
@@ -5812,13 +5794,6 @@ public final class MainActivity extends Activity {
             if(model.total>0)info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
                 android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,0,model.total,model.completedCount));
         }
-    }
-    private void paintLessonHotbarCell(Canvas canvas,Paint paint,int visual,
-                                      float left,float right,float height){
-        paint.setColor(visual==LessonHotbarLogic.DONE?0xFF4D704D:
-            visual==LessonHotbarLogic.CURRENT?0xFFAFC7A0:0xFFD9D8CC);
-        float radius=Math.min(dp(3.5f),Math.min(height/2f,(right-left)/2f));
-        canvas.drawRoundRect(left,0,right,height,radius,radius,paint);
     }
     /** Refresh progress without changing exercise state or rendering captions. */
     private void refreshLessonPhaseProgress(LessonCurriculumLogic.Phase phase,LocalStore.Entry e){
@@ -5857,9 +5832,11 @@ public final class MainActivity extends Activity {
         activePassage.setLineSpacing(dp(7),1.18f);
         activePassage.setTextIsSelectable(false);
         add(content,activePassage,19);
-        activeStatus=txt("",14,MUTED,false);
-        add(content,activeStatus,15);
+        // Both hints are measured at the actual content width, including font scale.
+        LessonIntroHint hint=new LessonIntroHint();
+        add(content,hint,15);
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
+        hint.show(mask>0,false);
         updateBlurText();
         TextView hide=button(mask==100?"Показать все слова":
             "Скрыть "+(mask+25)+"% слов",false,()->{});
@@ -5867,6 +5844,7 @@ public final class MainActivity extends Activity {
             mask=mask>=100?0:mask+25;
             trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
             updateBlurText();
+            hint.show(mask>0,true);
             refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry);
             hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
             saveTrainingSession();
@@ -5874,6 +5852,47 @@ public final class MainActivity extends Activity {
         animateLessonPress(hide);
         add(content,hide,27);
         // No extra instructional caption: gesture behavior remains unchanged.
+    }
+    /** The taller of the two hints determines the height at every screen width.
+     * INVISIBLE children still participate in measurement, unlike GONE children. */
+    private final class LessonIntroHint extends FrameLayout {
+        private final TextView readHint,holdHint;
+        private boolean hidden;
+
+        LessonIntroHint(){
+            super(MainActivity.this);
+            setTag("lesson-intro-hint");
+            setMeasureAllChildren(true);
+            readHint=txt(LearningHelp.INTRO_READ,14,MUTED,false);
+            holdHint=txt(LearningHelp.INTRO_HOLD,14,MUTED,false);
+            addView(readHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            addView(holdHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            holdHint.setVisibility(View.INVISIBLE);
+        }
+
+        void show(boolean wordsHidden,boolean animate){
+            if(wordsHidden==hidden)return;
+            hidden=wordsHidden;
+            TextView outgoing=hidden?readHint:holdHint;
+            TextView incoming=hidden?holdHint:readHint;
+            outgoing.animate().cancel();
+            incoming.animate().cancel();
+            outgoing.setVisibility(View.INVISIBLE);
+            outgoing.setAlpha(1f);
+            boolean fade=animate&&ValueAnimator.areAnimatorsEnabled();
+            incoming.setAlpha(fade?0f:1f);
+            incoming.setVisibility(View.VISIBLE);
+            if(fade)incoming.animate().alpha(1f).setDuration(150)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        }
+
+        @Override protected void onDetachedFromWindow(){
+            readHint.animate().cancel();
+            holdHint.animate().cancel();
+            readHint.setAlpha(1f);
+            holdHint.setAlpha(1f);
+            super.onDetachedFromWindow();
+        }
     }
     private void resetLessonTiles(){
         lessonAssembly.reset();lessonSeed=new Random().nextLong();

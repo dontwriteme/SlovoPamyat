@@ -54,6 +54,20 @@ public class LessonHotbarIntegrationTest {
         assertNotNull(bar);assertNotNull(strip);
         assertEquals(1,bar.getChildCount());
         assertSame(strip,bar.getChildAt(0));
+        float density=activity.getResources().getDisplayMetrics().density;
+        assertEquals(Math.round(190*density),bar.getLayoutParams().width);
+        assertEquals(Math.round(9*density),strip.getLayoutParams().height);
+        assertNotNull(bar.getBackground());
+        assertEquals(Math.round(4*density),bar.getPaddingLeft());
+        assertEquals(Math.round(3*density),bar.getPaddingTop());
+        Field fillField=strip.getClass().getDeclaredField("fill");
+        fillField.setAccessible(true);
+        float[] fill=(float[])fillField.get(strip);
+        LessonHotbarLogic.Model m=model(phase);
+        for(int i=0;i<3;i++){
+            float expected=m.totals[i]==0?0f:m.finished[i]/(float)m.totals[i];
+            assertEquals("Phase "+phase+", segment "+i,expected,fill[i],0.001f);
+        }
         assertNull(root.findViewWithTag("lesson-progress-count"));
         assertNull(root.findViewWithTag("lesson-progress-current-phase"));
         for(int i=0;i<3;i++)assertNull(root.findViewWithTag("lesson-progress-label-"+i));
@@ -157,6 +171,36 @@ public class LessonHotbarIntegrationTest {
             assertSame(passage,get("activePassage"));assertSame(strip,((View)get("root")).findViewWithTag("lesson-progress-strip"));
         }
     }
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void introHintKeepsHideButtonStationaryAtEveryMask()throws Exception{
+        View root=(View)get("root");
+        ViewGroup hint=root.findViewWithTag("lesson-intro-hint");
+        TextView hide=text(root,"Скрыть 25% слов");
+        assertNotNull(hint);assertNotNull(hide);
+        TextView read=text(hint,LearningHelp.INTRO_READ);
+        TextView hold=text(hint,LearningHelp.INTRO_HOLD);
+        assertNotNull(read);assertNotNull(hold);
+        for(int width:new int[]{320,480}){
+            layoutIntro(root,width);
+            int height=hint.getHeight(),top=hide.getTop();
+            assertTrue(height>0);
+            assertEquals(Math.max(read.getMeasuredHeight(),hold.getMeasuredHeight()),height);
+            for(int expected:new int[]{25,50,75,100,0}){
+                hide.performClick();
+                layoutIntro(root,width);
+                assertEquals(expected,get("mask"));
+                assertEquals("Hint height changed at mask "+expected,height,hint.getHeight());
+                assertEquals("Hide button moved at mask "+expected,top,hide.getTop());
+                assertEquals(expected==0?View.VISIBLE:View.INVISIBLE,read.getVisibility());
+                assertEquals(expected==0?View.INVISIBLE:View.VISIBLE,hold.getVisibility());
+            }
+        }
+    }
+    private void layoutIntro(View root,int width){
+        root.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,width,560);
+    }
     @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
         assertSeamlessFooter();
         store.finishExercise(id,0,1);invoke("render");
@@ -241,8 +285,8 @@ public class LessonHotbarIntegrationTest {
     }
     @Test public void stripFitsNarrowScreenAndRetainsTalkBackCountsForManyTasks()throws Exception{
         Class<?> type=Class.forName("org.biblememory.app.MainActivity$LessonSegmentedBar");
-        Constructor<?> constructor=type.getDeclaredConstructor(MainActivity.class,LessonHotbarLogic.Model.class,boolean.class);constructor.setAccessible(true);
-        View strip=(View)constructor.newInstance(activity,LessonHotbarLogic.calculate(0,1,1000,3,0,0,0,false),false);
+        Constructor<?> constructor=type.getDeclaredConstructor(MainActivity.class,LessonHotbarLogic.Model.class);constructor.setAccessible(true);
+        View strip=(View)constructor.newInstance(activity,LessonHotbarLogic.calculate(0,1,1000,3,0,0,0,false));
         strip.measure(View.MeasureSpec.makeMeasureSpec(240,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(7,View.MeasureSpec.EXACTLY));strip.layout(0,0,240,7);
         assertEquals(240,strip.getWidth());assertEquals(7,strip.getHeight());assertTrue(strip.getContentDescription().toString().contains("1004"));
         ViewGroup progress=((View)get("root")).findViewWithTag("lesson-progress");

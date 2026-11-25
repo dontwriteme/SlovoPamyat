@@ -127,7 +127,14 @@ public class PickerIntegrationTest {
         assertEquals(2,store.entries(group).size());
     }
     @Test public void reversedBoundsEditingAndCancel()throws Exception {
-        invoke("openPickerRange");choose(false,5,12);choose(true,5,3);
+        invoke("openPickerRange");
+        assertEquals(View.GONE,((View)field("pickerSelectionLabel")).getVisibility());
+        choose(false,5,12);
+        assertEquals(View.GONE,((View)field("pickerSelectionLabel")).getVisibility());
+        choose(true,5,3);
+        TextView selected=(TextView)field("pickerSelectionLabel");
+        assertEquals(View.VISIBLE,selected.getVisibility());
+        assertTrue(selected.getText().toString().contains("Конец раньше начала"));
         assertArrayEquals(new int[]{5,12,5,3},selection().bounds());
         assertFalse(((View)field("pickerSaveButton")).isEnabled());
         invoke("savePickerRange");assertTrue(store.entries(group).isEmpty());
