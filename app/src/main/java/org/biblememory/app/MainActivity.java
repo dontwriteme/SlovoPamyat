@@ -6227,7 +6227,9 @@ public final class MainActivity extends Activity {
 
     /** Shared matte primary action for lesson exercises and memory checks. */
     private void styleLessonAction(TextView action,boolean enabled){
-        action.setBackground(shape(enabled?0xFF607B43:0xFFC3C8A7,13));
+        GradientDrawable background=shape(enabled?0xFF405638:0xFFC3C8A7,13);
+        background.setStroke(dp(1),enabled?0xFFFFF0DB:0xFFE9DDCC);
+        action.setBackground(background);
         action.setTypeface(Typeface.create("serif",Typeface.NORMAL));
         action.setTextSize(19);
         action.setTextColor(enabled?Color.WHITE:0xFF536044);
