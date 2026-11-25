@@ -765,7 +765,7 @@ public class LessonHotbarIntegrationTest {
     private void assertMatteLessonAction(TextView action){
         android.graphics.drawable.GradientDrawable background=
             (android.graphics.drawable.GradientDrawable)action.getBackground();
-        assertEquals(0xFF607B43,background.getColor().getDefaultColor());
+        assertEquals(0xFF405638,background.getColor().getDefaultColor());
         assertEquals(13*action.getResources().getDisplayMetrics().density,
             background.getCornerRadius(),1f);
         assertNull(background.getColors());
