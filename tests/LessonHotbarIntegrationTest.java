@@ -242,6 +242,53 @@ public class LessonHotbarIntegrationTest {
             View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
         root.layout(0,0,width,560);
     }
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void gapWritingUsesScenicCardAndKeepsDraftAndValidation()throws Exception{
+        id=store.add(store.entry(id).groupId,"Gap fixture","Свой текст",
+            Collections.singletonList(new Bible.Verse("1:1",
+                "Слово истины живо и дает свет каждому человеку во все дни жизни")));
+        call("openTraining",new Class<?>[]{long.class},id);
+        store.finishExercise(id,0,3);
+        set("lessonWriteVariant",0);
+        invoke("render");
+        View root=(View)get("root");
+        ViewGroup panel=root.findViewWithTag("writing-gap-panel");
+        ViewGroup inputs=root.findViewWithTag("writing-gap-inputs");
+        assertNotNull(panel);assertNotNull(inputs);
+        assertNotNull(panel.getBackground());
+        assertNotNull(text(panel,LearningHelp.WRITE_GAPS));
+        TextView check=text(root,"Проверить");
+        assertTrue(check.isEnabled());
+        assertArrayEquals(new int[]{0xFF7D9C49,0xFF3E692D},
+            ((android.graphics.drawable.GradientDrawable)check.getBackground()).getColors());
+        @SuppressWarnings("unchecked")
+        List<EditText> fields=(List<EditText>)get("inlineFields");
+        assertFalse(fields.isEmpty());
+        EditText first=fields.get(0);
+        assertTrue(first.getBackground() instanceof android.graphics.drawable.GradientDrawable);
+        first.setText("оченьдлинноесловооченьдлинноесловооченьдлинноеслово");
+        root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
+        root.layout(0,0,320,560);
+        for(int i=0;i<inputs.getChildCount();i++)
+            assertTrue(inputs.getChildAt(i).getRight()<=inputs.getWidth());
+        first.setText("черновик");
+        String savedDraft=(String)get("draft");
+        invoke("render");
+        assertEquals(savedDraft,get("draft"));
+        @SuppressWarnings("unchecked")
+        List<EditText> restored=(List<EditText>)get("inlineFields");
+        assertEquals("черновик",restored.get(0).getText().toString());
+        @SuppressWarnings("unchecked")
+        List<String> expected=(List<String>)get("inlineExpected");
+        for(int i=0;i<restored.size();i++)restored.get(i).setText(expected.get(i));
+        text((View)get("root"),"Проверить").performClick();
+        ActivityTestWorkers.awaitWriting(activity);
+        assertEquals(1,get("lessonWriteVariant"));
+        assertNull(((View)get("root")).findViewWithTag("writing-gap-panel"));
+        assertEquals(3,store.exerciseDone(id,0));
+    }
+
     @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
         assertSeamlessFooter();
         store.finishExercise(id,0,1);invoke("render");
