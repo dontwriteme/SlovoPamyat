@@ -120,7 +120,7 @@ final class CollectionEntryEditor {
                 card.lastChapter,card.lastVerse,(a,b,c,d)->{
                     String ref=Bible.reference(card.bookId,a,b,c,d);
                     store.changeCardInDeck(deck.getAsLong(),card,card.bookId,a,b,c,d,
-                        ref,CollectionPassages.texts(bible.passage(card.bookId,a,b,c,d)));
+                        ref,VerseText.join(bible.passage(card.bookId,a,b,c,d)));
                     updated.run();
                 });
             return;

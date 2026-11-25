@@ -1509,7 +1509,7 @@ public final class MainActivity extends Activity {
         if(!bible.isReady())for(LocalStore.Flashcard f:cards)
             if(f.bookId>0){toast("Библия ещё загружается");return;}
         cardStudyQueue.clear();cardStudyCursor=0;cardStudyDeckId=selectedDeck;
-        cardStudyMaterial=cardLessonMaterial(cards);
+        cardStudyMaterial=LessonRestoration.cardMaterial(cards);
         for(LocalStore.Flashcard card:cards){
             try{
                 List<Bible.Verse> verses=card.bookId==0?
@@ -1555,7 +1555,7 @@ public final class MainActivity extends Activity {
         if(!bible.isReady()){toast("Библия ещё загружается");return;}
         try{
             List<Bible.Verse> lines=bible.passage(book,sc,sv,ec,ev);
-            String text=texts(lines);
+            String text=VerseText.join(lines);
             boolean added=store.addFlashcard(deckId,book,sc,sv,ec,ev,Bible.reference(book,sc,sv,ec,ev),text);
             toast(added?"Карточка добавлена":"Карточка уже есть в подборке");
             if(screen==Screen.CARD_PICK){screen=Screen.CARD_DECK;render();}
@@ -2376,80 +2376,22 @@ public final class MainActivity extends Activity {
         if(!lesson.hasActiveMaterial())return null;
         saveTrainingSession();
         Bundle state=LessonCheckpoint.capture(store,lesson,reviewSession);
-        if(reviewSession.active()){
-            state.putLong("review_group",reviewSession.group());
-        }else if(studyQueue.executing()){
-            state.putLong("queue_group",studyQueue.group());
-            state.putInt("queue_cursor",studyQueue.cursor());
-        }else if(cardStudyCursor>=0){
-            state.putLong("deck",cardStudyDeckId);
-            state.putInt("deck_cursor",cardStudyCursor);
-            state.putString("deck_material",cardStudyMaterial);
-            long[] ids=new long[cardStudyQueue.size()];
-            for(int i=0;i<ids.length;i++)ids[i]=cardStudyQueue.get(i);
-            state.putLongArray("deck_queue",ids);
-        }
-        if(lesson.lessonSourceEntry!=lesson.selectedEntry)state.putString("source_material",lesson.lessonSourceMaterial);
+        LessonRestoration.saveRoute(state,lesson,reviewSession,studyQueue,cardStudyDeckId,cardStudyCursor,
+            cardStudyMaterial,cardStudyQueue);
         return state;
     }
 
-    private static String cardLessonMaterial(List<LocalStore.Flashcard> deck){
-        List<String> cards=new ArrayList<>();
-        for(LocalStore.Flashcard card:deck){
-            cards.add(Long.toString(card.id));cards.add(card.reference);cards.add(card.content);
-            cards.add(card.bookId+":"+card.firstChapter+":"+card.firstVerse+":"+card.lastChapter+":"+card.lastVerse);
-        }
-        return cards.isEmpty()?"":SessionIntegrityLogic.fingerprint(cards);
-    }
-
     private boolean restoreActiveLesson(Bundle state){
-        if(state==null)return false;
-        long id=state.getLong("entry");
-        LocalStore.Entry entry=store.entry(id);
-        long sourceId=state.getLong("source_entry");
-        LocalStore.Entry source=sourceId==id?entry:store.entry(sourceId);
-        if(!LessonCheckpoint.matchesMaterial(state,entry,source))return false;
-        long deck=state.getLong("deck",-1);
-        long[] deckQueue=state.getLongArray("deck_queue");
-        int deckCursor=state.getInt("deck_cursor",-1);
-        if(deck>0){
-            String material=cardLessonMaterial(store.flashcards(deck));
-            if(material.isEmpty()||!material.equals(state.getString("deck_material"))||
-                deckQueue==null||deckCursor<0||deckCursor>=deckQueue.length||deckQueue[deckCursor]!=sourceId)return false;
-        }else if(store.archivedReviewGroups().contains(source.groupId))return false;
-        boolean inQueue=state.containsKey("queue_group");
-        if(inQueue&&!studyQueue.matchesCheckpoint(state.getLong("queue_group"),state.getInt("queue_cursor"),sourceId))
-            return false;
-
-        boolean review=state.containsKey("review_group");
-        boolean linked=state.getBoolean("linked");
-        boolean complete=state.getBoolean("complete");
-        String stage=state.getString("stage","");
-        StudyPlanLogic.Stage lessonStage;
-        try{lessonStage=StudyPlanLogic.Stage.valueOf("VERSE_RUN".equals(stage)?"CHAIN":stage);}
-        catch(IllegalArgumentException invalid){return false;}
-        int start=state.getInt("begin",-1),end=state.getInt("end",-1);
-        int cursor=state.getInt("cursor",-1);
-        if(start<0||end<=start||end>entry.lines().size()||cursor<0)return false;
-        if(!LessonCheckpoint.matchesRecall(store,state,id,stage,start,end,complete))return false;
-        if(!review&&!linked){
-            List<StudyPlanLogic.Step> steps=studySteps(entry,lessonStage);
-            if(cursor>=steps.size()||steps.get(cursor).start!=start||steps.get(cursor).end!=end)
-                return false;
-            if(lessonStage==StudyPlanLogic.Stage.VERSE&&
-                (store.exerciseDone(id,start)!=state.getInt("exercise_done")||
-                !LessonFlowLogic.canOpen(cursor,store.unlockedPosition(id,steps.size()),steps.size())))return false;
-        }
-
-        String key=review?ReviewSessionPreferences.PREFIX:(linked?"linked_":"entry_")+id+"_";
         SharedPreferences pref=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        if(!(review&&complete)&&(!lessonStage.name().equals(pref.getString(key+"stage",""))||
-            cursor!=pref.getInt(key+"step",-1)||start!=pref.getInt(key+"begin",-1)||
-            end!=pref.getInt(key+"end",-1)))return false;
-        if(!review&&!state.getString("material").equals(pref.getString(key+"lesson_material","")))return false;
+        LessonRestoration.Restored saved=LessonRestoration.validate(store,pref,state,studyQueue);
+        if(saved==null)return false;
+        long id=saved.entry().id;
+        boolean review=saved.review(),linked=saved.linked(),complete=saved.complete();
+        int start=saved.start(),end=saved.end();
+        String stage=saved.stage(),key=saved.key();
         if(review){
             LocalStore.DueItem item=reviewSession.restore(store,pref,state.getLong("review_group",-1),
-                System.currentTimeMillis(),entry,new LocalStore.DueItem(id,stage,start,end,0),complete);
+                System.currentTimeMillis(),saved.entry(),new LocalStore.DueItem(id,stage,start,end,0),complete);
             if(item==null)return false;
             if(!prepareReview(item)){reviewSession.clear();return false;}
         }else{
@@ -2460,14 +2402,14 @@ public final class MainActivity extends Activity {
             }
         }
         if(!(review&&complete))restoreTrainingSession(key,linked);
-        lesson.lessonSourceEntry=sourceId;lesson.lessonSourceGroup=source.groupId;
+        lesson.lessonSourceEntry=saved.source().id;lesson.lessonSourceGroup=saved.source().groupId;
         lesson.lessonSessionMaterial=state.getString("material","");
         lesson.lessonSourceMaterial=state.getString("source_material","");
-        studyQueue.setExecuting(inQueue);
-        if(deck>0){
-            cardStudyDeckId=deck;cardStudyCursor=deckCursor;
+        studyQueue.setExecuting(saved.inQueue());
+        if(saved.deck()>0){
+            cardStudyDeckId=saved.deck();cardStudyCursor=saved.deckCursor();
             cardStudyMaterial=state.getString("deck_material","");
-            for(long next:deckQueue)cardStudyQueue.add(next);
+            for(long next:saved.deckQueue())cardStudyQueue.add(next);
         }
         lesson.lessonPracticeAgain=state.getBoolean("practice_again");
         lesson.testAssisted=state.getBoolean("assisted");
@@ -2484,9 +2426,6 @@ public final class MainActivity extends Activity {
     private boolean restoreTrainingSession(long id,boolean linked) {
         return restoreTrainingSession((linked?"linked_":"entry_")+id+"_",linked);
     }
-    private boolean sameLessonDraft(SharedPreferences preferences,String key){
-        return lesson.lessonSessionMaterial.equals(preferences.getString(key+"lesson_material",lesson.lessonSessionMaterial));
-    }
     private boolean restoreTrainingSession(String key,boolean linked){
         return LessonSessionPreferences.restore(getSharedPreferences(SESSION_PREFS,MODE_PRIVATE),key,linked,lesson);
     }
@@ -2495,29 +2434,17 @@ public final class MainActivity extends Activity {
         lesson.answerReview=null;
         reviewSession.clear();lesson.groupMode=false;lesson.forcedStep=null;
         if(screen==Screen.CARD_SESSION)flashcards.save(selectedDeck);
-        LocalStore.Entry source=store.entry(id);
-        lesson.lessonSourceEntry=id;lesson.lessonSourceGroup=source==null?-1:source.groupId;
-        lesson.selectedEntry=store.canonicalStudyEntryId(id);
-        id=lesson.selectedEntry;
-        LocalStore.Entry entry=store.entry(id);
+        LocalStore.Entry entry=LessonLaunch.select(store,lesson,id);
         if(entry==null){toast("Отрывок не найден");screen=Screen.HOME;render();return;}
-        lesson.lessonSessionMaterial=LessonCheckpoint.material(entry);
-        lesson.lessonSourceMaterial=source==null||source.id==entry.id?"":LessonCheckpoint.material(source);
-        android.content.SharedPreferences linked=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
-        String lk="linked_"+id+"_";
-        if(linked.getBoolean(lk+"pending",false)){
-            int a=linked.getInt(lk+"begin",0),b=linked.getInt(lk+"end",0);
-            String stage=linked.getString(lk+"group_stage","CHAIN");
-            if(a>=0&&b>a&&b<=entry.lines().size()&&
-                !store.isStepMastered(id,stage,a,b)&&sameLessonDraft(linked,lk)){
-                GroupLearningLogic.Candidate cand=GroupLearningLogic.candidate(stage,a,b,"Продолжить связку");
-                lesson.returnVerseCursor=linked.getInt(lk+"return_cursor",0);
-                prepareGroup(cand);restoreTrainingSession(id,true);
-                lesson.returnVerseCursor=linked.getInt(lk+"return_cursor",0);render();return;
-            }
-            linked.edit().remove(lk+"pending").apply();
+        id=entry.id;
+        SharedPreferences saved=getSharedPreferences(SESSION_PREFS,MODE_PRIVATE);
+        LessonLaunch.GroupDraft link=LessonLaunch.pendingGroup(store,saved,lesson,entry);
+        if(link!=null){
+            lesson.returnVerseCursor=link.returnCursor();
+            prepareGroup(link.candidate());restoreTrainingSession(id,true);
+            lesson.returnVerseCursor=link.returnCursor();render();return;
         }
-        if(!sameLessonDraft(linked,"entry_"+id+"_")||!restoreTrainingSession(id)){
+        if(!LessonLaunch.sameDraft(lesson,saved,"entry_"+id+"_")||!restoreTrainingSession(id)){
             selectRecommendation(entry);resetTrainingStep(entry);
         } else if(lesson.trainingMode!=TrainingMode.TYPE) {
             List<StudyPlanLogic.Step> steps=studySteps(entry);
@@ -2540,53 +2467,13 @@ public final class MainActivity extends Activity {
         rememberRecent(id);saveTrainingSession();
         screen=Screen.TRAIN;render();
     }
-    private AdaptiveLearningLogic.Recommendation selectRecommendation(LocalStore.Entry e) {
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse v:e.lines())refs.add(v.ref);
-        AdaptiveLearningLogic.Recommendation advice=AdaptiveLearningLogic.recommend(
-            refs,isSermon(e),store.collectionProgress().recommendationProgress(e.id),System.currentTimeMillis());
-        lesson.studyStage=advice.stage;lesson.stepCursor=advice.index;
-        return advice;
+    private AdaptiveLearningLogic.Recommendation selectRecommendation(LocalStore.Entry entry){
+        return LessonPlans.recommend(store,lesson,entry,System.currentTimeMillis());
     }
-    private boolean isSermon(LocalStore.Entry e) {
-        return e.reference!=null && (e.reference.startsWith("Матфея 5:") ||
-          e.reference.startsWith("Матфея 6:") || e.reference.startsWith("Матфея 7:"));
+    private List<StudyPlanLogic.Step> studySteps(LocalStore.Entry entry){
+        return LessonPlans.steps(entry,lesson,reviewSession);
     }
-    private List<StudyPlanLogic.Step> studySteps(LocalStore.Entry e) {
-        if(reviewSession.active())return Collections.singletonList(reviewSession.current().step());
-        if(lesson.groupMode&&lesson.forcedStep!=null)return Collections.singletonList(lesson.forcedStep);
-        return studySteps(e,lesson.studyStage);
-    }
-    private List<StudyPlanLogic.Step> studySteps(LocalStore.Entry e,StudyPlanLogic.Stage stage) {
-        List<String> refs=new ArrayList<>();
-        for(Bible.Verse v:e.lines())refs.add(v.ref);
-        return StudyPlanLogic.build(refs,stage,isSermon(e));
-    }
-    private void resetTrainingStep(LocalStore.Entry e) {
-        lesson.resetExercise();
-        boolean mastered=false;
-        if(e!=null) {
-            List<StudyPlanLogic.Step> steps=studySteps(e);
-            if(!steps.isEmpty()) {
-                lesson.stepCursor=Math.max(0,Math.min(lesson.stepCursor,steps.size()-1));
-                StudyPlanLogic.Step s=steps.get(lesson.stepCursor);
-                mastered=store.isStepMastered(e.id,lesson.studyStage.name(),s.start,s.end);
-            }
-        }
-        int done=e!=null && lesson.studyStage==StudyPlanLogic.Stage.VERSE?
-            store.exerciseDone(e.id,lesson.stepCursor):0;
-        lesson.trainingMode=done>=4?TrainingMode.TYPE:
-            done==3?TrainingMode.TYPE:done==2?TrainingMode.ORDER:
-            done==1?TrainingMode.HIDE:TrainingMode.READ;
-        if(done==1)lesson.mask=25;
-        // A final examination becomes assisted only if a hint is viewed DURING that exam.
-        if(reviewSession.active() || (lesson.studyStage==StudyPlanLogic.Stage.VERSE&&done>=4))lesson.testAssisted=false;
-    }
-    private String texts(List<Bible.Verse> lines) {
-        StringBuilder sb=new StringBuilder();
-        for(Bible.Verse v:lines) {if(sb.length()>0)sb.append(' ');sb.append(v.text);}
-        return sb.toString();
-    }
+    private void resetTrainingStep(LocalStore.Entry entry){LessonPlans.reset(store,lesson,reviewSession,entry);}
     private int bookForEntry(LocalStore.Entry e){
         if(e==null||e.reference==null)return -1;
         for(int n=1;n<=66;n++)if(e.reference.startsWith(Bible.NAMES[n-1]+" "))return n;
@@ -2597,13 +2484,13 @@ public final class MainActivity extends Activity {
     }
     private GroupLearningLogic.Candidate nextGroup(LocalStore.Entry e,CollectionProgressSnapshot snapshot){
         List<String> refs=new ArrayList<>();for(Bible.Verse line:snapshot.verses(e.id))refs.add(line.ref);
-        return GroupLearningLogic.next(refs,snapshot.groupProgress(e.id),isSermon(e));
+        return GroupLearningLogic.next(refs,snapshot.groupProgress(e.id),LessonPlans.isSermon(e));
     }
     private GroupLearningLogic.Candidate pendingAfterCurrent(LocalStore.Entry e,int current){
         if(current<0||current>=e.lines().size())return null;
         List<String> refs=new ArrayList<>();for(Bible.Verse v:e.lines())refs.add(v.ref);
         return GroupLearningLogic.afterVerse(refs,store.collectionProgress().groupProgress(e.id),
-            current,isSermon(e));
+            current,LessonPlans.isSermon(e));
     }
     private void openGroup(GroupLearningLogic.Candidate group){
         prepareGroup(group);
@@ -2611,18 +2498,8 @@ public final class MainActivity extends Activity {
         render();
     }
     private void prepareGroup(GroupLearningLogic.Candidate group){
-        if(!lesson.groupMode) lesson.returnVerseCursor=lesson.studyStage==StudyPlanLogic.Stage.VERSE?lesson.stepCursor:
-            store.firstUnmastered(lesson.selectedEntry,store.entry(lesson.selectedEntry).lines().size());
-        reviewSession.clear();lesson.groupMode=true;
-        lesson.studyStage=StudyPlanLogic.Stage.valueOf(group.stage);
-        lesson.forcedStep=new StudyPlanLogic.Step(group.start,group.end,"Связка "+(group.start+1)+"–"+group.end);
-        lesson.stepCursor=0;lesson.mask=0;lesson.lessonWriting.draft="";lesson.checked=false;lesson.passed=false;
-        lesson.lessonVariant=0;lesson.lessonChunk=0;lesson.savedAssemblyFingerprint="";
-        lesson.testAssisted=false;lesson.lessonWriting.hadFeedback=false;lesson.lessonPracticeAgain=false;
-        lesson.lessonWriting.variant=0;lesson.groupBuildDone=false;lesson.groupIntroDone=false;lesson.lessonWriting.practiceWeakFragment=false;lesson.lessonWriting.weakFragmentText="";resetLessonTiles();
-        lesson.activeStep=lesson.forcedStep;
-        lesson.answerReview=null;
-        lesson.trainingMode=TrainingMode.ORDER;screen=Screen.TRAIN;
+        LessonPlans.prepareGroup(store,lesson,reviewSession,group);
+        screen=Screen.TRAIN;
     }
     private void renderUnlearnableLine(LocalStore.Entry entry,int invalidLine){
         currentScroller=null;
@@ -2782,7 +2659,7 @@ public final class MainActivity extends Activity {
         List<String> source=new ArrayList<>();
         for(Bible.Verse line:passage)source.add(line.text);
         List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
-            ReviewLogic.words(texts(passage)).size());
+            ReviewLogic.words(VerseText.join(passage)).size());
         int buildTotal=0,buildDone=0;
         boolean assembled=phase==LessonCurriculumLogic.Phase.BUILD&&
             assemblyView.required()>0&&lesson.lessonAssembly.picked()==assemblyView.required();
@@ -2833,7 +2710,7 @@ public final class MainActivity extends Activity {
         List<String> src=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))src.add(v.text);
         List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
-            ReviewLogic.words(texts(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))).size());
+            ReviewLogic.words(VerseText.join(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))).size());
         lesson.lessonVariant=Math.min(lesson.lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lesson.lessonVariant);
         List<String[]> chunks=lessonChunks(src,kind);
@@ -2859,7 +2736,7 @@ public final class MainActivity extends Activity {
         List<String> source=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))source.add(v.text);
         List<LessonCurriculumLogic.Variant> kinds=LessonCurriculumLogic.variants(
-            ReviewLogic.words(texts(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))).size());
+            ReviewLogic.words(VerseText.join(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))).size());
         int chunkCount=lessonChunks(source,kinds.get(Math.min(lesson.lessonVariant,kinds.size()-1))).size();
         LessonStageFlow.BuildTransition next=LessonStageFlow.advanceBuild(
             lesson.lessonVariant,lesson.lessonChunk,kinds.size(),chunkCount,lesson.groupMode);
@@ -2873,23 +2750,14 @@ public final class MainActivity extends Activity {
         saveTrainingSession();render();
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
-        return writingVariants(texts(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end)));
+        return writingVariants(VerseText.join(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end)));
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(String passage){
         return LessonStageFlow.writingVariants(passage,reviewSession.active(),lesson.lessonPracticeAgain,lesson.lessonWriting.practiceWeakFragment);
     }
-    private String writingExpected(String original,LessonCurriculumLogic.Variant variant){
-        if(lesson.lessonWriting.practiceWeakFragment)return lesson.lessonWriting.weakFragmentText;
-        if(variant==LessonCurriculumLogic.Variant.FULL)return original;
-        String[] tokens=ExerciseTextLogic.tokens(original);
-        int[] gaps=InlineGapLogic.wordPositions(tokens,lessonMissingPositions(tokens,variant));
-        StringBuilder response=new StringBuilder();
-        for(int position:gaps){if(response.length()>0)response.append(' ');response.append(tokens[position]);}
-        return response.toString();
-    }
     private void renderLessonWriting(){
         List<Bible.Verse> lines=lesson.activeEntry.lines().subList(lesson.activeStep.start,lesson.activeStep.end);
-        String source=texts(lines);
+        String source=VerseText.join(lines);
         List<LessonCurriculumLogic.Variant> variants=writingVariants(source);
         lesson.lessonWriting.variant=Math.min(lesson.lessonWriting.variant,variants.size()-1);
         LessonCurriculumLogic.Variant variant=variants.get(lesson.lessonWriting.variant);
@@ -2923,9 +2791,7 @@ public final class MainActivity extends Activity {
         render();
     }
 
-    private record WritingCheck(WritingAssessment.Input input,LocalStore.Entry entry,
-                                StudyPlanLogic.Step step,String draft) {}
-    private final LessonWritingWorker<WritingCheck> writingWorker=new LessonWritingWorker<>(
+    private final LessonWritingWorker<LessonWritingSubmission.Request> writingWorker=new LessonWritingWorker<>(
         this::applyWritingAssessment,error->{
             android.util.Log.e("Learning","Unable to check written answer",error);
             toast("Не удалось проверить ответ. Попробуй ещё раз.");
@@ -2936,51 +2802,31 @@ public final class MainActivity extends Activity {
     private void validateLessonWriting(LocalStore.Entry e){
         if(writingWorker.busy()||screen!=Screen.TRAIN||backupInProgress||resetInProgress||
             lesson.answerReview!=null||(lesson.checked&&lesson.passed))return;
-        List<Bible.Verse> lines=e.lines().subList(lesson.activeStep.start,lesson.activeStep.end);
-        String passage=texts(lines);
-        List<LessonCurriculumLogic.Variant> variants=writingVariants(passage);
-        lesson.lessonWriting.variant=Math.min(lesson.lessonWriting.variant,variants.size()-1);
-        LessonCurriculumLogic.Variant kind=variants.get(lesson.lessonWriting.variant);
-        boolean full=kind==LessonCurriculumLogic.Variant.FULL;
-        String expected=writingExpected(passage,kind);
-        String entered=full?lesson.lessonWriting.draft:lesson.lessonWriting.gapResponse();
-        List<String> refs=new ArrayList<>(), verses=new ArrayList<>();
-        for(Bible.Verse line:lines){refs.add(line.ref);verses.add(line.text);}
-        WritingAssessment.Input input=new WritingAssessment.Input(expected,entered,
-            AcceptedTextLogic.matthew513(e.reference,refs),full,lesson.lessonWriting.practiceWeakFragment,verses,
-            full?Collections.emptyList():writingView.expectedGaps(), full?Collections.emptyList():lesson.lessonWriting.gapAnswers());
-        WritingCheck check=new WritingCheck(input,e,lesson.activeStep,lesson.lessonWriting.draft);
-        writingWorker.submit(check,input);
+        LessonWritingSubmission.Request check=LessonWritingSubmission.capture(e,lesson,reviewSession,
+            this::lessonMissingPositions,writingView.expectedGaps());
+        writingWorker.submit(check,check.input());
     }
 
-    private void applyWritingAssessment(WritingCheck check,WritingAssessment.Result result){
+    private void applyWritingAssessment(LessonWritingSubmission.Request check,WritingAssessment.Result result){
         LocalStore.Entry e=check.entry();
         if(isDestroyed()||isFinishing()||backupInProgress||resetInProgress||screen!=Screen.TRAIN||
-            lesson.selectedEntry!=e.id||lesson.activeStep!=check.step()||!lesson.lessonWriting.draft.equals(check.draft()))return;
-        WritingAssessment.Input input=check.input();
-        AnswerReview feedback=result.exact()?null:new AnswerReview(input.expected(),input.actual(),result.feedback());
-        LessonWritingFlow.Context context=new LessonWritingFlow.Context(
-            e.id,lesson.studyStage,lesson.activeStep.start,lesson.activeStep.end,reviewSession.active(),lesson.groupMode,
-            reviewSession.active()&&"VERSE_RUN".equals(reviewSession.current().item().stage),
-            lesson.lessonWriting.practiceWeakFragment,lesson.lessonWriting.hadFeedback);
-        LessonWritingFlow.Transition transition=LessonWritingFlow.decide(context,input,result);
+            !check.matches(lesson))return;
+        LessonWritingFlow.Transition transition;
         try{
-            if(reviewSession.active()&&!reviewSession.matchesMaterial(store.entry(e.id))){
-                toast("Материал изменился. Открой повторение заново.");
-                return;
-            }
-            transition.persist(store,System.currentTimeMillis());
+            transition=LessonWritingSubmission.persist(store,lesson,reviewSession,check,result,System.currentTimeMillis());
+            if(transition==null){toast("Материал изменился. Открой повторение заново.");return;}
         }catch(RuntimeException error){
             showRecallSaveError(error);
             return;
         }
+        AnswerReview feedback=result.exact()?null:new AnswerReview(check.input().expected(),check.input().actual(),result.feedback());
         switch(transition.outcome()){
             case FEEDBACK:
                 openAnswerReview(feedback);
                 return;
             case FRAGMENT_PRACTICED:
                 int fullVariant=LessonCurriculumLogic.variants(
-                    ReviewLogic.words(texts(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))).size()).size()-1;
+                    ReviewLogic.words(VerseText.join(e.lines().subList(lesson.activeStep.start,lesson.activeStep.end))).size()).size()-1;
                 lesson.lessonWriting.finishFragment(reviewSession.active()?0:fullVariant);
                 saveTrainingSession();render();
                 toast("Фрагмент отработан. Напиши весь стих заново без подсказок.");

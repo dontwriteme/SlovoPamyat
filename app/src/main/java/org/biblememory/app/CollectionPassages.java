@@ -29,7 +29,7 @@ final class CollectionPassages {
                     insertion.appendStudy(added);
                 }
             }else{
-                boolean added=store.addFlashcard(pickerTargetId,book,sc,sv,ec,ev,ref,texts(verses));
+                boolean added=store.addFlashcard(pickerTargetId,book,sc,sv,ec,ev,ref,VerseText.join(verses));
                 if(!added){message.accept("Карточка уже в подборке");return false;}
                 if(insertion.afterCard()>=0){
                     for(LocalStore.Flashcard fc:store.flashcards(pickerTargetId)){
@@ -57,12 +57,4 @@ final class CollectionPassages {
         store.reorderCards(deck,ids);
     }
 
-    static String texts(List<Bible.Verse> verses){
-        StringBuilder text=new StringBuilder();
-        for(Bible.Verse verse:verses){
-            if(text.length()>0)text.append(' ');
-            text.append(verse.text);
-        }
-        return text.toString();
-    }
 }
