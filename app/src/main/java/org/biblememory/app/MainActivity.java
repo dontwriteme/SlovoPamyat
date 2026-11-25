@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
 
     private LocalStore store;
     private final Bible bible=Bible.shared();
+    private final CollectionEntryEditor collectionEditor=new CollectionEntryEditor(this,ui,bible,this::toast);
     private final HomePage home=new HomePage(this,ui,artwork,this.bible,modeInfo,()->{
         if(this.screen==Screen.HOME)render();
     });
@@ -93,17 +94,6 @@ public final class MainActivity extends Activity {
     private final BibleSearchView bibleSearchView = new BibleSearchView(ui,this::openSearchHit);
 
     private final NavigationScroll navigationScroll=new NavigationScroll();
-    private final List<Long> collectionQueue=new ArrayList<>();
-    private int collectionQueueCursor=-1;
-    private long collectionQueueGroup=-1;
-    private boolean executingCollectionQueue=false;
-    private boolean collectionQueueNewStep=false;
-    private long insertAfterEntryId=-1,insertAfterCardId=-1;
-    // Each subsequent choice goes after the last inserted item, not the original anchor.
-    private final List<Long> studyInsertionTrail=new ArrayList<>();
-    private final List<Long> cardInsertionTrail=new ArrayList<>();
-
-
     private void prepareOtherTabs(){
         if(isBibleSearchScreen()&&bibleSearch.active())return;
         tabCache.warm(screen,bible.isReady(),()->screen,tabTransition::inProgress,this::prepareTab);
@@ -197,7 +187,8 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private final String COLLECTION_PREFS="collection_study_queue";
+    private final CollectionStudyQueue studyQueue=new CollectionStudyQueue(this);
+    private final CollectionInsertion insertion=new CollectionInsertion();
     private boolean resetInProgress=false;
     private boolean backupInProgress=false;
     private boolean ownsData,resumed;
@@ -226,18 +217,13 @@ public final class MainActivity extends Activity {
 
 
 
-    private final java.util.concurrent.ExecutorService collectionExecutor=
-        java.util.concurrent.Executors.newSingleThreadExecutor(r->new Thread(r,"CollectionProgress"));
-    private final Handler collectionHandler=new Handler(android.os.Looper.getMainLooper());
-    private java.util.concurrent.Future<?> collectionTask;
-    private LocalStore collectionStore;
+    private final CollectionIo collectionIo=new CollectionIo();
+    private final CollectionDetailLoader collectionDetail=new CollectionDetailLoader(collectionIo);
     private int openedCollectionChapter;
     private SortedMap<Integer,Long> openedCollectionBook;
     private CollectionProgressSnapshot openedBookProgress;
     private String openedBookName;
 
-    private long collectionGeneration;
-    private boolean collectionDetailLoading;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -278,7 +264,7 @@ public final class MainActivity extends Activity {
             savedInstanceState=null;
         if(savedInstanceState!=null&&savedInstanceState.getBoolean("backup_return_settings"))
             screen=Screen.SETTINGS;
-        collectionStore=new LocalStore(getApplicationContext());
+        collectionIo.open(getApplicationContext());
         try{
             LearningReset.recover(getApplicationContext(),store);
         }catch(Exception error){
@@ -327,10 +313,10 @@ public final class MainActivity extends Activity {
         lessonWaitingForBible=null;
         if(failure==null&&screen==Screen.HOME&&restoreActiveLesson(lesson))render();
         else refreshAfterBibleLoad();
-        if(failure==null)collectionExecutor.execute(this::syncCollectionsAfterBibleLoad);
+        if(failure==null)collectionIo.submit(this::syncCollectionsAfterBibleLoad);
     }
 
-    private void syncCollectionsAfterBibleLoad(){
+    private void syncCollectionsAfterBibleLoad(LocalStore collectionStore){
         try{BibleSearchLogic.prepare(getApplicationContext());}
         catch(Exception error){android.util.Log.w("BibleLoader","Unable to prepare Bible search",error);}
         try{
@@ -339,7 +325,7 @@ public final class MainActivity extends Activity {
                 catch(RuntimeException error){android.util.Log.w("BibleLoader","Unable to sync collection "+u.id,error);}
             }
         }catch(RuntimeException error){android.util.Log.w("BibleLoader","Unable to list collections",error);}
-        collectionHandler.post(()->{
+        collectionIo.postRefresh(()->{
             if(screen==Screen.HOME||screen==Screen.COLLECTIONS||screen==Screen.COLLECTION_DETAIL||
                 isPickerScreen(screen))refreshAfterBibleLoad();
         });
@@ -379,7 +365,7 @@ public final class MainActivity extends Activity {
         out.putInt("picker_scroll",currentScroller==null?0:currentScroller.getScrollY());
         passagePicker.saveBounds(out);
         out.putIntArray("picker_quick",new int[]{pickerQuickBook,pickerQuickChapter,pickerQuickScroll,pickerVerseNumber});
-        out.putLong("picker_insert_entry",insertAfterEntryId);out.putLong("picker_insert_card",insertAfterCardId);
+        insertion.save(out);
     }
     private void restorePickerState(Bundle state){
         if(state==null||!state.containsKey("picker_screen"))return;
@@ -396,7 +382,7 @@ public final class MainActivity extends Activity {
             if(quick!=null&&quick.length==4){pickerQuickBook=quick[0];pickerQuickChapter=quick[1];
                 pickerQuickScroll=quick[2];pickerVerseNumber=quick[3];}
             pickerRestoredScroll=state.getInt("picker_scroll",0);
-            insertAfterEntryId=state.getLong("picker_insert_entry",-1);insertAfterCardId=state.getLong("picker_insert_card",-1);
+            insertion.restore(state);
         }catch(IllegalArgumentException ignored){screen=Screen.HOME;passagePicker.selection().cancel();}
     }
     @Override protected void onResume() {
@@ -476,7 +462,7 @@ public final class MainActivity extends Activity {
                 customTargetGroupId=-1;screen=u==null?Screen.HOME:Screen.COLLECTION_DETAIL;
                 if(u!=null)openUnifiedId=u.id;render();break;}
             case TRAIN:
-                executingCollectionQueue=false;
+                studyQueue.setExecuting(false);
                 cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                 saveTrainingSession();
                 lesson.answerReview=null;
@@ -536,10 +522,7 @@ public final class MainActivity extends Activity {
         lessonProgress.clear();
         if(backupInProgress)return;
         if(screen!=Screen.HOME)lessonWaitingForBible=null;
-        boolean collectionWasLoading=collectionDetailLoading;
-        collectionDetailLoading=false;
-        collectionGeneration++;
-        if(collectionTask!=null){collectionTask.cancel(false);collectionTask=null;}
+        boolean collectionWasLoading=collectionDetail.retire();
         modeInfo.dismiss(false);
         getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN?0xFFF8E5D9:CARD);
         bottomNavigation.captureCollectionsIcon(root);
@@ -923,88 +906,34 @@ public final class MainActivity extends Activity {
         return super.dispatchTouchEvent(event);
     }
 
-    /** Archived entries still exist: a saved queue is valid only while its entire
-     * ordered membership matches the currently selected collection. */
-    private boolean collectionQueueMatches(long groupId,List<LocalStore.Entry> entries){
-        if(groupId<0||store.unifiedForGroup(groupId)==null||
-            collectionQueueGroup!=groupId||collectionQueueCursor<0||
-            collectionQueueCursor>=collectionQueue.size()||collectionQueue.size()!=entries.size())
-            return false;
-        for(int i=0;i<entries.size();i++)
-            if(collectionQueue.get(i)!=entries.get(i).id)return false;
-        return true;
-    }
-    private void restoreCollectionQueue(){
-        android.content.SharedPreferences p=getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);
-        if(!p.getBoolean("active",false))return;
-        collectionQueue.clear();
-        collectionQueueGroup=p.getLong("group",-1);
-        collectionQueueCursor=p.getInt("cursor",0);
-        String ids=p.getString("ids","");
-        for(String raw:ids.split(","))try{
-            collectionQueue.add(Long.parseLong(raw));
-        }catch(NumberFormatException ignored){}
-        if(!collectionQueueMatches(collectionQueueGroup,store.entries(collectionQueueGroup)))
-            clearCollectionQueue();
-    }
-    private void persistCollectionQueue(){
-        StringBuilder ids=new StringBuilder();
-        for(long id:collectionQueue){if(ids.length()>0)ids.append(',');ids.append(id);}
-        getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE).edit()
-            .putBoolean("active",collectionQueueCursor>=0)
-            .putLong("group",collectionQueueGroup).putInt("cursor",collectionQueueCursor)
-            .putString("ids",ids.toString()).apply();
-    }
-    private void clearCollectionQueue(){
-        collectionQueue.clear();collectionQueueCursor=-1;collectionQueueGroup=-1;
-        executingCollectionQueue=false;collectionQueueNewStep=false;
-        getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE).edit().clear().apply();
-    }
+    private void restoreCollectionQueue(){studyQueue.restore(store);}
+    private void clearCollectionQueue(){studyQueue.clear();}
+
     private void startStudyCollection(long groupId){
         CollectionProgressSnapshot snapshot=store.collectionProgress();
         List<LocalStore.Entry> entries=snapshot.entries(groupId);
         if(entries.isEmpty()){
-            if(collectionQueueGroup==groupId)clearCollectionQueue();
+            if(studyQueue.group()==groupId)studyQueue.clear();
             toast("Коллекция пока пустая");return;
         }
         cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
-        if(collectionQueueMatches(groupId,entries)){
-            executingCollectionQueue=true;
-            collectionQueueNewStep=false;
-            openTraining(collectionQueue.get(collectionQueueCursor));return;
-        }
-        // The membership/order changed: discard only the old queue, not study history.
-        clearCollectionQueue();
-        for(LocalStore.Entry e:entries)collectionQueue.add(e.id);
-        collectionQueueGroup=groupId;collectionQueueCursor=0;
-        executingCollectionQueue=true;
-        for(int i=0;i<entries.size();i++){
-            LocalStore.Entry item=entries.get(i);
-            if(snapshot.masteryCount(snapshot.canonicalId(item.id))<snapshot.verseCount(item.id) ||
-                nextGroup(item,snapshot)!=null){collectionQueueCursor=i;break;}
-        }
-        collectionQueueNewStep=true;
-        persistCollectionQueue();openTraining(collectionQueue.get(collectionQueueCursor));
+        openTraining(studyQueue.start(store,groupId,entries,snapshot,(entry,progress)->nextGroup(entry,progress)!=null));
     }
+
     private boolean resumeCollectionTraining(){
-        if(!collectionQueueMatches(collectionQueueGroup,store.entries(collectionQueueGroup))){
-            clearCollectionQueue();return false;
-        }
-        executingCollectionQueue=true;
-        collectionQueueNewStep=false;
-        openTraining(collectionQueue.get(collectionQueueCursor));return true;
+        long id=studyQueue.resume(store);
+        if(id<0)return false;
+        openTraining(id);return true;
     }
+
     private void advanceStudyCollection(){
-        if(collectionQueueCursor<0||!executingCollectionQueue)return;
-        collectionQueueCursor++;
-        if(collectionQueueCursor>=collectionQueue.size()){
-            clearCollectionQueue();
+        if(studyQueue.cursor()<0||!studyQueue.executing())return;
+        long id=studyQueue.advance();
+        if(id<0){
             toast("Все отрывки коллекции пройдены");
             screen=Screen.HOME;render();return;
         }
-        persistCollectionQueue();
-        collectionQueueNewStep=true;
-        openTraining(collectionQueue.get(collectionQueueCursor));
+        openTraining(id);
     }
     private String studyProgressFor(long groupId){
         return CollectionViews.studyProgress(groupId,store.collectionProgress());
@@ -1555,64 +1484,8 @@ public final class MainActivity extends Activity {
         return savePickedPassageFor(selectedBook,sc,sv,ec,ev);
     }
     private boolean savePickedPassageFor(int book,int sc,int sv,int ec,int ev){
-        try{
-            if(!PassageRangeLogic.valid(sc,sv,ec,ev)){
-                toast("Конец отрывка раньше начала");return false;
-            }
-            List<Bible.Verse> verses=pickerTarget==BibleTarget.STUDY_GROUP?
-                bible.collectionPassage(book,sc,sv,ec,ev):bible.passage(book,sc,sv,ec,ev);
-            String ref=Bible.reference(book,sc,sv,ec,ev);
-            if(pickerTarget==BibleTarget.STUDY_GROUP){
-                if(store.unifiedForGroup(pickerTargetId)==null){toast("Коллекция больше не существует");return false;}
-                long added=-1;
-                for(LocalStore.Entry e:store.entries(pickerTargetId))if(ref.equals(e.reference)){
-                    if(!store.retainBookChapter(pickerTargetId,e.id)){
-                        toast("Уже в коллекции");return false;
-                    }
-                    added=e.id;break;
-                }
-                if(added<0)added=store.addPickedPassage(pickerTargetId,ref,verses,bible,insertAfterEntryId);
-                if(insertAfterEntryId>=0){
-                    insertAfterEntryId=added;
-                    studyInsertionTrail.add(added);
-                }
-            }else{
-                boolean added=store.addFlashcard(pickerTargetId,book,sc,sv,ec,ev,ref,texts(verses));
-                if(!added){toast("Карточка уже в подборке");return false;}
-                if(insertAfterCardId>=0){
-                    for(LocalStore.Flashcard fc:store.flashcards(pickerTargetId)){
-                        if(ref.equals(fc.reference)){
-                            repositionCardAfter(pickerTargetId,fc.id,insertAfterCardId);
-                            insertAfterCardId=fc.id;
-                            cardInsertionTrail.add(fc.id);
-                            break;
-                        }
-                    }
-                }
-            }
-            toast("Добавлено: "+ref);return true;
-        }catch(Exception ex){toast(ex.getMessage()==null?"Не удалось добавить":ex.getMessage());return false;}
-    }
-    private boolean removePickedVerse(String ref,int book,int chapter,int verse){
-        try{
-            if(pickerTarget==BibleTarget.STUDY_GROUP){
-                long removedId=-1;
-                for(LocalStore.Entry e:store.entries(pickerTargetId))
-                    if(ref.equals(e.reference)){removedId=e.id;break;}
-                boolean removed=store.detachStudyReference(pickerTargetId,ref);
-                if(removed&&removedId>=0)removedInsertionCandidate(removedId,false);
-                return removed;
-            }
-            for(LocalStore.Flashcard f:store.flashcards(pickerTargetId)){
-                if(f.bookId==book&&f.firstChapter==chapter&&f.lastChapter==chapter&&
-                    f.firstVerse==verse&&f.lastVerse==verse){
-                    store.removeFlashcard(pickerTargetId,f.id);
-                    removedInsertionCandidate(f.id,true);
-                    return true;
-                }
-            }
-        }catch(Exception ex){toast("Не удалось убрать стих");}
-        return false;
+        return CollectionPassages.save(store,bible,insertion,pickerTarget==BibleTarget.STUDY_GROUP,
+            pickerTargetId,book,sc,sv,ec,ev,this::toast);
     }
     private void saveBibleVerseToGroup(long groupId,int book,int chapter,int verse){
         try{
@@ -1645,7 +1518,7 @@ public final class MainActivity extends Activity {
                 long id=store.findOrCreateCardStudyEntry(card,verses);
                 if(!cardStudyQueue.contains(id))cardStudyQueue.add(id);
             }catch(Exception ex){
-                executingCollectionQueue=false;
+                studyQueue.setExecuting(false);
                 cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                 toast("Не удалось открыть стих: "+card.reference);return;
             }
@@ -1830,7 +1703,7 @@ public final class MainActivity extends Activity {
     }
 
     private boolean canBulkPick(){
-        return pickerTarget==BibleTarget.STUDY_GROUP&&pickerTargetId>0&&!passagePicker.selection().active&&insertAfterEntryId<0;
+        return pickerTarget==BibleTarget.STUDY_GROUP&&pickerTargetId>0&&!passagePicker.selection().active&&insertion.afterStudy()<0;
     }
 
     private void addPickerChapterFooter(){
@@ -1843,7 +1716,7 @@ public final class MainActivity extends Activity {
         final int book=selectedBook;
         Set<Integer> chapters=passagePicker.beginSaveChapters(selectedChapter);
         if(chapters.isEmpty())return;
-        runCollectionMutation(()->collectionStore.addBibleChapters(group,book,chapters,false,bible),success->{
+        runCollectionMutation(collectionStore->collectionStore.addBibleChapters(group,book,chapters,false,bible),success->{
             passagePicker.finishSaveChapters(success,screen==Screen.PICKER_CHAPTERS&&pickerTargetId==group
                 &&selectedBook==book,selectedChapter);
             if(success){
@@ -1854,7 +1727,7 @@ public final class MainActivity extends Activity {
     }
 
     private void changeWholeBook(long group,int book,boolean remove){
-        runCollectionMutation(()->{
+        runCollectionMutation(collectionStore->{
             if(remove)collectionStore.removeBibleBook(group,book);
             else collectionStore.addBibleChapters(group,book,Collections.emptyList(),true,bible);
         },success->{
@@ -1864,27 +1737,20 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void runCollectionMutation(Runnable write,java.util.function.Consumer<Boolean> finished){
+    private void runCollectionMutation(java.util.function.Consumer<LocalStore> write,java.util.function.Consumer<Boolean> finished){
         runCollectionMutation(write,finished,null);
     }
 
-    private void runCollectionMutation(Runnable write,java.util.function.Consumer<Boolean> finished,
+    private void runCollectionMutation(java.util.function.Consumer<LocalStore> write,java.util.function.Consumer<Boolean> finished,
             Runnable detachedSuccess){
         if(isDestroyed()||isFinishing()||backupInProgress)return;
-        collectionExecutor.execute(()->{
-            boolean saved=false;
-            try{write.run();saved=true;}
-            catch(RuntimeException error){android.util.Log.e("CollectionBooks","Unable to save Bible chapters",error);}
-            boolean success=saved;
-            // Persistent cleanup must survive rotation and run before the worker's release notice.
-            runOnUiThread(()->{
-                if(isDestroyed()||isFinishing()){
-                    if(success&&detachedSuccess!=null)detachedSuccess.run();
-                    return;
-                }
-                if(!success)toast("Не удалось изменить коллекцию");
-                finished.accept(success);
-            });
+        collectionIo.mutate(write,success->{
+            if(isDestroyed()||isFinishing()){
+                if(success&&detachedSuccess!=null)detachedSuccess.run();
+                return;
+            }
+            if(!success)toast("Не удалось изменить коллекцию");
+            finished.accept(success);
         });
     }
 
@@ -2266,34 +2132,7 @@ public final class MainActivity extends Activity {
                 store.renameGroup(group.id,value(name));render();
             }).setNegativeButton("Отмена",null).create());
     }
-    /** Reset only when leaving the shared picker or starting a distinct insertion action. */
-    private void clearInsertionContext(){
-        insertAfterEntryId=-1;insertAfterCardId=-1;
-        studyInsertionTrail.clear();cardInsertionTrail.clear();
-    }
-    private void removedInsertionCandidate(long id,boolean card){
-        List<Long> trail=card?cardInsertionTrail:studyInsertionTrail;
-        trail.remove(id);
-        if(card){
-            if(insertAfterCardId==id)
-                insertAfterCardId=trail.isEmpty()?-1:trail.get(trail.size()-1);
-        }else{
-            if(insertAfterEntryId==id)
-                insertAfterEntryId=trail.isEmpty()?-1:trail.get(trail.size()-1);
-        }
-    }
-    private void repositionStudyAfter(long group,long added,long after){
-        List<Long> ids=new ArrayList<>();
-        for(LocalStore.Entry item:store.entries(group))if(item.id!=added)ids.add(item.id);
-        int index=ids.indexOf(after);ids.add(index<0?ids.size():index+1,added);
-        store.reorderStudy(group,ids);
-    }
-    private void repositionCardAfter(long deck,long added,long after){
-        List<Long> ids=new ArrayList<>();
-        for(LocalStore.Flashcard f:store.flashcards(deck))if(f.id!=added)ids.add(f.id);
-        int index=ids.indexOf(after);ids.add(index<0?ids.size():index+1,added);
-        store.reorderCards(deck,ids);
-    }
+    private void clearInsertionContext(){insertion.clear();}
     /** Dedicated drag-to-reorder mode; dragging never starts in normal study lists. */
     private void renderStudyReorder(){
         title("Изменить порядок", "Удерживай строку и перетащи её на новое место");
@@ -2341,121 +2180,12 @@ public final class MainActivity extends Activity {
         ui.add(content,item,7);
     }
 
-    private interface OnBibleRangeEdit {void save(int sc,int sv,int ec,int ev);}
-    private int[] parseBibleLocation(String reference){
-        if(reference==null||!reference.contains(":"))return null;
-        try{
-            String[] a=reference.split(":",2);
-            return new int[]{Integer.parseInt(a[0]),Integer.parseInt(a[1])};
-        }catch(Exception err){return null;}
+    private void editStudyEntry(LocalStore.Entry entry){
+        collectionEditor.study(store,entry,bookForEntry(entry),this::render);
     }
-    private void editBibleRange(String heading,int book,int sc,int sv,int ec,int ev,OnBibleRangeEdit save){
-        LinearLayout wrap=ui.column();wrap.setPadding(ui.dp(20),ui.dp(8),ui.dp(20),ui.dp(10));
-        ui.add(wrap,ui.txt(Bible.NAMES[book-1],17,WHITE,true),0);
-        EditText startChapter=ui.numeric("Начальная глава",String.valueOf(sc));
-        EditText startVerse=ui.numeric("Начальный стих",String.valueOf(sv));
-        EditText endChapter=ui.numeric("Конечная глава",String.valueOf(ec));
-        EditText endVerse=ui.numeric("Конечный стих",String.valueOf(ev));
-        final boolean[] changed={false};
-        TextWatcher autoEnd=new TextWatcher(){
-            public void beforeTextChanged(CharSequence text,int start,int count,int after){}
-            public void onTextChanged(CharSequence text,int start,int before,int count){
-                if(changed[0])return;
-                String a=startChapter.getText().toString();String b=startVerse.getText().toString();
-                if(!a.equals(endChapter.getText().toString()))endChapter.setText(a);
-                if(!b.equals(endVerse.getText().toString()))endVerse.setText(b);
-            }
-            public void afterTextChanged(Editable e){}
-        };
-        startChapter.addTextChangedListener(autoEnd);startVerse.addTextChangedListener(autoEnd);
-        TextWatcher markManual=new TextWatcher(){
-            public void beforeTextChanged(CharSequence t,int st,int c,int after){}
-            public void onTextChanged(CharSequence t,int st,int b,int count){changed[0]=true;}
-            public void afterTextChanged(Editable e){}
-        };
-        endChapter.addTextChangedListener(markManual);endVerse.addTextChangedListener(markManual);
-        ui.add(wrap,ui.txt("НАЧАЛО",12,GREEN,true),13);
-        LinearLayout first=ui.row();first.addView(startChapter,new LinearLayout.LayoutParams(0,ui.dp(54),1));
-        first.addView(startVerse,new LinearLayout.LayoutParams(0,ui.dp(54),1));ui.add(wrap,first,5);
-        ui.add(wrap,ui.txt("КОНЕЦ",12,GREEN,true),12);
-        LinearLayout last=ui.row();last.addView(endChapter,new LinearLayout.LayoutParams(0,ui.dp(54),1));
-        last.addView(endVerse,new LinearLayout.LayoutParams(0,ui.dp(54),1));ui.add(wrap,last,5);
-        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle(heading).setView(wrap)
-            .setPositiveButton("Сохранить",(d,w)->{
-                int a=number(startChapter),b=number(startVerse),c=number(endChapter),end=number(endVerse);
-                if(!PassageRangeLogic.valid(a,b,c,end)){
-                    toast("Неверный диапазон");return;
-                }
-                try{bible.passage(book,a,b,c,end);save.save(a,b,c,end);}
-                catch(Exception err){toast(err.getMessage()==null?"Ошибка изменения диапазона":err.getMessage());}
-            }).setNegativeButton("Отмена",null).create());
-    }
-    private void editStudyEntry(LocalStore.Entry e){
-        int book=bookForEntry(e);
-        if(book>0 && !e.lines().isEmpty()){
-            int[] first=parseBibleLocation(e.lines().get(0).ref);
-            int[] last=parseBibleLocation(e.lines().get(e.lines().size()-1).ref);
-            if(first!=null&&last!=null){
-                editBibleRange("Изменить отрывок",book,first[0],first[1],last[0],last[1],
-                    (a,b,c,d)->{
-                        List<Bible.Verse> lines=bible.passage(book,a,b,c,d);
-                        store.reviseStudyPassage(e.id,Bible.reference(book,a,b,c,d),lines);
-                        render();
-                    });
-                return;
-            }
-        }
-        editCustomStudyEntry(e);
-    }
-    private void editCustomStudyEntry(LocalStore.Entry e){
-        EditText source=ui.input("Название / источник",false);source.setText(e.reference);
-        EditText words=ui.input("Текст",true);words.setMinLines(5);
-        StringBuilder original=new StringBuilder();
-        for(Bible.Verse v:e.lines()){
-            if(original.length()>0)original.append('\n');original.append(v.text);
-        }
-        words.setText(original.toString());
-        LinearLayout fields=ui.column();fields.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(12));
-        ui.add(fields,source,0);ui.add(fields,words,10);
-        AlertDialog dialog=new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Изменить свой текст").setView(fields)
-            .setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
-        ui.styledDialog(dialog);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            if(value(source).isEmpty()){source.setError("Укажи название");source.requestFocus();return;}
-            List<Bible.Verse> lines;
-            try{lines=CustomStudyText.parse(value(words),e.lines());}
-            catch(IllegalArgumentException invalid){
-                words.setError(invalid.getMessage());words.requestFocus();return;
-            }
-            store.reviseStudyPassage(e.id,value(source),lines);
-            dialog.dismiss();
-            render();
-        });
-    }
+    private void editCustomStudyEntry(LocalStore.Entry entry){collectionEditor.custom(store,entry,this::render);}
     private void editCardEntry(LocalStore.Flashcard card){
-        if(card.bookId>0){
-            editBibleRange("Изменить карточку",card.bookId,card.firstChapter,card.firstVerse,
-                card.lastChapter,card.lastVerse,(a,b,c,d)->{
-                    String ref=Bible.reference(card.bookId,a,b,c,d);
-                    store.changeCardInDeck(selectedDeck,card,card.bookId,a,b,c,d,
-                        ref,texts(bible.passage(card.bookId,a,b,c,d)));
-                    render();
-                });
-            return;
-        }
-        EditText source=ui.input("Название / источник",false);source.setText(card.reference);
-        EditText words=ui.input("Текст",true);words.setMinLines(4);words.setText(card.content);
-        LinearLayout fields=ui.column();fields.setPadding(ui.dp(20),ui.dp(5),ui.dp(20),ui.dp(12));
-        ui.add(fields,source,0);ui.add(fields,words,9);
-        ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
-            .setTitle("Изменить карточку").setView(fields)
-            .setPositiveButton("Сохранить",(d,w)->{
-                if(value(source).isEmpty()||value(words).isEmpty()){toast("Заполни поля");return;}
-                store.changeCardInDeck(selectedDeck,card,0,0,0,0,0,value(source),value(words));
-                render();
-            }).setNegativeButton("Отмена",null).create());
+        collectionEditor.card(store,card,()->selectedDeck,this::render);
     }
 
     private void showEntryActions(LocalStore.Entry entry,View anchor){
@@ -2466,7 +2196,7 @@ public final class MainActivity extends Activity {
                 case 0:editStudyEntry(entry);break;
                 case 1:
                     clearInsertionContext();
-                    insertAfterEntryId=entry.id;studyInsertionTrail.add(entry.id);
+                    insertion.appendStudy(entry.id);
                     openBiblePicker(BibleTarget.STUDY_GROUP,entry.groupId,screen==Screen.COLLECTION_DETAIL?Screen.COLLECTION_DETAIL:Screen.ENTRIES);break;
                 case 2:
                     ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
@@ -2485,7 +2215,7 @@ public final class MainActivity extends Activity {
                 case 0:editCardEntry(card);break;
                 case 1:
                     clearInsertionContext();
-                    insertAfterCardId=card.id;cardInsertionTrail.add(card.id);
+                    insertion.appendCard(card.id);
                     openBiblePicker(BibleTarget.FLASHCARD_DECK,selectedDeck,Screen.CARD_DECK);break;
                 case 2:
                     ui.styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
@@ -2648,9 +2378,9 @@ public final class MainActivity extends Activity {
         Bundle state=LessonCheckpoint.capture(store,lesson,reviewSession);
         if(reviewSession.active()){
             state.putLong("review_group",reviewSession.group());
-        }else if(executingCollectionQueue){
-            state.putLong("queue_group",collectionQueueGroup);
-            state.putInt("queue_cursor",collectionQueueCursor);
+        }else if(studyQueue.executing()){
+            state.putLong("queue_group",studyQueue.group());
+            state.putInt("queue_cursor",studyQueue.cursor());
         }else if(cardStudyCursor>=0){
             state.putLong("deck",cardStudyDeckId);
             state.putInt("deck_cursor",cardStudyCursor);
@@ -2688,9 +2418,8 @@ public final class MainActivity extends Activity {
                 deckQueue==null||deckCursor<0||deckCursor>=deckQueue.length||deckQueue[deckCursor]!=sourceId)return false;
         }else if(store.archivedReviewGroups().contains(source.groupId))return false;
         boolean inQueue=state.containsKey("queue_group");
-        if(inQueue&&(collectionQueueGroup!=state.getLong("queue_group")||
-            collectionQueueCursor!=state.getInt("queue_cursor")||collectionQueueCursor<0||
-            collectionQueue.get(collectionQueueCursor)!=sourceId))return false;
+        if(inQueue&&!studyQueue.matchesCheckpoint(state.getLong("queue_group"),state.getInt("queue_cursor"),sourceId))
+            return false;
 
         boolean review=state.containsKey("review_group");
         boolean linked=state.getBoolean("linked");
@@ -2734,7 +2463,7 @@ public final class MainActivity extends Activity {
         lesson.lessonSourceEntry=sourceId;lesson.lessonSourceGroup=source.groupId;
         lesson.lessonSessionMaterial=state.getString("material","");
         lesson.lessonSourceMaterial=state.getString("source_material","");
-        executingCollectionQueue=inQueue;
+        studyQueue.setExecuting(inQueue);
         if(deck>0){
             cardStudyDeckId=deck;cardStudyCursor=deckCursor;
             cardStudyMaterial=state.getString("deck_material","");
@@ -2800,13 +2529,13 @@ public final class MainActivity extends Activity {
         // If an old session points beyond the newly protected lesson boundary, restore safely.
         if(lesson.studyStage==StudyPlanLogic.Stage.VERSE)
             lesson.stepCursor=Math.min(lesson.stepCursor,store.unlockedPosition(id,entry.lines().size()));
-        if(executingCollectionQueue && collectionQueueNewStep){
+        if(studyQueue.executing() && studyQueue.newStep()){
             // Revisit every record even if it was previously mastered. Do not erase progress.
             lesson.studyStage=StudyPlanLogic.Stage.VERSE;
             lesson.stepCursor=0;lesson.groupMode=false;lesson.forcedStep=null;
             lesson.checked=false;lesson.passed=false;lesson.lessonWriting.draft="";
             lesson.lessonWriting.hadFeedback=false;lesson.lessonPracticeAgain=false;
-            resetTrainingStep(entry);collectionQueueNewStep=false;
+            resetTrainingStep(entry);studyQueue.consumeNewStep();
         }
         rememberRecent(id);saveTrainingSession();
         screen=Screen.TRAIN;render();
@@ -3017,7 +2746,7 @@ public final class MainActivity extends Activity {
             nextVerse=lesson.activeStep.end;
         }
         applyLessonDestination(e,LessonNavigationFlow.afterSuccess(false,returnedFromGroup,
-            pending,nextVerse,e.lines().size(),executingCollectionQueue&&collectionQueueCursor>=0,
+            pending,nextVerse,e.lines().size(),studyQueue.executing()&&studyQueue.cursor()>=0,
             cardStudyCursor>=0));
     }
 
@@ -3075,7 +2804,7 @@ public final class MainActivity extends Activity {
     }
     private LessonStageFlow.State lessonStageState(LocalStore.Entry e){
         return new LessonStageFlow.State(lesson.studyStage,lesson.groupMode?0:store.exerciseDone(e.id,lesson.activeStep.start),
-            reviewSession.active(),lesson.groupMode,executingCollectionQueue,lesson.lessonPracticeAgain,lesson.groupIntroDone,lesson.groupBuildDone);
+            reviewSession.active(),lesson.groupMode,studyQueue.executing(),lesson.lessonPracticeAgain,lesson.groupIntroDone,lesson.groupBuildDone);
     }
     private LessonCurriculumLogic.Phase lessonPhase(LocalStore.Entry e){
         return lessonStageState(e).phase();
@@ -3361,15 +3090,14 @@ public final class MainActivity extends Activity {
             .setTitle("Сброс прогресса").setMessage("Удаляем историю изучения…")
             .setCancelable(false).create();
         ui.styledDialog(resetting);
-        collectionExecutor.execute(()->{
+        collectionIo.execute(()->{
             // Independent helper survives destruction of this Activity.
             try(LocalStore worker=new LocalStore(getApplicationContext())){
                 LearningReset.request(getApplicationContext(),worker);
                 runOnUiThread(()->{
                     if(isDestroyed())return;
                     resetting.dismiss();
-                    collectionQueue.clear();collectionQueueCursor=-1;collectionQueueGroup=-1;
-                    executingCollectionQueue=false;collectionQueueNewStep=false;
+                    studyQueue.reset();
                     cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
                     reviewSession.clear();
                     knowledgeCheck.clear();
@@ -3413,7 +3141,7 @@ public final class MainActivity extends Activity {
         collectionDialogs.confirmClear(()->{
             store.clearUnifiedCollection(u.id);
             knowledgeCheck.clearCollection(u.id,true);
-            if(collectionQueueGroup==u.groupId)clearCollectionQueue();
+            if(studyQueue.group()==u.groupId)clearCollectionQueue();
             render();toast("Коллекция очищена");
         });
     }
@@ -3423,9 +3151,9 @@ public final class MainActivity extends Activity {
     private void deleteUnified(LocalStore.UnifiedCollection u){
         collectionDialogs.confirmDelete(()->{
             Screen origin=screen;
-            runCollectionMutation(()->collectionStore.deleteUnifiedCollection(u.id),success->{
+            runCollectionMutation(collectionStore->collectionStore.deleteUnifiedCollection(u.id),success->{
                 if(!success)return;
-                if(collectionQueueGroup==u.groupId)clearCollectionQueue();
+                if(studyQueue.group()==u.groupId)clearCollectionQueue();
                 knowledgeCheck.clearCollection(u.id,false);
                 ensureActiveUnified();
                 if(screen==origin&&(origin!=Screen.COLLECTION_DETAIL||openUnifiedId==u.id)){
@@ -3434,7 +3162,7 @@ public final class MainActivity extends Activity {
             },()->{
                 // Rotation can retire the owner before its deletion callback reaches the looper.
                 // Compare persisted IDs so we preserve a newer selection made by another screen.
-                SharedPreferences queue=getSharedPreferences(COLLECTION_PREFS,MODE_PRIVATE);
+                SharedPreferences queue=studyQueue.preferences();
                 if(queue.getLong("group",-1)==u.groupId)queue.edit().clear().apply();
                 activeCollection.clearSavedIfSelected(u.id);
                 knowledgeCheck.clearCollection(u.id,false);
@@ -3448,33 +3176,15 @@ public final class MainActivity extends Activity {
         collectionViews.heading(content,u.title);
         showUnifiedCollectionSettings(u);
         final LinearLayout target=content;
-        final long generation=collectionGeneration;
-        final int restoreScroll=navigationScroll.getOrDefault(Screen.COLLECTION_DETAIL,0);
-        collectionDetailLoading=true;
-        collectionTask=collectionExecutor.submit(()->{
-            try{
-                CollectionProgressSnapshot snapshot=collectionStore.collectionProgress();
-                SortedMap<Integer,SortedMap<Integer,Long>> books=collectionStore.collectionBooks(u.groupId);
-                List<LocalStore.Entry> visible=snapshot.visibleCollectionEntries(u.groupId,books,bible);
-                if(Thread.currentThread().isInterrupted())return;
-                collectionHandler.post(()->{
-                    if(isDestroyed()||isFinishing()||generation!=collectionGeneration||
-                        screen!=Screen.COLLECTION_DETAIL||openUnifiedId!=u.id||content!=target)return;
-                    populateCollectionDetail(u,snapshot,books,visible,generation,restoreScroll);
-                });
-            }catch(RuntimeException error){
-                android.util.Log.e("CollectionProgress","Unable to read collection progress",error);
-                collectionHandler.post(()->{
-                    if(!isDestroyed()&&generation==collectionGeneration&&content==target){
-                        collectionDetailLoading=false;
-                        toast("Не удалось загрузить коллекцию. Открой её ещё раз.");
-                    }
-                });
-            }
-        });
+        int restoreScroll=navigationScroll.getOrDefault(Screen.COLLECTION_DETAIL,0);
+        collectionDetail.load(u.groupId,bible,target,()->!isDestroyed()&&!isFinishing()&&!backupInProgress
+                &&screen==Screen.COLLECTION_DETAIL&&openUnifiedId==u.id&&content==target,
+            restoreScroll,detail->populateCollectionDetail(u,detail),this::entryCard,()->currentScroller,
+            ()->toast("Не удалось загрузить коллекцию. Открой её ещё раз."));
     }
-    private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionProgressSnapshot snapshot,
-            SortedMap<Integer,SortedMap<Integer,Long>> books,List<LocalStore.Entry> entries,long generation,int restoreScroll){
+    private void populateCollectionDetail(LocalStore.UnifiedCollection u,CollectionDetailLoader.Detail detail){
+        CollectionProgressSnapshot snapshot=detail.snapshot();
+        SortedMap<Integer,SortedMap<Integer,Long>> books=detail.books();
         collectionViews.progress(content,u.groupId,snapshot,getSharedPreferences(UNIFIED_PREFS,MODE_PRIVATE)
             .getString("run_history_"+u.id,"[]"));
         for(Map.Entry<Integer,SortedMap<Integer,Long>> book:books.entrySet()){
@@ -3487,23 +3197,7 @@ public final class MainActivity extends Activity {
                 screen=Screen.COLLECTION_BOOK;render();
             });
         }
-        if(entries.isEmpty()&&books.isEmpty())ui.helper(content,"Добавь первый стих или отрывок.");
-        appendCollectionEntries(entries,snapshot,0,generation,restoreScroll);
-    }
-    private void appendCollectionEntries(List<LocalStore.Entry> entries,CollectionProgressSnapshot snapshot,
-                                         int from,long generation,int restoreScroll){
-        if(isDestroyed()||generation!=collectionGeneration||screen!=Screen.COLLECTION_DETAIL)return;
-        int end=Math.min(entries.size(),from+12);
-        for(int i=from;i<end;i++)entryCard(entries.get(i),snapshot);
-        if(end<entries.size()){
-            content.postOnAnimation(()->appendCollectionEntries(entries,snapshot,end,generation,restoreScroll));
-        }else{
-            collectionDetailLoading=false;
-            final ScrollView scroller=currentScroller;
-            if(scroller!=null)scroller.post(()->{
-                if(generation==collectionGeneration&&currentScroller==scroller)scroller.scrollTo(0,restoreScroll);
-            });
-        }
+        if(detail.entries().isEmpty()&&books.isEmpty())ui.helper(content,"Добавь первый стих или отрывок.");
     }
 
     private void renderCollectionBook(){
@@ -3525,8 +3219,7 @@ public final class MainActivity extends Activity {
         ui.action(content,"Изучать главу",true,()->openTraining(id));
         ui.action(content,"Добавить стих / отрывок после главы",false,()->{
             clearInsertionContext();
-            insertAfterEntryId=id;
-            studyInsertionTrail.add(id);
+            insertion.appendStudy(id);
             openBiblePicker(BibleTarget.STUDY_GROUP,selectedGroup,Screen.COLLECTION_DETAIL);
         });
         collectionViews.chapterVerses(content,openedBookProgress,id);
@@ -3655,9 +3348,7 @@ public final class MainActivity extends Activity {
         bibleSearch.cancel();
         // Earlier writes may post a queue/preference update back to the main looper.
         // The FIFO sentinel lets those callbacks finish before destruction.
-        collectionExecutor.execute(()->runOnUiThread(()->{
-            if(!isFinishing()&&!isDestroyed())recreate();
-        }));
+        collectionIo.afterPending(()->{if(!isFinishing()&&!isDestroyed())recreate();});
     }
 
     void backupFinished(BackupCoordinator.Operation operation,Exception failure){
@@ -3701,15 +3392,8 @@ public final class MainActivity extends Activity {
         if(backupDialog!=null)backupDialog.dismiss();
         tabCache.cancelWarmup();
         tabTransition.finish();
-        collectionGeneration++;
-        if(collectionTask!=null)collectionTask.cancel(false);
-        collectionHandler.removeCallbacksAndMessages(null);
-        // Queue close behind any running read, never close its database mid-query.
-        collectionExecutor.execute(()->{
-            try{if(collectionStore!=null)collectionStore.close();}
-            finally{if(ownsData)BackupCoordinator.releasedFromWorker();}
-        });
-        collectionExecutor.shutdown();
+        collectionDetail.close();
+        collectionIo.close(()->{if(ownsData)BackupCoordinator.releasedFromWorker();});
         modeInfo.dismiss(false);
         bottomNavigation.settleBibleIcon(root);
         for(TabCache.ReadyTab tab:tabCache.pages())bottomNavigation.settleBibleIcon(tab.page);

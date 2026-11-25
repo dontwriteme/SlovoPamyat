@@ -18,6 +18,7 @@ final class ActivityTestWorkers {
             member.setAccessible(true);
             return member.get(activity);
         }catch(NoSuchFieldException moved){
+            if(name.startsWith("collection"))return collectionField(activity,name);
             return LessonSessionState.class.getDeclaredField(name).get(lessonField(activity,"lesson"));
         }
     }
@@ -33,6 +34,7 @@ final class ActivityTestWorkers {
     }
 
     static ExecutorService executor(MainActivity activity,String name)throws Exception{
+        if("collectionExecutor".equals(name))return (ExecutorService)collectionField(activity,name);
         if("writingExecutor".equals(name))return (ExecutorService)writingField(activity,"executor");
         Field field=MainActivity.class.getDeclaredField(name);
         field.setAccessible(true);
@@ -90,5 +92,25 @@ final class ActivityTestWorkers {
         ExecutorService executor=(ExecutorService)worker.get(search.get(activity));
         assertTrue("Bible search did not finish during teardown",executor.awaitTermination(30,TimeUnit.SECONDS));
         Shadows.shadowOf(Looper.getMainLooper()).idle();
+    }
+
+    static Object collectionField(MainActivity activity,String name)throws ReflectiveOperationException{
+        String owner;
+        String field;
+        switch(name){
+            case "collectionStore":owner="collectionIo";field="store";break;
+            case "collectionExecutor":owner="collectionIo";field="executor";break;
+            case "collectionTask":owner="collectionDetail";field="task";break;
+            case "collectionDetailLoading":owner="collectionDetail";field="loading";break;
+            case "collectionQueueGroup":owner="studyQueue";field=name;break;
+            case "collectionQueueCursor":owner="studyQueue";field=name;break;
+            default:throw new NoSuchFieldException(name);
+        }
+        Field component=MainActivity.class.getDeclaredField(owner);
+        component.setAccessible(true);
+        Object target=component.get(activity);
+        Field member=target.getClass().getDeclaredField(field);
+        member.setAccessible(true);
+        return member.get(target);
     }
 }

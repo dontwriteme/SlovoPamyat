@@ -150,7 +150,7 @@ public final class R2BackupCheck extends Instrumentation {
         mutation.setAccessible(true);
         runOnMainSync(()->{
             try{
-                LocalStore writer=(LocalStore)field(activity,"collectionStore");
+                LocalStore writer=(LocalStore)LessonFixtureFields.collectionField(activity,"collectionStore");
                 Runnable write=()->{
                     started.countDown();
                     try{check(allow.await(30,TimeUnit.SECONDS),"release");}

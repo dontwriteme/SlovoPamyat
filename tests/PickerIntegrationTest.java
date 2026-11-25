@@ -124,7 +124,7 @@ public class PickerIntegrationTest {
         // Wait for the automatic snapshot first, then hold the same kind of worker
         // transaction while the UI requests deletion to make the overlap deterministic.
         ActivityTestWorkers.awaitCollectionWork(activity);
-        LocalStore workerStore=(LocalStore)field("collectionStore");
+        LocalStore workerStore=(LocalStore)ActivityTestWorkers.collectionField(activity,"collectionStore");
         java.util.concurrent.CountDownLatch transactionOpen=new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.CountDownLatch release=new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.Future<?> reader=ActivityTestWorkers.executor(activity,"collectionExecutor").submit(()->{
