@@ -125,6 +125,7 @@ public final class MainActivity extends Activity {
     private int reviewPointer=0;
     private TextView lessonBuildAction;
     private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
+    private final AssemblyWordMotion assemblyMotion=new AssemblyWordMotion();
     private static final int BUILD_INK=0xFF553722;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
     private int lessonBuildRequired=0;
@@ -613,6 +614,7 @@ public final class MainActivity extends Activity {
         if(store!=null && root!=null){refreshHomeIndex(true);scheduleHomeRefresh();}
     }
     @Override protected void onPause() {
+        assemblyMotion.settleAll();
         cancelWritingCheck();
         resumed=false;
         if(!ownsData||backupInProgress){super.onPause();return;}
@@ -1163,6 +1165,7 @@ public final class MainActivity extends Activity {
         }
     }
     private void render() {
+        assemblyMotion.settleAll();
         cancelWritingCheck();
         if(backupInProgress)return;
         boolean collectionWasLoading=collectionDetailLoading;
@@ -6030,6 +6033,7 @@ public final class MainActivity extends Activity {
         }
     }
     private void resetLessonTiles(){
+        assemblyMotion.settleAll();
         lessonPicked=0;lessonWrongTile=-1;lessonUsedTiles.clear();lessonSeed=new Random().nextLong();
     }
     private final class BuildSlot extends TextView {
@@ -6272,7 +6276,7 @@ public final class MainActivity extends Activity {
     private void updateLessonBuildView(){
         for(int i=0;i<lessonBuildSlots.size();i++){
             BuildSlot slot=lessonBuildSlots.get(i);
-            if(slot.filled!=(i<lessonPicked))slot.showWord(i<lessonPicked);
+            if(!assemblyMotion.isFlying(slot)&&slot.filled!=(i<lessonPicked))slot.showWord(i<lessonPicked);
         }
         for(int i=0;i<lessonBuildTiles.size();i++){
             TextView tile=lessonBuildTiles.get(i);
@@ -6315,6 +6319,7 @@ public final class MainActivity extends Activity {
         return positions;
     }
     private boolean renderLessonBuild(LocalStore.Entry e){
+        assemblyMotion.settleAll();
         lessonBuildAction=null;lessonBuildRequired=0;
         lessonBuildTiles.clear();lessonBuildSlots.clear();
         List<String> src=new ArrayList<>();
@@ -6372,13 +6377,27 @@ public final class MainActivity extends Activity {
             final int pressed=index;
             final int targetPos=missing[index];
             String caption=tokens[targetPos].replaceAll("[^\\p{L}\\p{N}\\p{M}\\s]", "").trim();
-            TextView tile=wordTile(caption,0xFFFFEEDC,BUILD_INK,0xFFFFF9F0,()->{
-                // The target and bank occupy fixed views. Never call render() on a tile tap.
+            TextView tile=wordTile(caption,0xFFFFEEDC,BUILD_INK,0xFFFFF9F0,null);
+            tile.setFocusable(true);
+            tile.setOnClickListener(v->{
+                // Accept the word immediately. Only its visual arrival is deferred.
                 if(lessonUsedTiles.contains(pressed)||lessonPicked>=missing.length)return;
                 int wanted=missing[lessonPicked];
                 if(WordOrderLogic.comparable(tokens[wanted]).equals(WordOrderLogic.comparable(tokens[targetPos]))){
+                    BuildSlot destination=lessonBuildSlots.get(lessonPicked);
                     lessonPicked++;lessonUsedTiles.add(pressed);lessonWrongTile=-1;
-                }else lessonWrongTile=pressed;
+                    assemblyMotion.stopShake(tile);
+                    if(AssemblyWordMotion.canFly(root,tile,destination)){
+                        TextView ghost=wordTile(caption,0xFFFFEEDC,BUILD_INK,0xFFFFF9F0,null);
+                        ghost.setTypeface(tile.getTypeface());
+                        ghost.setTextSize(18);
+                        ghost.setBackground(outlined(0xFFFFEEDC,17,0xFFFFF9F0));
+                        assemblyMotion.fly(root,tile,destination,ghost,()->destination.showWord(true));
+                    }
+                }else{
+                    lessonWrongTile=pressed;
+                    assemblyMotion.shake(tile);
+                }
                 updateLessonBuildView();
                 // The progress bar advances per completed exercise, not per word.
                 // Avoid re-querying mastery and recomputing every layout on each tap.
@@ -7906,6 +7925,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        assemblyMotion.settleAll();
         cancelWritingCheck();
         writingExecutor.shutdownNow();
         BackupCoordinator.detach(this);
