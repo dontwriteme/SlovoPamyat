@@ -6088,7 +6088,7 @@ public final class MainActivity extends Activity {
             @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
         };
         eye.setBounds(0,0,dp(23),dp(23));
-        button.setCompoundDrawablesRelative(eye,null,null,null);
+        button.setCompoundDrawablesRelative(null,null,eye,null);
     }
     /** The taller of the two hints determines the height at every screen width.
      * INVISIBLE children still participate in measurement, unlike GONE children. */
