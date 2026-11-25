@@ -48,8 +48,10 @@ public final class MainActivity extends Activity {
     private static final int SUCCESS=0xFF4D815C, GOLD=0xFFD8A75C;
     private static final int PRIMARY_ON=0xFFFFFFFF;
     private static final int EXPORT=10,IMPORT=11;
-    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY}
+    private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY,COLLECTION_COMPLETE}
     private Screen screen=Screen.HOME;
+    private long completedCollectionId=-1;
+    private int completedCollectionVerses;
     private static final String UNIFIED_PREFS="unified_library_ui";
     private long activeUnifiedId=-1,openUnifiedId=-1;
     private boolean cardFromUnified=false;
@@ -667,7 +669,7 @@ public final class MainActivity extends Activity {
                 screen=Screen.COLLECTION_DETAIL;render();break;
             case COLLECTION_CHAPTER:screen=Screen.COLLECTION_BOOK;render();break;
             case RUN:saveRunSession();screen=Screen.HOME;render();break;
-            case RUN_SUMMARY:screen=Screen.HOME;render();break;
+            case RUN_SUMMARY:case COLLECTION_COMPLETE:screen=Screen.HOME;render();break;
             case CARD_DECK:screen=Screen.CARDS;render();break;
             case CARD_PICK:screen=Screen.CARD_DECK;render();break;
             case BIBLE_PICKER:
@@ -1175,7 +1177,7 @@ public final class MainActivity extends Activity {
         collectionGeneration++;
         if(collectionTask!=null){collectionTask.cancel(false);collectionTask=null;}
         dismissModeInfo(false);
-        getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN?0xFFF8E5D9:CARD);
+        getWindow().setNavigationBarColor(screen==Screen.TRAIN||screen==Screen.RUN||screen==Screen.COLLECTION_COMPLETE?0xFFF8E5D9:CARD);
         CollectionsNavigationIcon previousCollections=root==null?null:root.findViewWithTag(CollectionsNavigationIcon.TAG);
         if(previousCollections!=null && previousCollections.isSelected())
             collectionsIconCycle=previousCollections.settledCycle();
@@ -1192,6 +1194,7 @@ public final class MainActivity extends Activity {
             savedScrollY.put(lastRenderedScreen,currentScroller.getScrollY());
         }
         if(collectionAnimator!=null){collectionAnimator.cancel();collectionAnimator=null;}
+        if(screen==Screen.COLLECTION_COMPLETE){lastRenderedScreen=screen;currentScroller=null;renderCollectionCompletion();return;}
         if(screen==Screen.TRAIN){lastRenderedScreen=screen;renderFullscreenLesson();return;}
         if(screen==Screen.CARD_SESSION){lastRenderedScreen=screen;renderCardSession();return;}
         if(screen==Screen.RUN){lastRenderedScreen=screen;renderWritingRun();return;}
@@ -2319,7 +2322,7 @@ public final class MainActivity extends Activity {
                y<location[1]||y>=location[1]+modeInfoAnchor.getHeight())dismissModeInfo(true);
         }
         // Fullscreen training and card carousels retain their own swipe gestures.
-        if(screen==Screen.TRAIN||screen==Screen.CARD_SESSION||tabSwitchInProgress)
+        if(screen==Screen.TRAIN||screen==Screen.COLLECTION_COMPLETE||screen==Screen.CARD_SESSION||tabSwitchInProgress)
             return super.dispatchTouchEvent(event);
         int action=event.getActionMasked();
         if(action==MotionEvent.ACTION_DOWN){
@@ -2392,6 +2395,8 @@ public final class MainActivity extends Activity {
             toast("Коллекция пока пустая");return;
         }
         cardStudyQueue.clear();cardStudyCursor=-1;cardStudyDeckId=-1;
+        LocalStore.UnifiedCollection collection=store.unifiedForGroup(groupId);
+        if(collection!=null&&collection.id==activeUnifiedId&&showCompletedCollection(collection,snapshot))return;
         if(collectionQueueMatches(groupId,entries)){
             executingCollectionQueue=true;
             collectionQueueNewStep=false;
@@ -2422,7 +2427,10 @@ public final class MainActivity extends Activity {
         if(collectionQueueCursor<0||!executingCollectionQueue)return;
         collectionQueueCursor++;
         if(collectionQueueCursor>=collectionQueue.size()){
+            LocalStore.UnifiedCollection collection=store.unifiedForGroup(collectionQueueGroup);
             clearCollectionQueue();
+            if(collection!=null&&collection.id==activeUnifiedId&&
+                showCompletedCollection(collection,store.collectionProgress()))return;
             toast("Все отрывки коллекции пройдены");
             screen=Screen.HOME;render();return;
         }
@@ -2430,6 +2438,40 @@ public final class MainActivity extends Activity {
         collectionQueueNewStep=true;
         openTraining(collectionQueue.get(collectionQueueCursor));
     }
+    /** Completion uses the same shared verse progress as the home counter.
+     * Pending linked-passage exercises remain part of the learning curriculum. */
+    private int completedVerseCount(long groupId,CollectionProgressSnapshot snapshot){
+        Set<List<String>> unique=new HashSet<>();
+        Set<Long> checkedEntries=new HashSet<>();
+        for(LocalStore.Entry entry:snapshot.entries(groupId)){
+            List<Bible.Verse> lines=snapshot.verses(entry.id);
+            int book=bookForEntry(entry);
+            for(int i=0;i<lines.size();i++){
+                if(!snapshot.mastered(entry.id,i))return 0;
+                unique.add(verseIdentity(entry,book,i,lines.get(i)));
+            }
+            long canonical=snapshot.canonicalId(entry.id);
+            if(checkedEntries.add(canonical)){
+                LocalStore.Entry source=snapshot.entry(canonical);
+                if(source!=null&&nextGroup(source,snapshot)!=null)return 0;
+            }
+        }
+        return unique.size();
+    }
+
+    private boolean showCompletedCollection(LocalStore.UnifiedCollection collection,
+                                            CollectionProgressSnapshot snapshot){
+        int count=completedVerseCount(collection.groupId,snapshot);
+        if(count<=0)return false;
+        if(collectionQueueGroup==collection.groupId)clearCollectionQueue();
+        executingCollectionQueue=false;
+        completedCollectionId=collection.id;
+        completedCollectionVerses=count;
+        screen=Screen.COLLECTION_COMPLETE;
+        render();
+        return true;
+    }
+
     private String studyProgressFor(long groupId){
         return studyProgressFor(groupId,store.collectionProgress());
     }
@@ -5727,20 +5769,48 @@ public final class MainActivity extends Activity {
     }
     /** Celebratory page: the approved crown/check composition in the same warm scenic UI. */
     private void renderCompletion(LocalStore.Entry e){
+        renderSuccessPage(lessonFullReference(e),groupMode?"Связка освоена!":"Стих освоен!",
+            null,"Продолжить",()->advanceAfterSuccess(e),lessonLandscapeIndex(e));
+    }
+
+    private void renderCollectionCompletion(){
+        LocalStore.UnifiedCollection collection=store.unifiedCollection(completedCollectionId);
+        if(collection==null||collection.id!=activeUnifiedId||completedCollectionVerses<=0){
+            screen=Screen.HOME;render();return;
+        }
+        int landscape=LessonLandscapes.choose(getSharedPreferences("lesson_landscapes",MODE_PRIVATE),
+            "collection:"+collection.id,new Random());
+        renderSuccessPage(collection.title,"Коллекция освоена!",
+            completedCollectionVerses+" из "+completedCollectionVerses+" стихов",
+            "На главную",()->{screen=Screen.HOME;render();},landscape);
+    }
+
+    /** One shared success screen for a verse, a linked passage, or a collection. */
+    private void renderSuccessPage(String referenceText,String headingText,String countText,
+                                   String actionText,Runnable action,int landscape){
+        boolean collection=countText!=null;
         root=column();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         FrameLayout scenery=new FrameLayout(this);
-        applyLessonLandscape(scenery,e);
+        scenery.setTag("lesson-landscape:"+landscape);
+        scenery.setBackground(StableLessonBackground.forWindow(this,assemblyBackground(landscape)));
         LinearLayout central=column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
         central.setPadding(dp(16),dp(16),dp(16),dp(12));
-        root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
+        if(collection){
+            ScrollView scroll=new ScrollView(this);
+            scroll.setFillViewport(true);
+            scroll.setClipToPadding(false);
+            scroll.addView(central,new ScrollView.LayoutParams(-1,-2));
+            root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+            currentScroller=scroll;
+        }else root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
         TextView crown=txt("👑",34,GOLD,true);crown.setGravity(Gravity.CENTER);
         central.addView(crown,new LinearLayout.LayoutParams(dp(75),dp(65)));
-        TextView reference=displayText(lessonFullReference(e),21);
+        TextView reference=displayText(referenceText,21);
         reference.setGravity(Gravity.CENTER);reference.setPadding(dp(14),dp(6),dp(14),dp(6));
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,-2);
         rp.topMargin=dp(12);central.addView(reference,rp);
-        TextView heading=displayText(groupMode?"Связка освоена!":"Стих освоен!",38);
+        TextView heading=displayText(headingText,collection?30:38);
         heading.setGravity(Gravity.CENTER);heading.setTextColor(0xFF35452E);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
         hp.topMargin=dp(14);central.addView(heading,hp);
@@ -5750,8 +5820,18 @@ public final class MainActivity extends Activity {
                 getResources().getDisplayMetrics().density)-410));
         LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(availableArt));
         ap.topMargin=dp(10);central.addView(art,ap);
+        if(collection){
+            TextView count=displayText(countText,24);
+            count.setGravity(Gravity.CENTER);
+            count.setTextColor(0xFF35452E);
+            central.addView(count,new LinearLayout.LayoutParams(-1,-2));
+            TextView detail=txt("Все учебные упражнения пройдены",14,0xFF35452E,false);
+            detail.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams detailParams=new LinearLayout.LayoutParams(-1,-2);
+            detailParams.topMargin=dp(8);central.addView(detail,detailParams);
+        }
         LinearLayout footer=column();footer.setPadding(dp(24),dp(14),dp(24),dp(25));
-        TextView continueButton=button("Продолжить",true,()->advanceAfterSuccess(e));
+        TextView continueButton=button(actionText,true,action);
         animateLessonPress(continueButton);
         styleLessonAction(continueButton,true);
         footer.addView(continueButton,new LinearLayout.LayoutParams(-1,dp(61)));
