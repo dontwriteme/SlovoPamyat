@@ -3780,7 +3780,10 @@ public final class MainActivity extends Activity {
             }
             final int book=b;
             LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
-            TextView abbreviated=txt(BookColorLogic.shortName(b),14,bookInk(b),true);
+            TextView abbreviated=txt(BookColorLogic.shortName(b),16,BookColorLogic.abbreviationColor(b),true);
+            abbreviated.setSingleLine(true);
+            abbreviated.setTextSize(16);
+            abbreviated.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));
             line.addView(abbreviated,new LinearLayout.LayoutParams(dp(68),-2));
             TextView full=txt(Bible.NAMES[b-1],16,WHITE,false);
             full.setSingleLine(true);full.setEllipsize(android.text.TextUtils.TruncateAt.END);
