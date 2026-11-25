@@ -5615,8 +5615,7 @@ public final class MainActivity extends Activity {
         boolean introducing=phase==LessonCurriculumLogic.Phase.INTRO;
         boolean scenicLesson=assembling||writingInput||introducing;
         root=column();
-        android.graphics.drawable.Drawable lessonArt=scenicLesson?assemblyBackground():pageBackground();
-        root.setBackground(writingInput?StableLessonBackground.forWindow(this,lessonArt):lessonArt);
+        applyLessonLandscape(root,e);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         LinearLayout top=column();top.setPadding(dp(22),dp(15),dp(22),dp(6));
         LinearLayout topRow=row();
@@ -5728,15 +5727,7 @@ public final class MainActivity extends Activity {
         root=column();
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
         FrameLayout scenery=new FrameLayout(this);
-        ImageView image=new ImageView(this);
-        image.setImageResource(landscapeFor(e.id));
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        scenery.addView(image,new FrameLayout.LayoutParams(-1,-1));
-        View haze=new View(this);
-        haze.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0xFFFFF2E9,0xFEFFF0E6,0xDFFFF0E5,0x7DFFF0E4,0x77FFF0E4}));
-        scenery.addView(haze,new FrameLayout.LayoutParams(-1,-1));
+        applyLessonLandscape(scenery,e);
         LinearLayout central=column();central.setGravity(Gravity.CENTER_HORIZONTAL|Gravity.CENTER_VERTICAL);
         central.setPadding(dp(16),dp(16),dp(16),dp(12));
         root.addView(central,new LinearLayout.LayoutParams(-1,0,1));
@@ -6239,9 +6230,31 @@ public final class MainActivity extends Activity {
         action.setEnabled(enabled);
     }
 
-    private android.graphics.drawable.Drawable assemblyBackground(){
+    /** A canonical Bible reference survives a verse appearing in multiple collections.
+     * Custom text uses the entry and the active range instead of a Bible reference. */
+    private int lessonLandscapeIndex(LocalStore.Entry e){
+        int start=activeStep==null?0:activeStep.start;
+        int end=activeStep==null?e.lines().size():activeStep.end;
+        int book=bookForEntry(e);
+        String identity;
+        if(book>0&&start>=0&&end>start&&end<=e.lines().size()){
+            identity="bible:"+book+":"+e.lines().get(start).ref+":"+e.lines().get(end-1).ref;
+        }else{
+            identity="custom:"+e.id+":"+start+":"+end;
+        }
+        return LessonLandscapes.choose(getSharedPreferences("lesson_landscapes",MODE_PRIVATE),
+            identity,new Random());
+    }
+
+    private void applyLessonLandscape(View target,LocalStore.Entry e){
+        int index=lessonLandscapeIndex(e);
+        target.setTag("lesson-landscape:"+index);
+        target.setBackground(StableLessonBackground.forWindow(this,assemblyBackground(index)));
+    }
+
+    private android.graphics.drawable.Drawable assemblyBackground(int index){
         return new android.graphics.drawable.Drawable(){
-            private final android.graphics.drawable.Drawable scenery=getDrawable(R.drawable.hero_sunrise);
+            private final android.graphics.drawable.Drawable scenery=LessonLandscapes.artwork(MainActivity.this,index);
             private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
             private int horizon;
             private Shader sky,fade;
@@ -6255,10 +6268,12 @@ public final class MainActivity extends Activity {
                 int drawHeight=Math.round(drawWidth/aspect);
                 int left=bounds.centerX()-drawWidth/2;
                 scenery.setBounds(left,bounds.bottom-drawHeight,left+drawWidth,bounds.bottom);
+                int[] palette=LessonLandscapes.sky(index);
                 sky=new LinearGradient(0,bounds.top,0,bounds.bottom,
-                    new int[]{0xFFF5E7E2,0xFFFFEBD5,0xFFF9D9A7},null,Shader.TileMode.CLAMP);
+                    palette,null,Shader.TileMode.CLAMP);
+                int tint=palette[1]&0x00FFFFFF;
                 fade=new LinearGradient(0,horizon,0,bounds.bottom,
-                    new int[]{0xFFFFEBD5,0xA8FFEAD1,0x30FFE5BC,0x58FFE0A8},
+                    new int[]{palette[1],0xA8000000|tint,0x30000000|tint,0x58000000|tint},
                     new float[]{0f,.32f,.72f,1f},Shader.TileMode.CLAMP);
             }
             @Override public void draw(Canvas canvas){
