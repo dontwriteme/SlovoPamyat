@@ -350,6 +350,14 @@ public class LessonHotbarIntegrationTest {
         assertFalse(fields.isEmpty());
         EditText first=fields.get(0);
         assertTrue(first.getBackground() instanceof android.graphics.drawable.GradientDrawable);
+        TextView assemblyWord=(TextView)call("displayText",
+            new Class<?>[]{String.class,int.class},"Слово",18);
+        for(int i=0;i<inputs.getChildCount();i++){
+            TextView word=(TextView)inputs.getChildAt(i);
+            assertEquals(assemblyWord.getTypeface(),word.getTypeface());
+            assertEquals(assemblyWord.getTextSize(),word.getTextSize(),0.01f);
+            assertEquals(assemblyWord.getLetterSpacing(),word.getLetterSpacing(),0.0001f);
+        }
         first.setText("оченьдлинноесловооченьдлинноесловооченьдлинноеслово");
         root.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
