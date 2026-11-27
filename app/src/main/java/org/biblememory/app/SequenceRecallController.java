@@ -189,9 +189,7 @@ public final class SequenceRecallController {
             input.setSingleLine(true);
             input.setTextSize(16);input.setTextColor(TEXT);input.setHintTextColor(0xFFA69A92);
             input.setHint("Впиши начало стиха…");
-            input.setInputType(InputType.TYPE_CLASS_TEXT |
-                    InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS |
-                    InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+            KeyboardPreferences.apply(input,InputType.TYPE_CLASS_TEXT);
             input.setPrivateImeOptions("nm");
             input.setBackgroundTintList(ColorStateList.valueOf(GREEN));
             input.setContentDescription("Начало "+line.ref);

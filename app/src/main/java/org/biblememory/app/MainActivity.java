@@ -1224,8 +1224,8 @@ public class MainActivity extends Activity {
         EditText e=new EditText(this);
         e.setTextColor(WHITE);e.setHintTextColor(MUTED);e.setTextSize(15);
         e.setSingleLine(!multiline);e.setHint(hint);
-        e.setInputType(multiline?android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|
-            android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES:android.text.InputType.TYPE_CLASS_TEXT);
+        KeyboardPreferences.apply(e,multiline?InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|
+            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES:InputType.TYPE_CLASS_TEXT);
         e.setGravity(multiline?Gravity.TOP|Gravity.START:Gravity.CENTER_VERTICAL);
         e.setPadding(dp(15),dp(13),dp(15),dp(13));
         e.setBackground(outlined(CARD_ALT,14,BORDER));
@@ -1233,9 +1233,9 @@ public class MainActivity extends Activity {
         return e;
     }
     private void forbidKeyboardHints(EditText edit,boolean multiline){
-        int flags=android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
-        if(multiline)flags|=android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE;
-        edit.setInputType(flags);
+        int flags=InputType.TYPE_CLASS_TEXT;
+        if(multiline)flags|=InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+        KeyboardPreferences.apply(edit,flags);
         edit.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
         edit.setPrivateImeOptions("nm");
     }
@@ -7799,6 +7799,34 @@ public class MainActivity extends Activity {
         TextView heading=displayText("Настройки",28);
         heading.setGravity(Gravity.CENTER);
         add(content,heading,18);
+
+        LinearLayout keyboard=column();
+        keyboard.setPadding(dp(18),dp(18),dp(18),dp(18));
+        keyboard.setBackground(homeSurface());
+        keyboard.setElevation(dp(2));
+        add(keyboard,displayText("Клавиатура",20),0);
+        Switch autocorrect=new Switch(this);
+        autocorrect.setTag("settings-autocorrect");
+        autocorrect.setText("Автозамена");
+        autocorrect.setTextColor(WHITE);
+        autocorrect.setTextSize(17);
+        autocorrect.setMinHeight(dp(48));
+        autocorrect.setShowText(false);
+        autocorrect.setChecked(KeyboardPreferences.enabled(this));
+        autocorrect.setOnCheckedChangeListener((button,enabled)->{
+            KeyboardPreferences.setEnabled(this,enabled);
+            // Prebuilt tabs may contain text fields with the old keyboard flags.
+            tabWarmGeneration++;
+            readyTabs.clear();
+            readyTabs.put(Screen.SETTINGS,new ReadyTab(root,content,currentScroller,homeIndex));
+            prepareOtherTabs();
+        });
+        add(keyboard,autocorrect,8);
+        TextView keyboardHint=txt("Автоматическое исправление слов во всех текстовых полях, "+
+            "включая упражнения. Работа зависит от установленной клавиатуры.",13,MUTED,false);
+        keyboardHint.setLineSpacing(dp(3),1.1f);
+        add(keyboard,keyboardHint,4);
+        add(content,keyboard,14);
 
         LinearLayout backup=column();
         backup.setPadding(dp(18),dp(18),dp(18),dp(18));
