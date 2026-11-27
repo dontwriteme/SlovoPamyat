@@ -488,6 +488,9 @@ public class MainActivity extends Activity {
         LocalStore.Entry entry=store.entry(selectedEntry);
         int count=spec.lines.size();
         groupMode=count>1;
+        // Linked exercises normally follow independent mastery. Seed only the
+        // disposable database so the linked test starts under real conditions.
+        if(groupMode)for(int i=0;i<count;i++)store.markMastered(selectedEntry,i,i+1,100,"VERSE");
         studyStage=groupMode?(count<=3?StudyPlanLogic.Stage.CHAIN:
             count<=10?StudyPlanLogic.Stage.SECTION:StudyPlanLogic.Stage.CHAPTER):StudyPlanLogic.Stage.VERSE;
         forcedStep=groupMode?new StudyPlanLogic.Step(0,count,spec.reference):null;
@@ -509,6 +512,7 @@ public class MainActivity extends Activity {
         screen=Screen.TRAIN;
         if(test==DeveloperLessonLab.Test.SUCCESS){checked=true;passed=true;}
         if(test==DeveloperLessonLab.Test.COLLECTION){
+            if(!groupMode)store.markMastered(selectedEntry,0,1,100,"VERSE");
             completedCollectionId=collectionId;completedCollectionVerses=count;
             screen=Screen.COLLECTION_COMPLETE;
         }
@@ -3722,6 +3726,29 @@ public class MainActivity extends Activity {
         }
         homeVerseHero(homeIndex,Bible.NAMES[vr[0]-1]+" "+vr[1]+":"+vr[2],verseText);
         renderUnifiedHomePanel();
+        if(DeveloperModeController.isEnabled(this)){
+            TextView lab=button("DEV · Тесты обучения",true,this::openDeveloperLabFromHome);
+            lab.setTag("developer-home-lab");
+            add(content,lab,12);
+        }
+    }
+
+    private void openDeveloperLabFromHome(){
+        if(!DeveloperModeController.isEnabled(this))return;
+        LocalStore.UnifiedCollection u=activeUnified();
+        if(u!=null){
+            List<LocalStore.Entry> entries=store.entries(u.groupId);
+            if(!entries.isEmpty()){DeveloperLessonLab.open(this,entries.get(0));return;}
+        }
+        if(!bible.isReady()){toast("Библия ещё загружается");return;}
+        LocalStore.Entry sample=new LocalStore.Entry();
+        sample.id=0;sample.title=Bible.NAMES[47]+" 1";sample.reference=sample.title;
+        JSONArray lines=new JSONArray();
+        try{for(Bible.Verse line:bible.chapter(48,1))
+            lines.put(new JSONObject().put("ref",line.ref).put("text",line.text));
+        }catch(JSONException failure){throw new IllegalStateException(failure);}
+        sample.linesJson=lines.toString();
+        DeveloperLessonLab.open(this,sample);
     }
 
     private final class ChevronView extends View{
@@ -5919,6 +5946,15 @@ public class MainActivity extends Activity {
                 getResources().getDisplayMetrics().density)-(collection?365:300)));
         central.addView(lamp,new LinearLayout.LayoutParams(-1,dp(availableArt)));
         TextView heading=displayText(headingText,collection?30:36);
+        if(developerSandbox()){
+            heading.setOnLongClickListener(v->{
+                DeveloperLessonLab.open(this,store.entry(selectedEntry));return true;
+            });
+            TextView dev=txt("DEV · Другой тест",12,BUILD_INK,true);
+            dev.setGravity(Gravity.CENTER);
+            dev.setOnClickListener(v->DeveloperLessonLab.open(this,store.entry(selectedEntry)));
+            central.addView(dev,new LinearLayout.LayoutParams(-1,dp(40)),0);
+        }
         heading.setGravity(Gravity.CENTER);
         heading.setTextColor(0xFF35452E);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
