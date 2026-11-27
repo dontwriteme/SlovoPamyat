@@ -7507,12 +7507,46 @@ public class MainActivity extends Activity {
         }
         addHelpLabel(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
             LearningHelp.PROGRESS,8);
-        if(verses>0)progress(panel,learned,verses);
+        homeCollectionProgress(panel,learned,verses);
         unifiedModeRow(panel,LearningHelp.STUDY,"mode-book",this::startActiveStudy);
         unifiedModeRow(panel,LearningHelp.CARDS,"mode-cards",this::startActiveCards);
         unifiedModeRow(panel,LearningHelp.REVIEW,"mode-brain",()->startActiveReview(false));
         unifiedModeRow(panel,LearningHelp.MEMORY,"mode-check",this::startActiveRun);
         unifiedModeRow(panel,LearningHelp.ALL_REVIEWS,"mode-repeat",()->startActiveReview(true));
+    }
+
+    /** Home-only XP-style progress; other exercises keep their existing indicators. */
+    private void homeCollectionProgress(LinearLayout parent,int learned,int total){
+        int completed=Math.max(0,Math.min(learned,total));
+        TextView count=txt(completed+" из "+Math.max(0,total),14,0xFF405638,true);
+        count.setTag("home-collection-progress-count");
+        count.setGravity(Gravity.CENTER);
+        add(parent,count,2);
+        View track=new View(this){
+            private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override protected void onDraw(Canvas canvas){
+                super.onDraw(canvas);
+                float w=getWidth(),h=getHeight(),radius=h/2f;
+                if(w<=0||h<=0)return;
+                pen.setColor(0xFFE5E7D5);
+                canvas.drawRoundRect(0,0,w,h,radius,radius,pen);
+                if(total>0&&completed>0){
+                    float fillWidth=w*((float)completed/total);
+                    float fillRadius=Math.min(radius,fillWidth/2f);
+                    pen.setColor(0xFF588B31);
+                    canvas.drawRoundRect(0,0,fillWidth,h,fillRadius,fillRadius,pen);
+                    pen.setColor(0xFF83B94A);
+                    float highlight=h*0.45f;
+                    float highlightRadius=Math.min(highlight/2f,fillWidth/2f);
+                    canvas.drawRoundRect(0,0,fillWidth,highlight,highlightRadius,highlightRadius,pen);
+                }
+            }
+        };
+        track.setTag("home-collection-progress-track");
+        track.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(8));
+        params.topMargin=dp(5);
+        parent.addView(track,params);
     }
 
     private void addHelpLabel(LinearLayout parent,TextView label,LearningHelp help,int margin){
