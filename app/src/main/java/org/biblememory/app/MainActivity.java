@@ -5822,7 +5822,6 @@ public class MainActivity extends Activity {
         }
         TextView mainAction;
         TextView introHideAction=null;
-        LinearLayout gapReviewNavigation=null;
         int number=stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
             assemblyReference(e);
@@ -5848,7 +5847,7 @@ public class MainActivity extends Activity {
             if(answerReview!=null){
                 if(reviewingGaps){
                     assemblyReference(e);
-                    gapReviewNavigation=renderGapAnswerReview(answerReview.gapReview,scroll);
+                    renderGapAnswerReview(answerReview.gapReview,scroll);
                 }else renderAnswerReview(answerReview);
                 mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
                 styleLessonAction(mainAction,true);
@@ -5864,7 +5863,6 @@ public class MainActivity extends Activity {
             return;
         }
         renderLessonHotbar(top,phase,e);
-        if(gapReviewNavigation!=null)add(top,gapReviewNavigation,8);
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
         if(introHideAction!=null){
             footer.setTag("lesson-intro-footer");
@@ -7088,14 +7086,7 @@ public class MainActivity extends Activity {
     }
 
     /** Gap feedback stays in the original verse, never in a flattened word list. */
-    private LinearLayout renderGapAnswerReview(GapAnswerReview review,ScrollView scroll){
-        LinearLayout navigation=column();
-        navigation.setTag("writing-gap-review-navigation");
-        navigation.setPadding(dp(10),dp(6),dp(10),dp(6));
-        navigation.setBackground(outlined(0xFFFFF1E2,16,0xFFE4D4C1));
-        TextView summary=txt("Верно: "+review.correctCount()+"  ·  Ошибок: "+review.errorCount(),14,BUILD_INK,true);
-        summary.setGravity(Gravity.CENTER);
-        navigation.addView(summary,new LinearLayout.LayoutParams(-1,-2));
+    private void renderGapAnswerReview(GapAnswerReview review,ScrollView scroll){
         List<LinearLayout> errors=new ArrayList<>();
         for(GapAnswerReview.Verse verse:review.verses()){
             LinearLayout panel=column();
@@ -7122,7 +7113,7 @@ public class MainActivity extends Activity {
                     correction.setTag("writing-gap-review-error:"+errors.size());
                     correction.setGravity(Gravity.CENTER);
                     correction.setPadding(dp(6),dp(5),dp(6),dp(5));
-                    styleGapCorrection(correction,false);
+                    correction.setBackground(outlined(0xFFF8DDD4,7,0xFFE6B4A7));
                     boolean empty=gap.actual().trim().isEmpty();
                     TextView typed=txt(empty?"Не заполнено":gap.actual(),13,0xFFAD3C37,false);
                     typed.setGravity(Gravity.CENTER);
@@ -7142,56 +7133,23 @@ public class MainActivity extends Activity {
             add(panel,flow,5);
             add(content,panel,10);
         }
-        if(errors.isEmpty())return navigation;
-        LinearLayout controls=row();controls.setGravity(Gravity.CENTER_VERTICAL);
-        TextView previous=gapReviewArrow("‹","Предыдущая ошибка");
-        TextView next=gapReviewArrow("›","Следующая ошибка");
-        TextView counter=txt("",14,BUILD_INK,true);counter.setGravity(Gravity.CENTER);
-        counter.setTag("writing-gap-review-counter");
-        controls.addView(previous,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        controls.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
-        controls.addView(next,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        add(navigation,controls,2);
-        int[] selected={-1};
-        java.util.function.IntConsumer select=index->{
-            if(index<0||index>=errors.size()||currentScroller!=scroll)return;
-            if(selected[0]>=0)styleGapCorrection(errors.get(selected[0]),false);
-            selected[0]=index;
-            LinearLayout target=errors.get(index);
-            styleGapCorrection(target,true);
-            counter.setText("Ошибка "+(index+1)+" из "+errors.size());
-            previous.setEnabled(index>0);previous.setAlpha(index>0?1f:0.4f);
-            next.setEnabled(index+1<errors.size());next.setAlpha(index+1<errors.size()?1f:0.4f);
-            Rect rect=new Rect(0,0,target.getWidth(),target.getHeight());
-            scroll.offsetDescendantRectToMyCoords(target,rect);
-            scroll.smoothScrollTo(0,Math.max(0,rect.top-dp(12)));
-        };
-        previous.setOnClickListener(v->select.accept(selected[0]-1));
-        next.setOnClickListener(v->select.accept(selected[0]+1));
-        // Start after the first actual layout, when all verse positions are known.
+        if(errors.isEmpty())return;
+        // Retain automatic orientation for long passages without a navigation panel.
+        LinearLayout firstError=errors.get(0);
         content.addOnLayoutChangeListener(new View.OnLayoutChangeListener(){
             @Override public void onLayoutChange(View view,int l,int t,int r,int b,int ol,int ot,int or,int ob){
                 if(b<=t)return;
                 view.removeOnLayoutChangeListener(this);
-                scroll.post(()->{if(selected[0]<0)select.accept(0);});
+                scroll.post(()->{
+                    if(currentScroller!=scroll||!firstError.isAttachedToWindow())return;
+                    Rect rect=new Rect(0,0,firstError.getWidth(),firstError.getHeight());
+                    scroll.offsetDescendantRectToMyCoords(firstError,rect);
+                    // Keep the reference visible when the first error already fits.
+                    if(rect.bottom>scroll.getHeight()+scroll.getScrollY())
+                        scroll.smoothScrollTo(0,Math.max(0,rect.top-dp(12)));
+                });
             }
         });
-        return navigation;
-    }
-
-    private TextView gapReviewArrow(String glyph,String description){
-        TextView button=txt(glyph,26,BUILD_INK,true);
-        button.setGravity(Gravity.CENTER);
-        button.setBackground(outlined(0xFFFFEBD5,12,0xFFA47B55));
-        button.setContentDescription(description);
-        button.setFocusable(true);
-        return button;
-    }
-
-    private void styleGapCorrection(LinearLayout correction,boolean selected){
-        GradientDrawable frame=shape(0xFFF8DDD4,7);
-        frame.setStroke(dp(selected?2:1),selected?0xFFAD3C37:0xFFE6B4A7);
-        correction.setBackground(frame);
     }
 
     private LinearLayout answerReviewPanel(int background,int border){
