@@ -68,10 +68,12 @@ public final class LocalStore extends SQLiteOpenHelper {
     private final Bible reviewBible;
 
     public LocalStore(Context context){this(context,Bible.shared());}
-    LocalStore(Context context,Bible bible){
-        super(context,"slovo_pamyat.db",null,9);
+    LocalStore(Context context,Bible bible){this(context,bible,"slovo_pamyat.db");}
+    /** A null database name is an isolated in-memory database for the debug lesson lab. */
+    LocalStore(Context context,Bible bible,String databaseName){
+        super(context,databaseName,null,9);
         reviewBible=bible;
-        setWriteAheadLoggingEnabled(true);
+        if(databaseName!=null)setWriteAheadLoggingEnabled(true);
     }
 
     boolean confirmReviewVerse(Entry entry,Bible.Verse verse){
