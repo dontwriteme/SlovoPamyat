@@ -6057,7 +6057,7 @@ public final class MainActivity extends Activity {
         // Keep the legacy status TextView separate from the full-screen lesson.
         activeStatus=null;
         LessonIntroHint hint=new LessonIntroHint();
-        add(panel,hint,15);
+        add(panel,hint,20);
         add(content,panel,14);
         trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
         hint.show(mask>0,false);
@@ -6157,17 +6157,64 @@ public final class MainActivity extends Activity {
      * INVISIBLE children still participate in measurement, unlike GONE children. */
     private final class LessonIntroHint extends FrameLayout {
         private final TextView readHint,holdHint;
+        private final Paint accent=new Paint(Paint.ANTI_ALIAS_FLAG);
         private boolean hidden;
 
         LessonIntroHint(){
             super(MainActivity.this);
             setTag("lesson-intro-hint");
-            setMeasureAllChildren(true);
-            readHint=txt(LearningHelp.INTRO_READ,14,MUTED,false);
-            holdHint=txt(LearningHelp.INTRO_HOLD,14,MUTED,false);
-            addView(readHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
-            addView(holdHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            setBackground(shape(0xFFE9EBD9,10));
+            setPadding(dp(12),dp(10),dp(11),dp(11));
+            setWillNotDraw(false);
+            accent.setColor(0xFF8B9B70);
+
+            LinearLayout details=column();
+            addView(details,new FrameLayout.LayoutParams(-1,-2));
+            TextView title=txt("ПОДСКАЗКА",12,0xFF526342,true);
+            title.setTag("lesson-intro-hint-title");
+            title.setLetterSpacing(.07f);
+            title.setGravity(Gravity.CENTER_VERTICAL|Gravity.START);
+            title.setCompoundDrawablePadding(dp(6));
+            android.graphics.drawable.Drawable info=new android.graphics.drawable.Drawable(){
+                private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+                @Override public void draw(Canvas canvas){
+                    Rect b=getBounds();
+                    canvas.save();
+                    canvas.translate(b.exactCenterX(),b.exactCenterY());
+                    canvas.scale(b.width()/18f,b.height()/18f);
+                    pen.setColor(0xFF657751);
+                    pen.setStyle(Paint.Style.STROKE);
+                    pen.setStrokeWidth(1.5f);
+                    pen.setStrokeCap(Paint.Cap.ROUND);
+                    canvas.drawCircle(0,0,7.3f,pen);
+                    canvas.drawLine(0,-.7f,0,3.5f,pen);
+                    pen.setStyle(Paint.Style.FILL);
+                    canvas.drawCircle(0,-3.6f,.95f,pen);
+                    canvas.restore();
+                }
+                @Override public void setAlpha(int alpha){pen.setAlpha(alpha);invalidateSelf();}
+                @Override public void setColorFilter(android.graphics.ColorFilter filter){pen.setColorFilter(filter);invalidateSelf();}
+                @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
+            };
+            info.setBounds(0,0,dp(15),dp(15));
+            title.setCompoundDrawablesRelative(info,null,null,null);
+            add(details,title,0);
+            FrameLayout body=new FrameLayout(MainActivity.this);
+            body.setTag("lesson-intro-hint-body");
+            body.setMeasureAllChildren(true);
+            readHint=txt(LearningHelp.INTRO_READ,14,0xFF59634D,false);
+            holdHint=txt(LearningHelp.INTRO_HOLD,14,0xFF59634D,false);
+            body.addView(readHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
+            body.addView(holdHint,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             holdHint.setVisibility(View.INVISIBLE);
+            add(details,body,5);
+        }
+
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            float inset=dp(9);
+            if(getHeight()>2*inset)
+                canvas.drawRoundRect(dp(2),inset,dp(5),getHeight()-inset,dp(2),dp(2),accent);
         }
 
         void show(boolean wordsHidden,boolean animate){
