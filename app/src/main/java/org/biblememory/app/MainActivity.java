@@ -748,27 +748,25 @@ public class MainActivity extends Activity {
     private void scheduleHomeRefresh() {
         homeHandler.removeCallbacks(homeTicker);
         if(store==null)return;
-        long last=getSharedPreferences("home_verse",MODE_PRIVATE)
-            .getLong("last_switch",System.currentTimeMillis());
-        homeHandler.postDelayed(homeTicker,HomeVerseLogic.nextDelay(last,System.currentTimeMillis())+80L);
+        long now=System.currentTimeMillis();
+        long midnight=java.time.LocalDate.now().plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault())
+            .toInstant().toEpochMilli();
+        homeHandler.postDelayed(homeTicker,Math.max(1000L,midnight-now+100L));
     }
     private void refreshHomeIndex(boolean rerender) {
-        android.content.SharedPreferences prefs=getSharedPreferences("home_verse",MODE_PRIVATE);
-        long previous=prefs.getLong("last_switch",0L),now=System.currentTimeMillis();
         int old=homeIndex;
-        homeIndex=prefs.getInt("index",0);
-        if(previous<=0 || previous>now) {
-            // Also recover cleanly from an incorrectly adjusted system clock.
-            prefs.edit().putLong("last_switch",now).putInt("index",homeIndex).apply();
-        } else {
-            long steps=HomeVerseLogic.elapsedIntervals(previous,now,HomeVerseLogic.ROTATE_MS);
-            if(steps>0) {
-                homeIndex=HomeVerseLogic.advance(homeIndex,HOME_REFS.length,steps);
-                prefs.edit().putLong("last_switch",previous+steps*HomeVerseLogic.ROTATE_MS)
-                    .putInt("index",homeIndex).apply();
-            }
+        homeIndex=(int)java.time.LocalDate.now().toEpochDay();
+        if(homeIndex!=old){
+            readyTabs.remove(Screen.HOME);
+            if(rerender&&screen==Screen.HOME)render();
         }
-        if(rerender&&screen==Screen.HOME&&homeIndex!=old)render();
+    }
+    void recordStudyActivity(){
+        if(developerSandbox()||backupInProgress||resetInProgress||store==null)return;
+        StudyActivityHistory.initialize(this,store);
+        StudyActivityHistory.record(this);
+        readyTabs.remove(Screen.HOME);
+        tabWarmGeneration++;
     }
     @Override public void onBackPressed() {
         if(developerSandbox()){finish();return;}
@@ -3552,6 +3550,7 @@ public class MainActivity extends Activity {
     private void nextFlashcard(){
         if(backupInProgress)return;
         if(cardSequence.isEmpty()){screen=cardFromUnified?Screen.HOME:Screen.CARD_DECK;render();return;}
+        if(cardRevealed)recordStudyActivity();
         if(cardIndex+1<cardSequence.size())cardIndex++;
         else{
             long previous=cardSequence.get(cardSequence.size()-1);
@@ -3722,14 +3721,77 @@ public class MainActivity extends Activity {
 
     private void renderHome() {
         tabWordmark();
-        int[] vr=HOME_REFS[Math.floorMod(homeIndex,HOME_REFS.length)];
-        List<Bible.Verse> homeLines=bible.isReady()?bible.chapter(vr[0],vr[1]):Collections.emptyList();
-        String verseText=homeIndex==0?"В сердце моем сокрыл я слово Твое, чтобы не грешить пред Тобою.":"Загружаем стих…";
-        if(!homeLines.isEmpty())for(Bible.Verse line:homeLines){
-            if(line.ref.equals(vr[1]+":"+vr[2])){verseText=line.text;break;}
-        }
-        homeVerseHero(homeIndex,Bible.NAMES[vr[0]-1]+" "+vr[1]+":"+vr[2],verseText);
+        StudyActivityHistory.initialize(this,store);
+        renderActivityCalendar();
         renderUnifiedHomePanel();
+    }
+    private static final int[] ACTIVITY_COLORS={0xFFE8E0D2,0xFFD2DFC0,0xFFACC48D,0xFF7FA15E,0xFF4C743B};
+    private void renderActivityCalendar(){
+        java.time.LocalDate today=java.time.LocalDate.now();
+        Map<java.time.LocalDate,Integer> days=StudyActivityHistory.days(this);
+        LinearLayout panel=card(content);panel.setBackground(homeSurface());
+        add(panel,displayText("Твоя активность",22),0);
+        LinearLayout stats=row();
+        addActivityStat(stats,"Текущая серия",ActivityStreakLogic.current(days,today));
+        addActivityStat(stats,"Лучшая серия",ActivityStreakLogic.best(days,today));
+        add(panel,stats,10);
+        final int weeks=17;
+        java.time.LocalDate first=today.minusDays(today.getDayOfWeek().getValue()-1L).minusWeeks(weeks-1);
+        LinearLayout months=row();
+        months.addView(new View(this),new LinearLayout.LayoutParams(dp(23),dp(18)));
+        java.time.format.DateTimeFormatter monthFormat=java.time.format.DateTimeFormatter.ofPattern("LLL",new Locale("ru"));
+        for(int w=0;w<weeks;){
+            java.time.LocalDate date=first.plusWeeks(w);
+            int end=w+1;
+            while(end<weeks&&first.plusWeeks(end).getMonth()==date.getMonth())end++;
+            TextView month=txt(end-w>=2?date.format(monthFormat):"",10,MUTED,false);
+            month.setSingleLine(true);
+            months.addView(month,new LinearLayout.LayoutParams(0,dp(18),end-w));
+            w=end;
+        }
+        add(panel,months,11);
+        String[] weekdays={"Пн","","Ср","","Пт","","Вс"};
+        java.time.format.DateTimeFormatter dayFormat=java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy",new Locale("ru"));
+        for(int d=0;d<7;d++){
+            LinearLayout line=row();
+            TextView dayLabel=txt(weekdays[d],10,MUTED,false);
+            line.addView(dayLabel,new LinearLayout.LayoutParams(dp(23),dp(14)));
+            for(int w=0;w<weeks;w++){
+                java.time.LocalDate date=first.plusWeeks(w).plusDays(d);
+                int count=days.getOrDefault(date,0);
+                View cell=new View(this);
+                LinearLayout.LayoutParams cellParams=new LinearLayout.LayoutParams(0,dp(13),1);
+                cellParams.setMargins(dp(1),dp(1),dp(1),dp(1));
+                if(!date.isAfter(today)){
+                    int color=ACTIVITY_COLORS[ActivityStreakLogic.level(count)];
+                    cell.setBackground(date.equals(today)?outlined(color,3,0xFF536D41):shape(color,3));
+                    String label=date.format(dayFormat);
+                    cell.setContentDescription(label+": "+count+" заданий");
+                    cell.setFocusable(true);
+                    cell.setOnClickListener(v->styledDialog(new AlertDialog.Builder(this,R.style.MemoryDialogTheme)
+                        .setTitle(label).setMessage(count==0?"Нет записанной активности.":
+                            "Выполнено заданий: "+count+(StudyActivityHistory.historical(this,date)?"\nПо старой истории: учтены только подтверждённые данные.":""))
+                        .setPositiveButton("Закрыть",null).create()));
+                }else cell.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                line.addView(cell,cellParams);
+            }
+            add(panel,line,0);
+        }
+        LinearLayout legend=row();legend.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        legend.addView(txt("Меньше",10,MUTED,false));
+        for(int color:ACTIVITY_COLORS){
+            View swatch=new View(this);swatch.setBackground(shape(color,3));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(13),dp(13));p.leftMargin=dp(3);
+            legend.addView(swatch,p);
+        }
+        TextView more=txt("Больше",10,MUTED,false);more.setPadding(dp(5),0,0,0);legend.addView(more);
+        add(panel,legend,9);
+    }
+    private void addActivityStat(LinearLayout stats,String caption,int count){
+        LinearLayout item=column();
+        TextView number=txt(countedRussian(count,"день","дня","дней"),22,0xFF405638,true);
+        add(item,number,0);add(item,txt(caption,12,MUTED,false),3);
+        stats.addView(item,new LinearLayout.LayoutParams(0,-2,1));
     }
 
     private final class ChevronView extends View{
@@ -5457,6 +5519,7 @@ public class MainActivity extends Activity {
         if(store.exerciseDone(selectedEntry,stepCursor)==completed-1 &&
             (completed!=2 || (trainingMode==TrainingMode.HIDE && mask==100))){
             store.finishExercise(selectedEntry,stepCursor,completed);
+            recordStudyActivity();
             trainingMode=completed==1?TrainingMode.HIDE:TrainingMode.ORDER;
             mask=completed==1?25:0;resetWordTiles();saveTrainingSession();render();
         }
@@ -5579,6 +5642,7 @@ public class MainActivity extends Activity {
                 if(!reviewMode&&!groupMode&&studyStage==StudyPlanLogic.Stage.VERSE &&
                     store.exerciseDone(selectedEntry,stepCursor)==2 && !orderCompleted){
                     orderCompleted=true;store.finishExercise(selectedEntry,stepCursor,3);
+                    recordStudyActivity();
                 }
                 helper(card,"Ты расставил слова с подсказками. Теперь проверь, сможешь ли воспроизвести их без готовых вариантов.");
                 action(card,"✎  Написать по памяти",true,()->chooseTrainingMode(TrainingMode.TYPE,false));
@@ -5702,6 +5766,7 @@ public class MainActivity extends Activity {
         ReviewLogic.Schedule unchanged=new ReviewLogic.Schedule(e.repetitions,e.days,e.ease,e.due);
         // Per-verse and grouped schedules are now authoritative; do not update legacy entry-wide schedule.
         store.update(e,unchanged,learned,accuracy);
+        if(passed)recordStudyActivity();
         checked=true;saveTrainingSession();render();
     }
     private TextView typedFeedback(String expected,String actual){
@@ -5829,6 +5894,7 @@ public class MainActivity extends Activity {
             mainAction=button("Продолжить",true,()->{
                 if(groupMode)groupIntroDone=true;
                 else store.finishExercise(e.id,activeStep.start,1);
+                recordStudyActivity();
                 lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();mask=0;
                 saveTrainingSession();render();
             });
@@ -6823,6 +6889,7 @@ public class MainActivity extends Activity {
             lessonVariant=0;lessonChunk=0;lessonWriteVariant=0;resetLessonTiles();draft="";lastAccuracy=-1;
             lessonWriteHadFeedback=false;
         }
+        recordStudyActivity();
         saveTrainingSession();render();
     }
     private List<LessonCurriculumLogic.Variant> writingVariants(LocalStore.Entry e){
@@ -7308,6 +7375,7 @@ public class MainActivity extends Activity {
                 openAnswerReview(feedback);
                 return;
             }
+            recordStudyActivity();
             practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
             lessonWriteVariant=lessonVariants(
                 ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
@@ -7317,6 +7385,7 @@ public class MainActivity extends Activity {
             return;
         }
         if(exact && !full){
+            recordStudyActivity();
             lessonWriteVariant++;inlineDrafts=new String[0];draft="";lastAccuracy=-1;lessonWriteHadFeedback=false;
             lessonSeed=new Random().nextLong();saveTrainingSession();render();return;
         }
@@ -7366,6 +7435,7 @@ public class MainActivity extends Activity {
             showRecallSaveError(error);
             return;
         }
+        recordStudyActivity();
         lessonPracticeAgain=false;draft="";lastAccuracy=100;passed=true;checked=true;
         if(reviewMode)getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit()
             .remove("review_pending").apply();
@@ -8341,7 +8411,7 @@ public class MainActivity extends Activity {
     private void finishRunLine(){
         if(runLines.isEmpty())return;
         RunLine line=runLines.get(runCursor);
-        if(runChecked&&runPassed)runCorrect++;
+        if(runChecked&&runPassed){runCorrect++;recordStudyActivity();}
         else runMistakes.add(line.reference);
         runCursor++;runDraft="";runChecked=false;runPassed=false;
         if(runCursor>=runLines.size()){

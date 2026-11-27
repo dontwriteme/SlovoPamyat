@@ -24,6 +24,7 @@ final class LearningReset {
         SharedPreferences journal=context.getSharedPreferences(JOURNAL,Context.MODE_PRIVATE);
         if(!journal.getBoolean(PENDING,false))return false;
         store.resetLearningProgress();
+        require(context.getSharedPreferences("home_verse",Context.MODE_PRIVATE).edit().clear().commit());
         for(String name:SESSION_GROUPS)
             require(context.getSharedPreferences(name,Context.MODE_PRIVATE).edit().clear().commit());
         SharedPreferences unified=context.getSharedPreferences("unified_library_ui",Context.MODE_PRIVATE);

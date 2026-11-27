@@ -265,6 +265,7 @@ public final class SequenceRecallController {
                 }
                 p.edit().putBoolean(key+"done:"+plan.id,true)
                     .remove("active_entry").remove("active_fingerprint").remove("active_plan").apply();
+                if(a instanceof MainActivity)((MainActivity)a).recordStudyActivity();
                 continueLesson.run();
                 return;
             }
