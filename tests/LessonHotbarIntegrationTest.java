@@ -37,6 +37,75 @@ public class LessonHotbarIntegrationTest {
         call("openTraining",new Class<?>[]{long.class},id);
     }
     @After public void close()throws Exception{waitLoader();if(lifecycle!=null)ActivityTestWorkers.destroy(lifecycle);}
+    @Test public void developerLabUsesRealExercisesWithoutChangingSavedLearning()throws Exception{
+        int oldFlags=activity.getApplicationInfo().flags;
+        activity.getApplicationInfo().flags|=android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE;
+        android.content.SharedPreferences real=activity.getSharedPreferences("study_session",0);
+        Map<String,?> before=new HashMap<>(real.getAll());
+        int completed=store.exerciseDone(id,0),mastered=store.masteryCount(id);
+        List<Bible.Verse> lines=Arrays.asList(
+            new Bible.Verse("1:1","Слово истины живо и дает свет каждому человеку."),
+            new Bible.Verse("1:2","Мир и радость."),
+            new Bible.Verse("1:3","Благодать вам."));
+        for(DeveloperLessonLab.Test test:new DeveloperLessonLab.Test[]{
+            DeveloperLessonLab.Test.INTRO100,DeveloperLessonLab.Test.BUILD_FIRST,
+            DeveloperLessonLab.Test.WRITE_GAPS,DeveloperLessonLab.Test.WRITE_LAST,
+            DeveloperLessonLab.Test.WRITE_FULL,DeveloperLessonLab.Test.SUCCESS,
+            DeveloperLessonLab.Test.COLLECTION}){
+            DeveloperLessonLab.Spec spec=new DeveloperLessonLab.Spec("Свой текст",lines,test,6);
+            android.content.Intent intent=new android.content.Intent(activity,DeveloperLessonActivity.class)
+                .putExtra(DeveloperLessonLab.EXTRA,spec.encode());
+            ActivityController<DeveloperLessonActivity> controller=
+                Robolectric.buildActivity(DeveloperLessonActivity.class,intent).create().start().resume();
+            DeveloperLessonActivity lab=controller.get();
+            try{
+                Field rootField=MainActivity.class.getDeclaredField("root");rootField.setAccessible(true);
+                View labRoot=(View)rootField.get(lab);assertNotNull(labRoot);
+                Field storeField=MainActivity.class.getDeclaredField("store");storeField.setAccessible(true);
+                LocalStore sandbox=(LocalStore)storeField.get(lab);
+                assertNotSame(store,sandbox);
+                assertNull(sandbox.getDatabaseName());
+                Field active=MainActivity.class.getDeclaredField("activeStep");active.setAccessible(true);
+                if(test!=DeveloperLessonLab.Test.COLLECTION){
+                    StudyPlanLogic.Step step=(StudyPlanLogic.Step)active.get(lab);
+                    assertEquals(0,step.start);assertEquals(3,step.end);
+                }
+                switch(test){
+                    case INTRO100:assertNotNull(labRoot.findViewWithTag("lesson-intro-hide"));break;
+                    case BUILD_FIRST:assertNotNull(labRoot.findViewWithTag("assembly-answer"));break;
+                    case WRITE_GAPS:case WRITE_LAST:assertNotNull(labRoot.findViewWithTag("writing-gap-inputs"));break;
+                    case WRITE_FULL:assertNotNull(labRoot.findViewWithTag("writing-full-input"));break;
+                    case SUCCESS:case COLLECTION:assertNotNull(labRoot.findViewWithTag(SuccessLampView.TAG));break;
+                    default:fail("Unexpected test");
+                }
+                lab.getSharedPreferences("study_session",0).edit().putString("lab_probe","sandbox").apply();
+                assertFalse(real.contains("lab_probe"));
+            }finally{
+                controller.pause().stop().destroy();
+                ActivityTestWorkers.awaitDestroyed(lab);
+            }
+        }
+        activity.getApplicationInfo().flags=oldFlags;
+        assertEquals(before,real.getAll());
+        assertEquals(completed,store.exerciseDone(id,0));
+        assertEquals(mastered,store.masteryCount(id));
+    }
+
+    @Test public void developerLabSpecPreservesAllVariantsAndSelectedPassage(){
+        for(int n:new int[]{1,2,3,5,10,20}){
+            List<Bible.Verse> lines=new ArrayList<>();
+            for(int i=0;i<n;i++)lines.add(new Bible.Verse("1:"+(i+1),"Слово "+i));
+            for(DeveloperLessonLab.Test test:DeveloperLessonLab.Test.values()){
+                DeveloperLessonLab.Spec spec=DeveloperLessonLab.Spec.decode(
+                    new DeveloperLessonLab.Spec("Свой текст",lines,test,15).encode());
+                assertEquals(test,spec.test);
+                assertEquals(n,spec.lines.size());
+                assertEquals(lines.get(n-1).text,spec.lines.get(n-1).text);
+                assertEquals(15,spec.landscape);
+            }
+        }
+    }
+
     @Test public void verseAndLinkedCompletionUseSameLampWithoutCrownOrQuote()throws Exception{
         call("renderCompletion",new Class<?>[]{LocalStore.Entry.class},store.entry(id));
         View root=(View)get("root");
