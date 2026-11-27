@@ -21,10 +21,25 @@ final class KeyboardPreferences {
     }
     static int inputType(int base,boolean enabled){
         if((base&InputType.TYPE_MASK_CLASS)!=InputType.TYPE_CLASS_TEXT)return base;
-        int type=base&~(InputType.TYPE_TEXT_FLAG_AUTO_CORRECT|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        return type|(enabled?InputType.TYPE_TEXT_FLAG_AUTO_CORRECT:InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        int type=base&~(InputType.TYPE_TEXT_FLAG_AUTO_CORRECT|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS|
+            InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE);
+        if(enabled)return type|InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
+        // Some keyboards ignore NO_SUGGESTIONS for ordinary text. A visible-password
+        // variation additionally requests literal, non-predictive input without masking.
+        return (type&~InputType.TYPE_MASK_VARIATION)|InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD|
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
     }
     static void apply(EditText editor,int base){
-        editor.setInputType(inputType(base,enabled(editor.getContext())));
+        boolean enabled=enabled(editor.getContext());
+        int type=inputType(base,enabled);
+        if(!enabled&&(base&InputType.TYPE_MASK_CLASS)==InputType.TYPE_CLASS_TEXT){
+            // Configure normal text layout first; raw input type avoids password
+            // typography changes and preserves multiline editing and visible text.
+            editor.setInputType(base|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            editor.setRawInputType(type);
+            editor.setImeOptions(editor.getImeOptions()|
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
+            editor.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO);
+        }else editor.setInputType(type);
     }
 }

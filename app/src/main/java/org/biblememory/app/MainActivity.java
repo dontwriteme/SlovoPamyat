@@ -7807,7 +7807,7 @@ public class MainActivity extends Activity {
         add(keyboard,displayText("Клавиатура",20),0);
         Switch autocorrect=new Switch(this);
         autocorrect.setTag("settings-autocorrect");
-        autocorrect.setText("Автозамена");
+        autocorrect.setText("Подсказки и автозамена");
         autocorrect.setTextColor(WHITE);
         autocorrect.setTextSize(17);
         autocorrect.setMinHeight(dp(48));
@@ -7822,8 +7822,8 @@ public class MainActivity extends Activity {
             prepareOtherTabs();
         });
         add(keyboard,autocorrect,8);
-        TextView keyboardHint=txt("Автоматическое исправление слов во всех текстовых полях, "+
-            "включая упражнения. Работа зависит от установленной клавиатуры.",13,MUTED,false);
+        TextView keyboardHint=txt("При выключении клавиатура не должна предлагать или исправлять слова. "+
+            "Действует во всех текстовых полях, включая упражнения. Некоторые клавиатуры могут игнорировать запрет.",13,MUTED,false);
         keyboardHint.setLineSpacing(dp(3),1.1f);
         add(keyboard,keyboardHint,4);
         add(content,keyboard,14);
