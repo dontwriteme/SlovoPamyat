@@ -32,8 +32,8 @@ public final class DeveloperModeController {
         return (context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
     public static boolean isEnabled(Context context) {
-        return isDebugBuild(context) && context.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-                .getBoolean("enabled",false);
+        return isDebugBuild(context) && (context instanceof DeveloperLessonActivity ||
+            context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getBoolean("enabled",false));
     }
 
     private static int dp(Context context, int x) {
@@ -118,6 +118,8 @@ public final class DeveloperModeController {
                 "Всего стихов: "+entry.lines().size()+
                 " · Первоначально освоено: "+learnedCount+"\n"+
                 "Непрерывный фрагмент для тестов: "+contiguous,14,INK,false),8);
+
+        action(a,layout,"Все упражнения · тестовая лаборатория",()->DeveloperLessonLab.open(a,entry));
 
         if(contiguous>=3){
             action(a,layout,"Проверить переходы · 3 стиха",()->
