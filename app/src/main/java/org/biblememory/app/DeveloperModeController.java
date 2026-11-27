@@ -155,8 +155,8 @@ public final class DeveloperModeController {
             }
         }
         if(contiguous<3){
-            add(layout,item(a,"Для теста нужен непрерывный библейский отрывок из 3 или более стихов. " +
-                    "Сохраните такой отрывок и откройте его в уроке.",14,SUBTLE,false),8);
+            add(layout,item(a,"Старые быстрые проверки требуют 3 соседних стихов. " +
+                    "В тестовой лаборатории выше можно выбрать любой встроенный отрывок.",14,SUBTLE,false),8);
         }
         action(a,layout,"Очистить только тестовые ответы",()->{
             a.getSharedPreferences(TEST_PREFS,Context.MODE_PRIVATE).edit().clear().apply();
