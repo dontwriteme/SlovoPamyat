@@ -411,6 +411,48 @@ public class LessonHotbarIntegrationTest {
             }
         }
     }
+    @Test @Config(qualifiers="w320dp-h560dp")
+    public void longPassageScrollsIndependentlyOfPinnedIntroActions()throws Exception{
+        StringBuilder longText=new StringBuilder();
+        for(int i=0;i<24;i++)longText.append("Слово истины живо и дает свет каждому человеку. ");
+        id=store.add(store.entry(id).groupId,"Длинный отрывок","Свой текст",
+            Collections.singletonList(new Bible.Verse("1:1",longText.toString().trim())));
+        call("openTraining",new Class<?>[]{long.class},id);
+        ViewGroup root=(ViewGroup)get("root");
+        ScrollView scroll=(ScrollView)get("currentScroller");
+        ViewGroup footer=root.findViewWithTag("lesson-intro-footer");
+        TextView hide=root.findViewWithTag("lesson-intro-hide");
+        TextView next=text(root,"Продолжить");
+        assertNotNull(footer);assertNotNull(hide);assertNotNull(next);
+        assertSame(root,footer.getParent());
+        assertSame(footer,hide.getParent());
+        assertSame(footer,next.getParent());
+        assertNull(scroll.findViewWithTag("lesson-intro-hide"));
+        layoutIntro(root,320);
+        assertEquals(root.getHeight(),footer.getBottom());
+        assertTrue(scroll.getBottom()<=footer.getTop());
+        assertTrue(hide.getBottom()<next.getTop());
+        assertTrue(scroll.getChildAt(0).getHeight()>scroll.getHeight());
+        int footerTop=footer.getTop(),hideTop=hide.getTop();
+        scroll.scrollTo(0,Math.min(150,scroll.getChildAt(0).getHeight()-scroll.getHeight()));
+        int position=scroll.getScrollY();
+        assertTrue(position>0);
+        for(int expected:new int[]{25,50,75,100,0}){
+            hide.performClick();
+            layoutIntro(root,320);
+            assertSame(scroll,get("currentScroller"));
+            assertEquals(expected,get("mask"));
+            assertEquals(position,scroll.getScrollY());
+            assertEquals(footerTop,footer.getTop());
+            assertEquals(hideTop,hide.getTop());
+            assertEquals(root.getHeight(),footer.getBottom());
+        }
+        next.performClick();
+        assertNull(((View)get("root")).findViewWithTag("lesson-intro-footer"));
+        assertNull(((View)get("root")).findViewWithTag("lesson-intro-hide"));
+        assertEquals(1,store.exerciseDone(id,0));
+    }
+
     private void layoutIntro(View root,int width){
         root.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(560,View.MeasureSpec.EXACTLY));
@@ -633,7 +675,10 @@ public class LessonHotbarIntegrationTest {
     }
 
     @Test public void lessonFootersUseThePageBackgroundAcrossPhases()throws Exception{
-        assertSeamlessFooter();
+        ViewGroup introFooter=((View)get("root")).findViewWithTag("lesson-intro-footer");
+        assertNotNull(introFooter);
+        assertNotNull(introFooter.getBackground());
+        assertEquals(2,introFooter.getChildCount());
         store.finishExercise(id,0,1);invoke("render");
         assertSeamlessFooter();
         openWritingFixture();
