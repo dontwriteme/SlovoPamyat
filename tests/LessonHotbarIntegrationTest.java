@@ -380,6 +380,14 @@ public class LessonHotbarIntegrationTest {
         ViewGroup hint=root.findViewWithTag("lesson-intro-hint");
         TextView hide=text(root,"Скрыть 25% слов");
         assertNotNull(hint);assertNotNull(hide);
+        FrameLayout body=hint.findViewWithTag("lesson-intro-hint-body");
+        TextView title=hint.findViewWithTag("lesson-intro-hint-title");
+        assertNotNull(body);assertNotNull(title);
+        assertEquals("ПОДСКАЗКА",title.getText().toString());
+        assertNotNull(title.getCompoundDrawablesRelative()[0]);
+        assertTrue(body.getMeasureAllChildren());
+        assertTrue(hint.getBackground() instanceof android.graphics.drawable.GradientDrawable);
+        assertEquals(0xFFE9EBD9,((android.graphics.drawable.GradientDrawable)hint.getBackground()).getColor().getDefaultColor());
         TextView read=text(hint,LearningHelp.INTRO_READ);
         TextView hold=text(hint,LearningHelp.INTRO_HOLD);
         assertNotNull(read);assertNotNull(hold);
@@ -387,7 +395,11 @@ public class LessonHotbarIntegrationTest {
             layoutIntro(root,width);
             int height=hint.getHeight(),top=hide.getTop();
             assertTrue(height>0);
-            assertEquals(Math.max(read.getMeasuredHeight(),hold.getMeasuredHeight()),height);
+            assertEquals(Math.max(read.getMeasuredHeight(),hold.getMeasuredHeight()),body.getMeasuredHeight());
+            assertTrue(height>body.getMeasuredHeight());
+            assertTrue(hint.getPaddingLeft()>0);
+            assertEquals(0xFF59634D,read.getCurrentTextColor());
+            assertEquals(read.getCurrentTextColor(),hold.getCurrentTextColor());
             for(int expected:new int[]{25,50,75,100,0}){
                 hide.performClick();
                 layoutIntro(root,width);
