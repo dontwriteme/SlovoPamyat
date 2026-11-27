@@ -155,6 +155,7 @@ public class MainActivity extends Activity {
     private boolean groupBuildDone=false;
     private boolean groupIntroDone=false;
     private String[] inlineDrafts=new String[0];
+    private int[] inlineGapPositions=new int[0];
     private final List<EditText> inlineFields=new ArrayList<>();
     private final List<String> inlineExpected=new ArrayList<>();
 
@@ -5771,7 +5772,8 @@ public class MainActivity extends Activity {
         boolean assembling=phase==LessonCurriculumLogic.Phase.BUILD;
         boolean writingInput=phase==LessonCurriculumLogic.Phase.WRITE&&answerReview==null;
         boolean introducing=phase==LessonCurriculumLogic.Phase.INTRO;
-        boolean scenicLesson=assembling||writingInput||introducing;
+        boolean reviewingGaps=phase==LessonCurriculumLogic.Phase.WRITE&&answerReview!=null&&answerReview.gapReview!=null;
+        boolean scenicLesson=assembling||writingInput||introducing||reviewingGaps;
         root=column();
         applyLessonLandscape(root,e);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
@@ -5787,7 +5789,7 @@ public class MainActivity extends Activity {
             close.setTextColor(BUILD_INK);
             close.setBackground(outlined(0xFFFFF1E2,24,0xFFFFF9F0));
             close.setElevation(dp(2));
-            TextView title=displayText(introducing?"Ознакомление":assembling?"Сборка":"Написание",27);
+            TextView title=displayText(reviewingGaps?"Проверка":introducing?"Ознакомление":assembling?"Сборка":"Написание",27);
             title.setTextColor(BUILD_INK);
             title.setGravity(Gravity.CENTER);
             topRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -5820,6 +5822,7 @@ public class MainActivity extends Activity {
         }
         TextView mainAction;
         TextView introHideAction=null;
+        LinearLayout gapReviewNavigation=null;
         int number=stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
             assemblyReference(e);
@@ -5843,7 +5846,10 @@ public class MainActivity extends Activity {
         } else if(phase==LessonCurriculumLogic.Phase.WRITE){
             trainingMode=TrainingMode.TYPE;
             if(answerReview!=null){
-                renderAnswerReview(answerReview);
+                if(reviewingGaps){
+                    assemblyReference(e);
+                    gapReviewNavigation=renderGapAnswerReview(answerReview.gapReview,scroll);
+                }else renderAnswerReview(answerReview);
                 mainAction=button("Написать ещё раз",true,this::retryLessonWriting);
                 styleLessonAction(mainAction,true);
             }else{
@@ -5858,6 +5864,7 @@ public class MainActivity extends Activity {
             return;
         }
         renderLessonHotbar(top,phase,e);
+        if(gapReviewNavigation!=null)add(top,gapReviewNavigation,8);
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
         if(introHideAction!=null){
             footer.setTag("lesson-intro-footer");
@@ -6902,6 +6909,7 @@ public class MainActivity extends Activity {
         String[] tokens=ExerciseTextLogic.tokens(source);
         int[] originalPositions=lessonMissingPositions(tokens,variant);
         int[] missing=InlineGapLogic.wordPositions(tokens,originalPositions);
+        inlineGapPositions=missing.clone();
         // A separator marks independently editable gaps, preserving spaces inside one accepted variant.
         inlineDrafts=InlineGapLogic.restore(draft,tokens,originalPositions);
         LinearLayout panel=column();
@@ -7038,10 +7046,12 @@ public class MainActivity extends Activity {
     private static final class AnswerReview {
         final String expected,actual;
         final AnswerReviewLogic.Result result;
-        AnswerReview(String expected,String actual,AnswerReviewLogic.Result result){
+        final GapAnswerReview gapReview;
+        AnswerReview(String expected,String actual,AnswerReviewLogic.Result result,GapAnswerReview gapReview){
             this.expected=expected;
             this.actual=actual;
             this.result=result;
+            this.gapReview=gapReview;
         }
     }
     private AnswerReview answerReview;
@@ -7075,6 +7085,113 @@ public class MainActivity extends Activity {
             0xFFF9E9E4,0xFFECD2CA,0xFF923C37);
         addAnswerReviewCard("Правильный ответ",review.expected,Collections.emptyList(),true,
             0xFFF0F3E6,0xFFDDE5D4,0xFF436044);
+    }
+
+    /** Gap feedback stays in the original verse, never in a flattened word list. */
+    private LinearLayout renderGapAnswerReview(GapAnswerReview review,ScrollView scroll){
+        LinearLayout navigation=column();
+        navigation.setTag("writing-gap-review-navigation");
+        navigation.setPadding(dp(10),dp(6),dp(10),dp(6));
+        navigation.setBackground(outlined(0xFFFFF1E2,16,0xFFE4D4C1));
+        TextView summary=txt("Верно: "+review.correctCount()+"  ·  Ошибок: "+review.errorCount(),14,BUILD_INK,true);
+        summary.setGravity(Gravity.CENTER);
+        navigation.addView(summary,new LinearLayout.LayoutParams(-1,-2));
+        List<LinearLayout> errors=new ArrayList<>();
+        for(GapAnswerReview.Verse verse:review.verses()){
+            LinearLayout panel=column();
+            panel.setTag("writing-gap-review-verse:"+verse.reference());
+            panel.setPadding(dp(14),dp(12),dp(14),dp(14));
+            panel.setBackground(outlined(0xFFFFF2E1,23,0xFFFFFAF3));
+            TextView ref=txt(verse.reference(),14,0xFF735D51,true);
+            add(panel,ref,0);
+            VerseFlowLayout flow=new VerseFlowLayout(this,dp(5),dp(6));
+            String[] tokens=verse.tokens().toArray(new String[0]);
+            for(int i=0;i<tokens.length;i++){
+                GapAnswerReview.Gap gap=verse.gaps().get(i);
+                if(gap==null){
+                    addVerseToken(flow,tokens,i,verseWord(tokens[i]),false);
+                }else if(gap.correct()){
+                    TextView word=verseWord(gap.expected());
+                    word.setTextColor(0xFF436044);
+                    word.setPadding(dp(5),dp(6),dp(5),dp(6));
+                    word.setBackground(outlined(0xFFE9EDDA,6,0xFFCCD6B5));
+                    word.setContentDescription(gap.expected()+", верно");
+                    addVerseToken(flow,tokens,i,word,true);
+                }else{
+                    LinearLayout correction=column();
+                    correction.setTag("writing-gap-review-error:"+errors.size());
+                    correction.setGravity(Gravity.CENTER);
+                    correction.setPadding(dp(6),dp(5),dp(6),dp(5));
+                    styleGapCorrection(correction,false);
+                    boolean empty=gap.actual().trim().isEmpty();
+                    TextView typed=txt(empty?"Не заполнено":gap.actual(),13,0xFFAD3C37,false);
+                    typed.setGravity(Gravity.CENTER);
+                    if(!empty)typed.setPaintFlags(typed.getPaintFlags()|Paint.STRIKE_THRU_TEXT_FLAG);
+                    correction.addView(typed,new LinearLayout.LayoutParams(-2,-2));
+                    TextView expected=verseWord(gap.expected());
+                    expected.setTextColor(0xFF436044);
+                    expected.setMinHeight(0);
+                    expected.setPadding(0,dp(2),0,0);
+                    correction.addView(expected,new LinearLayout.LayoutParams(-2,-2));
+                    correction.setContentDescription((empty?"Пропуск не заполнен":"Ваш ответ: "+gap.actual())+
+                        ". Правильно: "+gap.expected());
+                    errors.add(correction);
+                    addVerseToken(flow,tokens,i,correction,true);
+                }
+            }
+            add(panel,flow,5);
+            add(content,panel,10);
+        }
+        if(errors.isEmpty())return navigation;
+        LinearLayout controls=row();controls.setGravity(Gravity.CENTER_VERTICAL);
+        TextView previous=gapReviewArrow("‹","Предыдущая ошибка");
+        TextView next=gapReviewArrow("›","Следующая ошибка");
+        TextView counter=txt("",14,BUILD_INK,true);counter.setGravity(Gravity.CENTER);
+        counter.setTag("writing-gap-review-counter");
+        controls.addView(previous,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        controls.addView(counter,new LinearLayout.LayoutParams(0,-2,1));
+        controls.addView(next,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        add(navigation,controls,2);
+        int[] selected={-1};
+        java.util.function.IntConsumer select=index->{
+            if(index<0||index>=errors.size()||currentScroller!=scroll)return;
+            if(selected[0]>=0)styleGapCorrection(errors.get(selected[0]),false);
+            selected[0]=index;
+            LinearLayout target=errors.get(index);
+            styleGapCorrection(target,true);
+            counter.setText("Ошибка "+(index+1)+" из "+errors.size());
+            previous.setEnabled(index>0);previous.setAlpha(index>0?1f:0.4f);
+            next.setEnabled(index+1<errors.size());next.setAlpha(index+1<errors.size()?1f:0.4f);
+            Rect rect=new Rect(0,0,target.getWidth(),target.getHeight());
+            scroll.offsetDescendantRectToMyCoords(target,rect);
+            scroll.smoothScrollTo(0,Math.max(0,rect.top-dp(12)));
+        };
+        previous.setOnClickListener(v->select.accept(selected[0]-1));
+        next.setOnClickListener(v->select.accept(selected[0]+1));
+        // Start after the first actual layout, when all verse positions are known.
+        content.addOnLayoutChangeListener(new View.OnLayoutChangeListener(){
+            @Override public void onLayoutChange(View view,int l,int t,int r,int b,int ol,int ot,int or,int ob){
+                if(b<=t)return;
+                view.removeOnLayoutChangeListener(this);
+                scroll.post(()->{if(selected[0]<0)select.accept(0);});
+            }
+        });
+        return navigation;
+    }
+
+    private TextView gapReviewArrow(String glyph,String description){
+        TextView button=txt(glyph,26,BUILD_INK,true);
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(outlined(0xFFFFEBD5,12,0xFFA47B55));
+        button.setContentDescription(description);
+        button.setFocusable(true);
+        return button;
+    }
+
+    private void styleGapCorrection(LinearLayout correction,boolean selected){
+        GradientDrawable frame=shape(0xFFF8DDD4,7);
+        frame.setStroke(dp(selected?2:1),selected?0xFFAD3C37:0xFFE6B4A7);
+        correction.setBackground(frame);
     }
 
     private LinearLayout answerReviewPanel(int background,int border){
@@ -7159,7 +7276,7 @@ public class MainActivity extends Activity {
     private final Handler writingHandler=new Handler(Looper.getMainLooper());
     private java.util.concurrent.Future<?> writingTask;
     private record WritingCheck(WritingAssessment.Input input,LocalStore.Entry entry,
-                                StudyPlanLogic.Step step,String draft) {}
+                                StudyPlanLogic.Step step,String draft,GapAnswerReview gapReview) {}
     private WritingCheck pendingWritingCheck;
 
     private void cancelWritingCheck(){
@@ -7184,7 +7301,10 @@ public class MainActivity extends Activity {
         WritingAssessment.Input input=new WritingAssessment.Input(expected,entered,
             AcceptedTextLogic.matthew513(e.reference,refs),full,practiceWeakFragment,verses,
             full?Collections.emptyList():inlineExpected, full?Collections.emptyList():Arrays.asList(inlineDrafts));
-        WritingCheck check=new WritingCheck(input,e,activeStep,draft);
+        // Capture the field-to-token mapping before asynchronous assessment or any redraw.
+        GapAnswerReview gapReview=full?null:GapAnswerReview.create(refs,verses,
+            inlineGapPositions,input.gaps(),input.answers(),input.special());
+        WritingCheck check=new WritingCheck(input,e,activeStep,draft,gapReview);
         pendingWritingCheck=check;
         if(!input.requiresWorker()){
             applyWritingAssessment(check,WritingAssessment.evaluate(input));
@@ -7222,7 +7342,8 @@ public class MainActivity extends Activity {
             selectedEntry!=e.id||activeStep!=check.step()||!draft.equals(check.draft()))return;
         WritingAssessment.Input input=check.input();
         boolean exact=result.exact(),full=input.full();
-        AnswerReview feedback=exact?null:new AnswerReview(input.expected(),input.actual(),result.feedback());
+        AnswerReview feedback=exact?null:new AnswerReview(input.expected(),input.actual(),result.feedback(),
+            check.gapReview());
         if(input.actual().trim().isEmpty()){openAnswerReview(feedback);return;}
         if(practiceWeakFragment){
             if(!exact){

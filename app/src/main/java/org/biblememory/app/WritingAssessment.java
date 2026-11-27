@@ -35,7 +35,9 @@ final class WritingAssessment {
             normalized.add(words);
             if(!words.isEmpty()&&words.equals(typed))exact=true;
         }
-        exact=exact&&(input.full||InlineGapLogic.complete(input.gaps,input.answers.toArray(new String[0]),input.special));
+        // Partial writing is graded by the individual field contract. Flattened text
+        // cannot override a valid per-field accepted spelling variant.
+        if(!input.full)exact=InlineGapLogic.complete(input.gaps,input.answers.toArray(new String[0]),input.special);
         if(exact)return new Result(true,100,expected,null,null);
 
         String closest=expected;
