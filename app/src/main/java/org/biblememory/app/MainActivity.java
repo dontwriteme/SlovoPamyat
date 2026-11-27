@@ -5828,7 +5828,16 @@ public class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
         scroll.setClipToPadding(false);currentScroller=scroll;
         content=column();content.setPadding(dp(20),dp(11),dp(20),dp(18));scroll.addView(content);
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        // Only the introduction lets the passage scroll behind its fixed actions.
+        FrameLayout introOverlay=introducing?new FrameLayout(this):null;
+        if(introOverlay!=null){
+            introOverlay.setTag("lesson-intro-overlay");
+            scroll.setVerticalScrollBarEnabled(false);
+            introOverlay.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+            root.addView(introOverlay,new LinearLayout.LayoutParams(-1,0,1));
+        }else{
+            root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        }
         TextView mainAction;
         TextView introHideAction=null;
         int number=stepCursor+1;
@@ -5872,11 +5881,8 @@ public class MainActivity extends Activity {
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
         if(introHideAction!=null){
             footer.setTag("lesson-intro-footer");
-            footer.setBackgroundColor(0xFFF8EDE0);
             footer.setPadding(dp(24),dp(9),dp(24),dp(18));
-            View separator=new View(this);
-            separator.setBackgroundColor(0xFFD4C6B6);
-            root.addView(separator,new LinearLayout.LayoutParams(-1,dp(1)));
+            // No panel background or separator: only the buttons are opaque.
             footer.addView(introHideAction,new LinearLayout.LayoutParams(-1,-2));
         }
         animateLessonPress(mainAction);
@@ -5884,7 +5890,20 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams mainParams=new LinearLayout.LayoutParams(-1,scenicLesson||answerReview!=null?-2:dp(58));
         if(introHideAction!=null)mainParams.topMargin=dp(8);
         footer.addView(mainAction,mainParams);
-        root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+        if(introOverlay!=null){
+            introOverlay.addView(footer,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
+            // Reserve the actual action height at the end of the scroll range,
+            // including wrapped labels at large font scales. clipToPadding=false
+            // keeps the passage visible behind the actions during scrolling.
+            footer.addOnLayoutChangeListener((v,l,t,right,b,oldL,oldT,oldR,oldB)->{
+                int inset=b-t;
+                if(scroll.getPaddingBottom()!=inset)
+                    scroll.setPadding(scroll.getPaddingLeft(),scroll.getPaddingTop(),
+                        scroll.getPaddingRight(),inset);
+            });
+        }else{
+            root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
+        }
         if(writingInput)KeyboardAwareFooter.bind(root,footer);
         setContentView(root);
     }
