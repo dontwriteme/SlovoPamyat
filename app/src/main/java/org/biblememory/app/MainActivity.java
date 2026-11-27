@@ -38,7 +38,7 @@ import android.view.inputmethod.EditorInfo;
 import java.util.*;
 
 /** Bright, entirely native Android UI with zero runtime dependencies. */
-public final class MainActivity extends Activity {
+public class MainActivity extends Activity {
     // The warm landscape-based interface is shared by every screen, not just the home hero.
     // Accessible dark ink sits over opaque ivory reading surfaces. Study logic is unchanged.
     private static final int BG=0xFFFFF1E8, CARD=0xFFFFFAF5, CARD_ALT=0xFFF7E4D8;
@@ -50,6 +50,8 @@ public final class MainActivity extends Activity {
     private static final int EXPORT=10,IMPORT=11;
     private enum Screen {HOME,BOOKS,CHAPTERS,VERSES,CHAPTER,ENTRIES,CUSTOM,TRAIN,DUE,CARDS,CARD_DECK,CARD_PICK,BIBLE_PICKER,PICKER_BOOKS,PICKER_CHAPTERS,PICKER_VERSES,PICKER_TEXT,CARD_SESSION,REORDER_STUDY,REORDER_CARDS,COLLECTIONS,COLLECTION_DETAIL,COLLECTION_BOOK,COLLECTION_CHAPTER,SETTINGS,RUN,RUN_SUMMARY,COLLECTION_COMPLETE}
     private Screen screen=Screen.HOME;
+    private DeveloperLessonLab.Spec developerSpec;
+    private boolean developerSandbox(){return this instanceof DeveloperLessonActivity;}
     private long completedCollectionId=-1;
     private int completedCollectionVerses;
     private static final String UNIFIED_PREFS="unified_library_ui";
@@ -460,8 +462,111 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(CARD);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        if(developerSandbox()){
+            if(!DeveloperModeController.isEnabled(this)){finish();return;}
+            try{openDeveloperLesson(DeveloperLessonLab.Spec.decode(getIntent().getStringExtra(DeveloperLessonLab.EXTRA)));}
+            catch(RuntimeException failure){
+                android.util.Log.e("LessonLab","Unable to open test",failure);
+                toast("Не удалось запустить тест");finish();
+            }
+            return;
+        }
         startupState=savedInstanceState;
         if(BackupCoordinator.attach(this))openData();
+    }
+
+    /** An independent debug Activity uses real lesson logic on a private in-memory store. */
+    private void openDeveloperLesson(DeveloperLessonLab.Spec spec){
+        developerSpec=spec;
+        store=new LocalStore(this,bible,null);
+        getSharedPreferences("gap_rotation",MODE_PRIVATE).edit().clear().apply();
+        getSharedPreferences(SESSION_PREFS,MODE_PRIVATE).edit().clear().apply();
+        long collectionId=store.createUnifiedCollection("Тестовая коллекция");
+        LocalStore.UnifiedCollection collection=store.unifiedCollection(collectionId);
+        activeUnifiedId=collectionId;selectedGroup=collection.groupId;
+        selectedEntry=store.add(collection.groupId,spec.reference,spec.reference,spec.lines);
+        LocalStore.Entry entry=store.entry(selectedEntry);
+        int count=spec.lines.size();
+        groupMode=count>1;
+        studyStage=groupMode?(count<=3?StudyPlanLogic.Stage.CHAIN:
+            count<=10?StudyPlanLogic.Stage.SECTION:StudyPlanLogic.Stage.CHAPTER):StudyPlanLogic.Stage.VERSE;
+        forcedStep=groupMode?new StudyPlanLogic.Step(0,count,spec.reference):null;
+        stepCursor=0;resetTrainingStep(entry);
+        DeveloperLessonLab.Test test=spec.test;
+        if(test.build()||test.write()){
+            groupIntroDone=true;groupBuildDone=test.write();
+            if(!groupMode)store.finishExercise(selectedEntry,0,test.write()?3:1);
+            lessonVariant=test.build()?test.variant():0;
+            lessonWriteVariant=test.write()?test.variant():0;
+            if(test.name().endsWith("FIRST"))lessonSeed&=~1L;
+            if(test.name().endsWith("LAST"))lessonSeed|=1L;
+        }
+        mask=test.mask();
+        if(test==DeveloperLessonLab.Test.WRITE_WEAK){
+            practiceWeakFragment=true;
+            weakFragmentText=spec.lines.get(0).text;
+        }
+        screen=Screen.TRAIN;
+        if(test==DeveloperLessonLab.Test.SUCCESS){checked=true;passed=true;}
+        if(test==DeveloperLessonLab.Test.COLLECTION){
+            completedCollectionId=collectionId;completedCollectionVerses=count;
+            screen=Screen.COLLECTION_COMPLETE;
+        }
+        render();
+        if(test==DeveloperLessonLab.Test.EMPTY||test==DeveloperLessonLab.Test.WRONG){
+            if(test==DeveloperLessonLab.Test.WRONG)fillDeveloperAnswer(false);
+            validateLessonWriting(entry);
+        }
+    }
+
+    private void openDeveloperPanel(LocalStore.Entry e){
+        if(!developerSandbox()){
+            int bookId=bookForEntry(e);
+            DeveloperModeController.open(this,e,
+                chapter->bookId>0&&bible.isReady()?bible.chapter(bookId,chapter).size():0,
+                store.masteryCount(e.id));
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("DEV · тестовый урок")
+            .setItems(new String[]{"Другой сценарий","Заполнить правильно","Ввести ошибку",
+                "Перезапустить этот тест","Выйти из теста"},(dialog,which)->{
+                if(which==0)DeveloperLessonLab.open(this,e);
+                else if(which==1||which==2)fillDeveloperAnswer(which==1);
+                else if(which==3)recreate();
+                else finish();
+            }).setNegativeButton("Закрыть",null).show();
+    }
+
+    private void fillDeveloperAnswer(boolean correct){
+        if(!developerSandbox()||activeEntry==null||activeStep==null)return;
+        LessonCurriculumLogic.Phase phase=lessonPhase(activeEntry);
+        if(phase==LessonCurriculumLogic.Phase.BUILD){
+            while(lessonPicked<lessonBuildRequired){
+                String expected=WordOrderLogic.comparable(lessonBuildSlots.get(lessonPicked).token);
+                TextView found=null;
+                for(TextView tile:lessonBuildTiles){
+                    if(lessonUsedTiles.contains((Integer)tile.getTag()))continue;
+                    boolean same=WordOrderLogic.comparable(tile.getText().toString()).equals(expected);
+                    if(same==correct){found=tile;break;}
+                }
+                if(found==null){toast("Нет подходящего слова для этого теста");break;}
+                int before=lessonPicked;found.performClick();
+                if(!correct||lessonPicked==before)break;
+            }
+        }else if(phase==LessonCurriculumLogic.Phase.WRITE&&answerReview==null){
+            EditText full=root.findViewWithTag("writing-full-input");
+            if(full!=null){
+                String passage=texts(activeEntry.lines().subList(activeStep.start,activeStep.end));
+                full.setText(correct?writingExpected(passage,LessonCurriculumLogic.Variant.FULL):"ошибочный ответ");
+            }else for(int i=0;i<inlineFields.size();i++)
+                inlineFields.get(i).setText(correct?inlineExpected.get(i):"ошибка");
+        }else toast("Это действие доступно в сборке и написании.");
+    }
+
+    private List<LessonCurriculumLogic.Variant> lessonVariants(int wordCount){
+        if(developerSandbox()&&developerSpec!=null&&developerSpec.test.expanded())
+            return Arrays.asList(LessonCurriculumLogic.Variant.GAPS,LessonCurriculumLogic.Variant.ENDING,LessonCurriculumLogic.Variant.FULL);
+        return LessonCurriculumLogic.variants(wordCount);
     }
 
     private void openData(){
@@ -658,6 +763,7 @@ public final class MainActivity extends Activity {
         if(rerender&&screen==Screen.HOME&&homeIndex!=old)render();
     }
     @Override public void onBackPressed() {
+        if(developerSandbox()){finish();return;}
         if(resetInProgress||backupInProgress)return;
         if(dismissModeInfo(true))return;
         switch(screen) {
@@ -5668,13 +5774,7 @@ public final class MainActivity extends Activity {
         close.setContentDescription("Выйти из урока");
         close.setOnClickListener(v->onBackPressed());
         // SV_DEVELOPER_MODE_UPDATE_1: long-press the close icon for debugging.
-        close.setOnLongClickListener(v->{
-            final int bookId=bookForEntry(e);
-            DeveloperModeController.open(this,e,
-                chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
-                store.masteryCount(e.id));
-            return true;
-        });
+        close.setOnLongClickListener(v->{openDeveloperPanel(e);return true;});
         topRow.addView(close,new LinearLayout.LayoutParams(dp(45),dp(45)));
         if(scenicLesson){
             close.setTextColor(BUILD_INK);
@@ -5692,12 +5792,7 @@ public final class MainActivity extends Activity {
             TextView devButton=txt("DEV",12,GREEN,true);
             devButton.setGravity(Gravity.CENTER);
             devButton.setContentDescription("Открыть режим разработчика");
-            devButton.setOnClickListener(v->{
-                final int bookId=bookForEntry(e);
-                DeveloperModeController.open(this,e,
-                    chapter->bookId>0 && bible.isReady()?bible.chapter(bookId,chapter).size():0,
-                    store.masteryCount(e.id));
-            });
+            devButton.setOnClickListener(v->openDeveloperPanel(e));
             topRow.addView(devButton,new LinearLayout.LayoutParams(dp(48),dp(45)));
         }
         top.addView(topRow);
@@ -5790,11 +5885,12 @@ public final class MainActivity extends Activity {
         if(collection==null||collection.id!=activeUnifiedId||completedCollectionVerses<=0){
             screen=Screen.HOME;render();return;
         }
-        int landscape=LessonLandscapes.choose(getSharedPreferences("lesson_landscapes",MODE_PRIVATE),
+        int landscape=developerSandbox()&&developerSpec.landscape>=0&&developerSpec.landscape<LessonLandscapes.COUNT?
+            developerSpec.landscape:LessonLandscapes.choose(getSharedPreferences("lesson_landscapes",MODE_PRIVATE),
             "collection:"+collection.id,new Random());
         renderSuccessPage(collection.title,"Коллекция освоена!",
             completedCollectionVerses+" из "+completedCollectionVerses+" стихов",
-            "На главную",()->{screen=Screen.HOME;render();},landscape);
+            "На главную",()->{if(developerSandbox())finish();else{screen=Screen.HOME;render();}},landscape);
     }
 
     /** One shared success screen for a verse, a linked passage, or a collection. */
@@ -5868,6 +5964,7 @@ public final class MainActivity extends Activity {
     }
 
     private void advanceAfterSuccess(LocalStore.Entry e){
+        if(developerSandbox()){finish();return;}
         final GroupLearningLogic.Candidate pending=!reviewMode&&!groupMode?
             pendingAfterCurrent(e,activeStep.start):null;
         if(reviewMode){advanceReviewSession();}
@@ -5909,7 +6006,7 @@ public final class MainActivity extends Activity {
         List<Bible.Verse> passage=e.lines().subList(activeStep.start,activeStep.end);
         List<String> source=new ArrayList<>();
         for(Bible.Verse line:passage)source.add(line.text);
-        List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
+        List<LessonCurriculumLogic.Variant> variants=lessonVariants(
             ReviewLogic.words(texts(passage)).size());
         int buildTotal=0,buildDone=0;
         boolean assembled=phase==LessonCurriculumLogic.Phase.BUILD&&
@@ -6350,6 +6447,8 @@ public final class MainActivity extends Activity {
     /** A canonical Bible reference survives a verse appearing in multiple collections.
      * Custom text uses the entry and the active range instead of a Bible reference. */
     private int lessonLandscapeIndex(LocalStore.Entry e){
+        if(developerSandbox()&&developerSpec!=null&&developerSpec.landscape>=0&&developerSpec.landscape<LessonLandscapes.COUNT)
+            return developerSpec.landscape;
         int start=activeStep==null?0:activeStep.start;
         int end=activeStep==null?e.lines().size():activeStep.end;
         int book=bookForEntry(e);
@@ -6578,7 +6677,7 @@ public final class MainActivity extends Activity {
         lessonBuildTiles.clear();lessonBuildSlots.clear();
         List<String> src=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))src.add(v.text);
-        List<LessonCurriculumLogic.Variant> variants=LessonCurriculumLogic.variants(
+        List<LessonCurriculumLogic.Variant> variants=lessonVariants(
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         lessonVariant=Math.min(lessonVariant,variants.size()-1);
         LessonCurriculumLogic.Variant kind=variants.get(lessonVariant);
@@ -6668,7 +6767,7 @@ public final class MainActivity extends Activity {
     private void advanceLessonBuild(LocalStore.Entry e){
         List<String> source=new ArrayList<>();
         for(Bible.Verse v:e.lines().subList(activeStep.start,activeStep.end))source.add(v.text);
-        List<LessonCurriculumLogic.Variant> kinds=LessonCurriculumLogic.variants(
+        List<LessonCurriculumLogic.Variant> kinds=lessonVariants(
             ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size());
         int chunkCount=lessonChunks(source,kinds.get(Math.min(lessonVariant,kinds.size()-1))).size();
         int variants=kinds.size();
@@ -6690,7 +6789,7 @@ public final class MainActivity extends Activity {
     private List<LessonCurriculumLogic.Variant> writingVariants(String passage){
         if(reviewMode||lessonPracticeAgain||practiceWeakFragment)
             return Collections.singletonList(LessonCurriculumLogic.Variant.FULL);
-        return LessonCurriculumLogic.variants(ReviewLogic.words(passage).size());
+        return lessonVariants(ReviewLogic.words(passage).size());
     }
     private String writingExpected(String original,LessonCurriculumLogic.Variant variant){
         if(practiceWeakFragment)return weakFragmentText;
@@ -7094,7 +7193,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             practiceWeakFragment=false;weakFragmentText="";inlineDrafts=new String[0];draft="";lessonWriteHadFeedback=false;
-            lessonWriteVariant=LessonCurriculumLogic.variants(
+            lessonWriteVariant=lessonVariants(
                 ReviewLogic.words(texts(e.lines().subList(activeStep.start,activeStep.end))).size()).size()-1;
             if(reviewMode)lessonWriteVariant=0;
             saveTrainingSession();render();
@@ -8252,7 +8351,7 @@ public final class MainActivity extends Activity {
         assemblyMotion.settleAll();
         cancelWritingCheck();
         writingExecutor.shutdownNow();
-        BackupCoordinator.detach(this);
+        if(!developerSandbox())BackupCoordinator.detach(this);
         if(bibleStartup!=null)bibleStartup.cancel(false);
         if(backupDialog!=null)backupDialog.dismiss();
         tabWarmGeneration++;
