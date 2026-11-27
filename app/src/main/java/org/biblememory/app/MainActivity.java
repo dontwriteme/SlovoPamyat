@@ -7521,44 +7521,53 @@ public class MainActivity extends Activity {
         count.setGravity(Gravity.CENTER);
         add(parent,count,10);
         View track=new View(this){
-            private final Paint pen=new Paint();
-            private void band(Canvas c,float left,float top,float right,float bottom,int color){
-                if(right<=left||bottom<=top)return;
-                pen.setColor(color);
-                c.drawRect(left,top,right,bottom,pen);
+            private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+            private final Path trackClip=new Path();
+            private LinearGradient fillGradient;
+            @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){
+                super.onSizeChanged(w,h,oldw,oldh);
+                if(w>0&&h>0)
+                    fillGradient=new LinearGradient(0,0,0,h,0xFFA7C77E,0xFF689247,Shader.TileMode.CLAMP);
             }
             @Override protected void onDraw(Canvas canvas){
                 super.onDraw(canvas);
-                int w=getWidth(),h=getHeight();
-                if(w<4||h<4)return;
-                int edge=Math.max(1,dp(1));
+                float w=getWidth(),h=getHeight();
+                float edge=Math.max(1,dp(1));
+                if(w<=2*edge||h<=2*edge)return;
+                float radius=Math.min(dp(4.5f),h/2f);
                 float left=edge,right=w-edge,top=edge,bottom=h-edge;
-                if(right<=left||bottom<=top)return;
-                float inner=bottom-top;
-                // Pixel-like bevel and recessed dark track, inspired by classic XP HUDs.
-                band(canvas,0,0,w,h,0xFF171F18);
-                band(canvas,left,top,right,bottom,0xFF34453A);
-                band(canvas,left,top,right,top+edge,0xFF647566);
-                band(canvas,left,bottom-edge,right,bottom,0xFF202D24);
+                float innerRadius=Math.max(0,radius-edge);
+                // Soft olive outline and warm, pale track match the landscape palette.
+                pen.setShader(null);
+                pen.setColor(0xFFADB59B);
+                canvas.drawRoundRect(0,0,w,h,radius,radius,pen);
+                pen.setColor(0xFFE4E5D5);
+                canvas.drawRoundRect(left,top,right,bottom,innerRadius,innerRadius,pen);
+                trackClip.reset();
+                trackClip.addRoundRect(left,top,right,bottom,innerRadius,innerRadius,Path.Direction.CW);
+                int saved=canvas.save();
+                canvas.clipPath(trackClip);
                 float fraction=total>0?(float)completed/total:0f;
-                float fill=left+Math.round((right-left)*fraction);
+                float fill=left+(right-left)*fraction;
                 if(fill>left){
-                    band(canvas,left,top,fill,bottom,0xFF689C33);
-                    band(canvas,left,top,fill,top+edge,0xFFA4D95A);
-                    band(canvas,left,top+edge,fill,top+inner*0.55f,0xFF8BC549);
-                    band(canvas,left,bottom-edge,fill,bottom,0xFF3B6426);
+                    pen.setColor(0xFF689247);
+                    pen.setShader(fillGradient);
+                    canvas.drawRect(left,top,fill,bottom,pen);
+                    pen.setShader(null);
                 }
-                // Fixed visual divisions, not rounded individual pills. The fill
-                // remains proportional even when only part of a segment is earned.
+                // Subtle divisions retain the XP-bar character without dark pixel borders.
+                pen.setColor(0x40526C3D);
+                float dividerWidth=Math.max(1,dp(0.6f));
                 for(int segment=1;segment<18;segment++){
-                    int x=Math.round(left+(right-left)*segment/18f);
-                    band(canvas,x,top,x+edge,bottom,x<fill?0xFF46732B:0xFF233229);
+                    float x=left+(right-left)*segment/18f;
+                    canvas.drawRect(x,top,x+dividerWidth,bottom,pen);
                 }
+                canvas.restoreToCount(saved);
             }
         };
         track.setTag("home-collection-progress-track");
         track.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(9));
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(10));
         params.topMargin=dp(5);
         parent.addView(track,params);
     }
