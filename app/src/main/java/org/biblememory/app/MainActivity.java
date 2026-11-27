@@ -7516,7 +7516,7 @@ public class MainActivity extends Activity {
     /** Home-only XP-style progress; other exercises keep their existing indicators. */
     private void homeCollectionProgress(LinearLayout parent,int learned,int total){
         int completed=Math.max(0,Math.min(learned,total));
-        TextView count=txt(completed+" из "+Math.max(0,total),14,0xFF405638,true);
+        TextView count=txt(completed+" из "+Math.max(0,total)+" стихов",14,0xFF405638,true);
         count.setTag("home-collection-progress-count");
         count.setGravity(Gravity.CENTER);
         add(parent,count,10);
