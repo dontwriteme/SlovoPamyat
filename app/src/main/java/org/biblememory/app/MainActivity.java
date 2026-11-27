@@ -7023,7 +7023,7 @@ public class MainActivity extends Activity {
         return Math.max(dp(28),(int)Math.ceil(android.text.Layout.getDesiredWidth(expected,word.getPaint()))+dp(10));
     }
 
-    private void addVerseToken(VerseFlowLayout flow,String[] tokens,int i,TextView word,boolean blank){
+    private void addVerseToken(VerseFlowLayout flow,String[] tokens,int i,View word,boolean blank){
         String token=tokens[i];
         boolean join=VerseFlowLayout.keepWithPrevious(tokens,i);
         boolean tight=VerseFlowLayout.tightBefore(tokens,i);
