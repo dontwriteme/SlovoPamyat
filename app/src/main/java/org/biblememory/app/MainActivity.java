@@ -7505,8 +7505,6 @@ public class MainActivity extends Activity {
                 if(snapshot.exerciseDone(e.id,i)>=5)learned++;
             }
         }
-        addHelpLabel(panel,txt(verses+" стихов · "+learned+" предварительно освоено",12,MUTED,false),
-            LearningHelp.PROGRESS,8);
         homeCollectionProgress(panel,learned,verses);
         unifiedModeRow(panel,LearningHelp.STUDY,"mode-book",this::startActiveStudy);
         unifiedModeRow(panel,LearningHelp.CARDS,"mode-cards",this::startActiveCards);
@@ -7521,7 +7519,7 @@ public class MainActivity extends Activity {
         TextView count=txt(completed+" из "+Math.max(0,total),14,0xFF405638,true);
         count.setTag("home-collection-progress-count");
         count.setGravity(Gravity.CENTER);
-        add(parent,count,2);
+        add(parent,count,10);
         View track=new View(this){
             private final Paint pen=new Paint();
             private void band(Canvas c,float left,float top,float right,float bottom,int color){
