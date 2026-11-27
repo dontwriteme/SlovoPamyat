@@ -5708,10 +5708,11 @@ public final class MainActivity extends Activity {
         content=column();content.setPadding(dp(20),dp(11),dp(20),dp(18));scroll.addView(content);
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         TextView mainAction;
+        TextView introHideAction=null;
         int number=stepCursor+1;
         if(phase==LessonCurriculumLogic.Phase.INTRO){
             assemblyReference(e);
-            renderLessonIntro();
+            introHideAction=renderLessonIntro(scroll);
             mainAction=button("Продолжить",true,()->{
                 if(groupMode)groupIntroDone=true;
                 else store.finishExercise(e.id,activeStep.start,1);
@@ -5747,9 +5748,20 @@ public final class MainActivity extends Activity {
         }
         renderLessonHotbar(top,phase,e);
         LinearLayout footer=column();footer.setPadding(dp(24),dp(12),dp(24),dp(22));
+        if(introHideAction!=null){
+            footer.setTag("lesson-intro-footer");
+            footer.setBackgroundColor(0xFFF8EDE0);
+            footer.setPadding(dp(24),dp(9),dp(24),dp(18));
+            View separator=new View(this);
+            separator.setBackgroundColor(0xFFD4C6B6);
+            root.addView(separator,new LinearLayout.LayoutParams(-1,dp(1)));
+            footer.addView(introHideAction,new LinearLayout.LayoutParams(-1,-2));
+        }
         animateLessonPress(mainAction);
         mainAction.setMinimumHeight(dp(58));
-        footer.addView(mainAction,new LinearLayout.LayoutParams(-1,scenicLesson||answerReview!=null?-2:dp(58)));
+        LinearLayout.LayoutParams mainParams=new LinearLayout.LayoutParams(-1,scenicLesson||answerReview!=null?-2:dp(58));
+        if(introHideAction!=null)mainParams.topMargin=dp(8);
+        footer.addView(mainAction,mainParams);
         root.addView(footer,new LinearLayout.LayoutParams(-1,-2));
         if(writingInput)KeyboardAwareFooter.bind(root,footer);
         setContentView(root);
@@ -6040,7 +6052,7 @@ public final class MainActivity extends Activity {
         add(content,cite,17);
     }
 
-    private void renderLessonIntro(){
+    private TextView renderLessonIntro(ScrollView scroll){
         activeTextArea=content;
         LinearLayout panel=column();
         panel.setTag("lesson-intro-panel");
@@ -6074,6 +6086,7 @@ public final class MainActivity extends Activity {
         hide.setCompoundDrawablePadding(dp(8));
         setIntroHideIcon(hide);
         hide.setOnClickListener(v->{
+            final int position=scroll.getScrollY();
             mask=mask>=100?0:mask+25;
             trainingMode=mask>0?TrainingMode.HIDE:TrainingMode.READ;
             updateBlurText();
@@ -6081,11 +6094,18 @@ public final class MainActivity extends Activity {
             refreshLessonPhaseProgress(LessonCurriculumLogic.Phase.INTRO,activeEntry);
             hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
             setIntroHideIcon(hide);
+            // Same passage and scroll view; preserve the reading position after
+            // the mask's text spans have been measured again.
+            scroll.scrollTo(0,position);
+            scroll.post(()->{
+                if(currentScroller==scroll&&scroll.isAttachedToWindow()&&
+                    scroll.getScrollY()!=position)scroll.scrollTo(0,position);
+            });
             saveTrainingSession();
         });
         animateLessonPress(hide);
-        add(content,hide,16);
-        // The reserved hint height keeps this button stationary throughout the mask cycle.
+        // The caller places this action outside the scrolling passage.
+        return hide;
     }
 
     /** Full-width touch target, but the label and eye form one centered group. */
