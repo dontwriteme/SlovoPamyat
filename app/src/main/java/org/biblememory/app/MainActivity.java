@@ -7492,7 +7492,6 @@ public class MainActivity extends Activity {
         chooser.setContentDescription("Выбранная коллекция: "+active.title+". Нажми, чтобы сменить.");
         chooser.setClickable(true);chooser.setFocusable(true);
         chooser.setOnClickListener(v->showUnifiedSelector());
-        add(panel,chooser,0);
         int verses=0,learned=0;
         CollectionProgressSnapshot snapshot=store.collectionProgress();
         Set<List<String>> seenVerses=new HashSet<>();
@@ -7506,6 +7505,7 @@ public class MainActivity extends Activity {
             }
         }
         homeCollectionProgress(panel,learned,verses);
+        add(panel,chooser,14);
         unifiedModeRow(panel,LearningHelp.STUDY,"mode-book",this::startActiveStudy);
         unifiedModeRow(panel,LearningHelp.CARDS,"mode-cards",this::startActiveCards);
         unifiedModeRow(panel,LearningHelp.REVIEW,"mode-brain",()->startActiveReview(false));
@@ -7519,7 +7519,7 @@ public class MainActivity extends Activity {
         TextView count=txt(completed+" из "+Math.max(0,total)+" стихов",14,0xFF405638,true);
         count.setTag("home-collection-progress-count");
         count.setGravity(Gravity.CENTER);
-        add(parent,count,10);
+        add(parent,count,0);
         View track=new View(this){
             private final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
             private final Path trackClip=new Path();
