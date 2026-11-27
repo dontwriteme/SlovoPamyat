@@ -5953,7 +5953,7 @@ public class MainActivity extends Activity {
             TextView dev=txt("DEV · Другой тест",12,BUILD_INK,true);
             dev.setGravity(Gravity.CENTER);
             dev.setOnClickListener(v->DeveloperLessonLab.open(this,store.entry(selectedEntry)));
-            central.addView(dev,new LinearLayout.LayoutParams(-1,dp(40)),0);
+            central.addView(dev,0,new LinearLayout.LayoutParams(-1,dp(40)));
         }
         heading.setGravity(Gravity.CENTER);
         heading.setTextColor(0xFF35452E);
