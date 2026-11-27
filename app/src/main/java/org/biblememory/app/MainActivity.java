@@ -131,9 +131,9 @@ public class MainActivity extends Activity {
     private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
     private final AssemblyWordMotion assemblyMotion=new AssemblyWordMotion();
     private static final int BUILD_INK=0xFF553722;
-    private static final int INTRO_HIDE_FILL=0xFFC1CEB3;
-    private static final int INTRO_HIDE_INK=0xFF344B32;
-    private static final int INTRO_HIDE_BORDER=0xFF75876A;
+    private static final int INTRO_HIDE_FILL=0xFFFFEBD5;
+    private static final int INTRO_HIDE_INK=0xFF553722;
+    private static final int INTRO_HIDE_BORDER=0xFFA47B55;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
     private int lessonBuildRequired=0;
     // Cache one active passage's variant-specific fragments. Esther 8:9 is long:
@@ -6213,7 +6213,9 @@ public class MainActivity extends Activity {
         hide.setTypeface(Typeface.create("serif",Typeface.BOLD));
         hide.setTextSize(17);
         hide.setMinHeight(dp(54));
-        hide.setBackground(outlined(INTRO_HIDE_FILL,24,INTRO_HIDE_BORDER));
+        GradientDrawable hideBackground=shape(INTRO_HIDE_FILL,24);
+        hideBackground.setStroke(dp(2),INTRO_HIDE_BORDER);
+        hide.setBackground(hideBackground);
         hide.setElevation(dp(4));
         hide.setCompoundDrawablePadding(dp(8));
         setIntroHideIcon(hide);
