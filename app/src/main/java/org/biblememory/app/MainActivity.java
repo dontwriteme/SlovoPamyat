@@ -131,6 +131,9 @@ public class MainActivity extends Activity {
     private final List<BuildSlot> lessonBuildSlots=new ArrayList<>();
     private final AssemblyWordMotion assemblyMotion=new AssemblyWordMotion();
     private static final int BUILD_INK=0xFF553722;
+    private static final int INTRO_HIDE_FILL=0xFFC1CEB3;
+    private static final int INTRO_HIDE_INK=0xFF344B32;
+    private static final int INTRO_HIDE_BORDER=0xFF75876A;
     private final List<TextView> lessonBuildTiles=new ArrayList<>();
     private int lessonBuildRequired=0;
     // Cache one active passage's variant-specific fragments. Esther 8:9 is long:
@@ -3726,29 +3729,6 @@ public class MainActivity extends Activity {
         }
         homeVerseHero(homeIndex,Bible.NAMES[vr[0]-1]+" "+vr[1]+":"+vr[2],verseText);
         renderUnifiedHomePanel();
-        if(DeveloperModeController.isEnabled(this)){
-            TextView lab=button("DEV · Тесты обучения",true,this::openDeveloperLabFromHome);
-            lab.setTag("developer-home-lab");
-            add(content,lab,12);
-        }
-    }
-
-    private void openDeveloperLabFromHome(){
-        if(!DeveloperModeController.isEnabled(this))return;
-        LocalStore.UnifiedCollection u=activeUnified();
-        if(u!=null){
-            List<LocalStore.Entry> entries=store.entries(u.groupId);
-            if(!entries.isEmpty()){DeveloperLessonLab.open(this,entries.get(0));return;}
-        }
-        if(!bible.isReady()){toast("Библия ещё загружается");return;}
-        LocalStore.Entry sample=new LocalStore.Entry();
-        sample.id=0;sample.title=Bible.NAMES[47]+" 1";sample.reference=sample.title;
-        JSONArray lines=new JSONArray();
-        try{for(Bible.Verse line:bible.chapter(48,1))
-            lines.put(new JSONObject().put("ref",line.ref).put("text",line.text));
-        }catch(JSONException failure){throw new IllegalStateException(failure);}
-        sample.linesJson=lines.toString();
-        DeveloperLessonLab.open(this,sample);
     }
 
     private final class ChevronView extends View{
@@ -6229,12 +6209,12 @@ public class MainActivity extends Activity {
         TextView hide=new IntroHideButton();
         hide.setText(mask==100?"Показать все слова":"Скрыть "+(mask+25)+"% слов");
         hide.setTag("lesson-intro-hide");
-        hide.setTextColor(BUILD_INK);
+        hide.setTextColor(INTRO_HIDE_INK);
         hide.setTypeface(Typeface.create("serif",Typeface.BOLD));
         hide.setTextSize(17);
         hide.setMinHeight(dp(54));
-        hide.setBackground(outlined(0xFFFFEBD5,24,0xFFFFF8EF));
-        hide.setElevation(dp(2));
+        hide.setBackground(outlined(INTRO_HIDE_FILL,24,INTRO_HIDE_BORDER));
+        hide.setElevation(dp(4));
         hide.setCompoundDrawablePadding(dp(8));
         setIntroHideIcon(hide);
         hide.setOnClickListener(v->{
@@ -6296,7 +6276,7 @@ public class MainActivity extends Activity {
                 canvas.save();
                 canvas.translate(b.exactCenterX(),b.exactCenterY());
                 canvas.scale(b.width()/24f,b.height()/24f);
-                pen.setColor(BUILD_INK);
+                pen.setColor(INTRO_HIDE_INK);
                 pen.setStyle(Paint.Style.STROKE);
                 pen.setStrokeWidth(1.7f);
                 pen.setStrokeCap(Paint.Cap.ROUND);
@@ -6309,10 +6289,10 @@ public class MainActivity extends Activity {
                 canvas.drawPath(outline,pen);
                 canvas.drawCircle(0,0,3,pen);
                 if(!showAll){
-                    pen.setColor(0xFFFFEBD5);
+                    pen.setColor(INTRO_HIDE_FILL);
                     pen.setStrokeWidth(4f);
                     canvas.drawLine(-9,-9,9,9,pen);
-                    pen.setColor(BUILD_INK);
+                    pen.setColor(INTRO_HIDE_INK);
                     pen.setStrokeWidth(1.7f);
                     canvas.drawLine(-9,-9,9,9,pen);
                 }
